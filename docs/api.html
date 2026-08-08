@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>API Reference — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a class="here" href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>API Reference</h2>
+<p>There are four ways to use sqtseries: the <strong>embedded</strong> Python
+API (in-process), the <strong>Client</strong> (remote), the <strong>CLI</strong>,
+and the <strong>wire protocol</strong> (ZMQ + HTTP). This page lists them all;
+if you are new, the <a href="quickstart.html">Quick Start</a> is a gentler
+entry point.</p>
+
+<div class="note">
+  <strong>Time units at a glance.</strong> Embedded API: nanoseconds
+  everywhere. ZMQ wire: ingest timestamps <em>seconds</em>; query
+  <code>start</code>/<code>end</code> <em>nanoseconds</em>. HTTP gateway:
+  <code>start</code>/<code>end</code> <em>seconds</em>. Query results are
+  always <em>seconds</em>.
+</div>
+
+<h3>1. Embedded Python API (in-process)</h3>
+<p>sqtseries is embeddable: run the engine directly inside your own Python
+process, with no network involved. All timestamps here are
+<em>nanoseconds</em>.</p>
+<pre><code>from sqtseries.engine import (
+    create_sqlite_engine,
+    initialize_schema,
+    run_migrations,
+    StorageEngine,
+)
+from sqtseries.query import TimeSeriesDB
+
+engine = create_sqlite_engine("~/.sqtseries/data/db.sqlite")
+initialize_schema(engine)
+run_migrations(engine)
+ts = TimeSeriesDB(StorageEngine(engine))
+
+# write (server-side timestamp by default; or pass timestamp_ns)
+ts.insert("cpu.usage", 0.72, {"host": "web1"})
+ts.insert("cpu.usage", 0.65, {"host": "web1"}, timestamp_ns=1720000000000000000)
+
+# query -> [(timestamp_ns, value), ...]
+rows = ts.query("cpu.usage", start=..., end=...,
+                aggregation="avg", interval="15m", limit=100, order="asc")
+# aggregation only -> one value over the window
+one = ts.query("cpu.usage", aggregation="max")
+
+# whole-window aggregations -> {func: value}
+stats = ts.aggregate("cpu.usage", funcs=["avg", "min", "max", "p95"])
+
+# convenience downsample (default interval 5m)
+series = ts.downsample("cpu.usage", start=..., end=..., interval="5m", aggregation="avg")
+
+# query by series_id (fastest path to isolate one host) and gap filling
+sids = ts.store.series_ids_for_metric("cpu.usage")
+rows = ts.query(series_ids=[sids[0]], start=..., end=...)
+filled = ts.query("cpu.usage", start=..., end=..., fill_gaps_ns=60 * 10 ** 9)
+
+# stream large results in bounded memory
+for ts_ns, value in ts.query_stream("cpu.usage", start=..., end=...):
+    process(ts_ns, value)
+
+# maintenance / admin
+from sqtseries.engine import run_optimize, backup_database, quick_check, wal_checkpoint
+run_optimize(engine)
+path = backup_database(engine, "~/.sqtseries/backups")
+status = quick_check(engine)
+wal_checkpoint(engine, "TRUNCATE")
+</code></pre>
+
+<h3>2. Python Client (remote)</h3>
+<p>Connect to a <em>running</em> service. Default host 127.0.0.1 and ports
+<code>{"write": 12501, "query": 12502, "subscribe": 12503, "admin": 12504}</code>;
+override with <code>Client(host=..., ports={...})</code> (the dict is merged
+over the defaults).</p>
+<pre><code>from sqtseries import Client
+
+c = Client()
+
+c.write("cpu.usage", 0.72, {"host": "web1"})      # timestamp: epoch SECONDS
+c.write_many([{"metric": "cpu.usage", "value": 1.0},
+              {"metric": "mem.usage", "value": 512.0, "tags": {"host": "web1"}}])
+
+# query start/end: epoch NANOSECONDS; rows are [{timestamp_seconds, value}]
+import time
+now_ns = time.time_ns()
+rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns,
+               aggregation="avg", interval="15m", limit=100, order="desc")
+
+stats = c.aggregate("cpu.usage", funcs=["avg", "max", "p95"])   # {func: value}
+
+for payload in c.subscribe("cpu."):     # yields dicts, or None when idle
+    if payload is not None:
+        print(payload)
+
+c.admin("stats")                         # see §5 Admin
+c.close()                                # idempotent; `with Client() as c:` works too
+</code></pre>
+<p><code>ClientError</code> is raised when a query, aggregate, or admin
+command receives an error reply (the server's message is attached), or when
+no reply arrives within the client's 30-second receive timeout
+(<code>zmq.RCVTIMEO</code>).</p>
+
+<h3>3. CLI Reference</h3>
+<p>Global options come <em>before</em> the subcommand:
+<code>--config PATH</code> (TOML/YAML/JSON),
+<code>--db PATH</code> (database file override — wins over config and env),
+<code>--version</code> (show version and exit).</p>
+<p>Serve the service with your own config (own ports, own database); the
+same command works via <code>python3 -m</code>, which the scripts and
+systemd unit use:</p>
+<pre><code>sqtseries --config config.toml run
+python3 -m sqtseries --config config.toml run
+sqtseries --config config.toml --db /var/lib/tsdb.sqlite run
+sqtseries --config config.toml install     # systemd runs that same config
+</code></pre>
+<p><code>run</code> and <code>stop</code> refuse to act when the resolved
+database conflicts with a live instance's (see
+<a href="configuration.html">Configuration</a>, "Choosing a database").</p>
+<h4>Service</h4>
+<pre><code>sqtseries run              # start service (foreground)
+sqtseries stop             # SIGTERM to the running service (via runtime file)
+sqtseries status           # pid, version, db, ports
+sqtseries ports            # active ports (or configured when not running)
+sqtseries health           # database integrity probe; exit 0 = healthy
+</code></pre>
+<h4>Database maintenance</h4>
+<pre><code>sqtseries stats            # metric + series counts
+sqtseries vacuum           # shrink the file (run while the service is stopped)
+sqtseries optimize         # refresh query-planner statistics
+sqtseries backup           # consistent snapshot via VACUUM INTO
+                           #   (see backup.html: restore + vacuum guide)
+</code></pre>
+<h4>Systemd</h4>
+<pre><code>sqtseries install          # write + enable --now (user unit)
+sqtseries install --system # system unit (root)
+sqtseries uninstall        # disable + remove the unit
+</code></pre>
+
+<h3>4. Wire protocol (ZMQ)</h3>
+<h4>Ingest — PUSH 12501</h4>
+<pre><code>{"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72, "timestamp": 1720000000.1}
+</code></pre>
+<p>Fire-and-forget, one frame per measurement, no reply and no ZMQ-level
+batching. <code>timestamp</code> is optional epoch <em>seconds</em> (float
+allowed); skewed timestamps are rejected (default ±300s — dropped and counted
+as <code>invalid</code> on this path). The ingest port is auto-detected if
+12501 is busy (first free port in 12500–12700).</p>
+
+<h4>Query — REQ 12502</h4>
+<pre><code>→ {"type": "query", "metric": "cpu.usage",
+   "start": 1720000000000000000, "end": 1720003600000000000,
+   "aggregation": "avg", "interval": "15m", "limit": 100, "order": "asc"}
+← {"status": "ok", "data": [{"timestamp": 1720000000.0, "value": 0.72}]}
+</code></pre>
+<p>Or whole-window multi-func (comma-separated <code>aggregations</code> —
+note the plural key; the reply's <code>data</code> becomes a dict):
+<code>{"type": "query", "metric": "cpu.usage", "aggregations": "avg,min,max,p95"}</code>
+→ <code>{"status": "ok", "data": {"avg": 0.71, ...}}</code>.
+<code>start</code>/<code>end</code> are epoch <em>nanoseconds</em>, inclusive;
+omitting them queries all time.</p>
+
+<h3>5. Admin — REQ 12504 <span id="admin"></span></h3>
+<p>Send <code>{"cmd": "..."}</code> to the admin socket (ZMQ REP, port 12504).
+Errors use the standard error shape
+<code>{"status":"error","error":{"code":...,"message":...}}</code>.</p>
+<div class="note">
+  <strong>Heavy commands pause the service briefly.</strong> Admin handlers
+  run synchronously in the single worker loop, so a large
+  <code>backup</code> or <code>vacuum</code> blocks ingestion and queries
+  for its duration. For anything beyond a quick tidy, use the offline CLI
+  (<code>sqtseries backup</code> / <code>sqtseries vacuum</code>) instead —
+  see <a href="backup.html">Backup &amp; Restore</a>.</div>
+<div class="table-wrap"><table>
+  <tr><th>Command</th><th>Request</th><th>Reply</th></tr>
+  <tr><td><code>ping</code></td>
+      <td><code>{"cmd":"ping"}</code></td>
+      <td><code>{"status":"ok","pong":true}</code></td></tr>
+  <tr><td><code>health</code></td>
+      <td><code>{"cmd":"health"}</code></td>
+      <td><code>{"status":"ok","version":"0.1.0","uptime":123,"database":true}</code>
+          (<code>status</code> is <code>"degraded"</code> and
+          <code>database</code> <code>false</code> when the DB integrity
+          probe fails; <code>uptime</code> is integer seconds)</td></tr>
+  <tr><td><code>stats</code></td>
+      <td><code>{"cmd":"stats"}</code></td>
+      <td><code>{"status":"ok","uptime_s":...,"ingested":...,"invalid":...,"ingest_errors":...,"queries":...,"admin_requests":...,"published":...,"subscribers":...,"series":...,"metrics":...,"wal_bytes":...,"checkpoint_busy_runs":...,"checkpoints":...,"analyze_runs":...,"retention_runs":...,"partitions_dropped":...,"backup_runs":...,"backups_created":...,"last_backup":...}</code>
+          (<code>uptime_s</code> in seconds; counters reset on restart;
+          <code>backup_runs</code>/<code>backups_created</code> appear when
+          the scheduled backup task is enabled; <code>last_backup</code>
+          appears only after the first snapshot succeeds)</td></tr>
+  <tr><td><code>connections</code></td>
+      <td><code>{"cmd":"connections"}</code></td>
+      <td><code>{"status":"ok","data":[{id,kind,peer,topic,connected_at}]}</code>
+          — active WebSocket connections, oldest first</td></tr>
+  <tr><td><code>conncheck</code></td>
+      <td><code>{"cmd":"conncheck","ids":["id1","id2"]}</code></td>
+      <td><code>{"status":"ok","present":["id1"]}</code> — which ids are still connected</td></tr>
+  <tr><td><code>subscribers</code></td>
+      <td><code>{"cmd":"subscribers"}</code></td>
+      <td><code>{"status":"ok","zmq_subscribers":N,"subscriptions":[{"topic":"cpu.","subscribers":2}]}</code></td></tr>
+  <tr><td><code>optimize</code></td>
+      <td><code>{"cmd":"optimize"}</code></td>
+      <td><code>{"status":"ok","optimized":true}</code> (refresh query-planner statistics)</td></tr>
+  <tr><td><code>backup</code></td>
+      <td><code>{"cmd":"backup"}</code></td>
+      <td><code>{"status":"ok","path":"/…/sqtseries-YYYYMMDD-HHMMSS.db"}</code>
+          (consistent <code>VACUUM INTO</code> snapshot in <code>backup.path</code>;
+          failure → <code>BACKUP_FAILED</code>)</td></tr>
+  <tr><td><code>vacuum</code></td>
+      <td><code>{"cmd":"vacuum"}</code></td>
+      <td><code>{"status":"ok","vacuumed":true}</code>, or
+          <code>VACUUM_BUSY</code> while running — stop the service and use
+          <code>sqtseries vacuum</code></td></tr>
+</table></div>
+<p>An unknown or malformed command is answered with
+<code>INVALID_REQUEST</code>:
+<code>{"status":"error","error":{"code":"INVALID_REQUEST","message":"unknown admin command: foo"}}</code>.</p>
+<pre><code>import zmq, orjson
+ctx = zmq.Context()
+s = ctx.socket(zmq.REQ)
+s.setsockopt(zmq.RCVTIMEO, 30000)
+s.connect("tcp://127.0.0.1:12504")
+s.send(orjson.dumps({"cmd": "stats"}))
+print(orjson.loads(s.recv()))
+</code></pre>
+
+<h3>5b. Stats PUB socket — 12506 <span id="stats"></span></h3>
+<p>sqtseries emits connection and subscription events on a separate ZMQ PUB
+socket (port 12506). Any ZMQ SUB client can subscribe to receive them in
+real time, using prefix filters or subscribing to all events with
+<code>b""</code>:</p>
+<div class="table-wrap"><table>
+  <tr><th>Event type</th><th>Fields</th><th>When</th></tr>
+  <tr><td><code>conn</code></td>
+      <td>connect: <code>id</code>, <code>kind</code> (<code>"ws"</code>), <code>peer</code>, <code>topic</code>, <code>connected_at</code>, <code>connected: true</code>, <code>ttl</code> (60)<br>
+          disconnect: <code>id</code>, <code>kind</code>, <code>peer</code>, <code>topic</code>, <code>connected: false</code></td>
+      <td>A WebSocket client connects or disconnects</td></tr>
+  <tr><td><code>sub</code></td>
+      <td>join: <code>kind</code> (<code>"zmq"</code>), <code>topic</code>, <code>subscribers</code>, <code>ttl</code> (30)<br>
+          leave: <code>kind</code>, <code>topic</code>, <code>subscribers</code> (no <code>ttl</code>)</td>
+      <td>A ZMQ SUB subscriber joins or leaves a topic</td></tr>
+  <tr><td><code>report</code></td>
+      <td><code>uptime_s</code>, <code>ws_connections</code>, <code>zmq_subscribers</code>, <code>active_topics</code></td>
+      <td>Every 10 seconds</td></tr>
+</table></div>
+<pre><code>import zmq, json
+
+ctx = zmq.Context()
+sub = ctx.socket(zmq.SUB)
+sub.connect("tcp://127.0.0.1:12506")
+sub.setsockopt(zmq.SUBSCRIBE, b"conn")  # or b"" for all events
+
+while True:
+    event_type, payload = sub.recv_multipart()
+    data = json.loads(payload)
+    print(f"{event_type.decode()}: {data}")
+</code></pre>
+
+<h3>6. HTTP API <span id="http"></span></h3>
+<div class="table-wrap"><table>
+  <tr><th>Method + Path</th><th>Params / Body</th><th>Returns</th></tr>
+  <tr><td><code>POST /api/v1/write</code></td>
+      <td>JSON object <em>or array</em> of measurements (timestamp in seconds).
+          A batch is validated whole — one bad item rejects the whole request.
+          The same clock-skew guard as the ZMQ path applies: timestamps more
+          than <code>ingestion.reject_client_timestamp_skew_s</code> (default
+          300s) from the server clock are rejected with 400.</td>
+      <td><code>{"status":"ok","written":N}</code>; 400 on invalid rows</td></tr>
+  <tr><td><code>GET /api/v1/read</code></td>
+      <td><code>metric</code> (req), <code>start</code>, <code>end</code> (seconds),
+          <code>aggregation</code>, <code>interval</code>, <code>limit</code> (1–100000),
+          <code>order</code> (asc|desc)</td>
+      <td><code>{"status":"ok","data":[{timestamp,value}]}</code></td></tr>
+  <tr><td><code>GET /api/v1/aggregate</code></td>
+      <td><code>metric</code> (req), <code>start</code>, <code>end</code> (seconds),
+          <code>funcs</code> (comma list, default <code>avg</code>)</td>
+      <td><code>{"status":"ok","aggregations":{func:value}}</code></td></tr>
+  <tr><td><code>GET /api/v1/stats</code></td>
+      <td>—</td>
+      <td><code>{"status":"ok","metrics":N,"series":M}</code></td></tr>
+  <tr><td><code>GET /api/v1/health</code></td>
+      <td>—</td>
+      <td><code>{"status":"ok","version":"0.1.0"}</code> when the SQLite database passes <code>quick_check</code>; <code>{"status":"degraded","version":"0.1.0"}</code> otherwise. This is a live DB probe, not just a port check.</td></tr>
+  <tr><td><code>WS /ws/subscribe?metric=PREFIX</code></td>
+      <td>single topic prefix; <code>*</code> or omitted for all. Not a comma-separated list. Path is <code>/ws/subscribe</code>, not under <code>/api/v1</code>.</td>
+      <td>streams <code>{metric,tags,value}</code> (no timestamp); <code>{"type":"ping"}</code> keepalives every ~30s of idle; close code 1008 "streaming disabled" if the pubsub bus is off</td></tr>
+</table></div>
+<p>Every response carries an <code>X-Request-ID</code> header (echoed from the
+request, or a fresh one). The gateway is rate-limited per client peer
+(default 600 requests/minute, <code>http.rate_limit_per_minute</code>) and
+CORS-enabled (<code>http.cors_origins</code>, default <code>*</code>). The
+rate limiter deliberately ignores the <code>X-Forwarded-For</code> header
+(it is client-supplied and spoofable), so all clients behind a reverse
+proxy share the proxy's limit — size the limit accordingly.</p>
+
+<h3>7. Error codes <span id="errors"></span></h3>
+<p>Error replies share the shape
+<code>{"status":"error","error":{"code":...,"message":...}}</code>.
+The table below lists every error the wire can produce.</p>
+<div class="table-wrap"><table>
+  <tr><th>Code / Status</th><th>Where</th><th>When</th><th>Message (example)</th></tr>
+  <tr><td><code>INVALID_REQUEST</code></td><td>ZMQ query</td><td>JSON parse failure</td><td><code>invalid JSON: ...</code></td></tr>
+  <tr><td><code>INTERNAL_ERROR</code></td><td>ZMQ query</td><td>Request is not an object (the broker calls the handler directly; non-objects crash the parser)</td><td><code>'str' object has no attribute 'get'</code></td></tr>
+  <tr><td><code>INVALID_QUERY</code></td><td>ZMQ query</td><td>Missing <code>metric</code> and <code>series_ids</code></td><td><code>either metric or series_ids required</code></td></tr>
+  <tr><td><code>INVALID_QUERY</code></td><td>ZMQ query</td><td><code>start</code>/<code>end</code> not numeric</td><td><code>'&lt;' not supported between instances of 'int' and 'str'</code></td></tr>
+  <tr><td><code>INVALID_REQUEST</code></td><td>ZMQ admin</td><td>Message is not an object</td><td><code>admin message must be an object</code></td></tr>
+  <tr><td><code>INVALID_REQUEST</code></td><td>ZMQ admin</td><td>Missing / empty / non-string <code>cmd</code></td><td><code>admin cmd must be a non-empty string</code></td></tr>
+  <tr><td><code>INVALID_REQUEST</code></td><td>ZMQ admin</td><td>Unknown command</td><td><code>unknown admin command: foo</code></td></tr>
+  <tr><td><code>INVALID_QUERY</code></td><td>ZMQ query</td><td>Engine rejects the query (unknown aggregation, bad interval, overflow)</td><td><code>unsupported aggregation: bogus</code>, <code>unsupported interval: 5x</code>, <code>interval must be &gt;= 1: 0m</code></td></tr>
+  <tr><td><code>QUERY_TIMEOUT</code></td><td>ZMQ query</td><td>Query exceeded <code>query.timeout_s</code> (default 30s; server-side budget)</td><td><code>query exceeded 30.0s</code></td></tr>
+  <tr><td><code>INTERNAL_ERROR</code></td><td>ZMQ query</td><td>Unexpected server error (also logged)</td><td>exception text</td></tr>
+  <tr><td><code>NOT_READY</code></td><td>ZMQ query</td><td>Query engine still starting</td><td><code>query engine unavailable</code></td></tr>
+  <tr><td><code>NOT_READY</code></td><td>ZMQ admin</td><td>Service still starting</td><td><code>service unavailable</code></td></tr>
+  <tr><td><code>BACKUP_FAILED</code></td><td>ZMQ admin</td><td><code>backup</code> could not create the snapshot</td><td>exception text</td></tr>
+  <tr><td><code>VACUUM_BUSY</code></td><td>ZMQ admin</td><td><code>vacuum</code> failed while the service is running</td><td><code>vacuum failed while running; stop the service and use `sqtseries vacuum`: ...</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Body is not an object or array</td><td><code>body must be an object or array</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>An array item is not an object</td><td><code>each write must be an object</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Missing / empty / non-string metric</td><td><code>metric must be a non-empty string</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Value is not a number (booleans rejected)</td><td><code>value must be a number</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>NaN / ±Inf value</td><td><code>value must be finite</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Tags are not a string→string object</td><td><code>tags must be string-&gt;string object</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Timestamp is not a number</td><td><code>timestamp must be a number</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>NaN / ±Inf timestamp</td><td><code>timestamp must be finite</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Clock skew beyond the guard</td><td><code>client timestamp skew exceeds 300.0s</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP read / aggregate</td><td>Engine rejects the parameters (unknown aggregation or interval, out-of-range values)</td><td><code>unsupported aggregation: bogus</code> etc.</td></tr>
+  <tr><td><code>422</code></td><td>HTTP</td><td>Parameter validation: missing required <code>metric</code>, <code>limit</code> outside 1–100000, <code>order</code> not <code>asc</code>/<code>desc</code>, non-numeric <code>start</code>/<code>end</code></td><td>FastAPI validation detail</td></tr>
+  <tr><td><code>429</code> <code>RATE_LIMITED</code></td><td>HTTP</td><td>More than <code>http.rate_limit_per_minute</code> (default 600) requests in a minute from one client</td><td><code>too many requests</code></td></tr>
+  <tr><td>close <code>1008</code></td><td>WebSocket</td><td>Streaming disabled (pubsub not running)</td><td><code>streaming disabled</code></td></tr>
+</table></div>
+<p>ZMQ <em>ingest</em> is different: bad messages are <strong>dropped, never
+answered</strong> (the PUSH path has no reply). Each drop reason below is
+counted in the admin <code>stats</code> reply (<code>invalid</code> /
+<code>ingest_errors</code>):</p>
+<ul>
+  <li><code>invalid JSON: ...</code> — JSON parse failure</li>
+  <li><code>ingest message must be an object</code> — top-level type wrong</li>
+  <li><code>metric must be a non-empty string</code> — bad metric</li>
+  <li><code>value must be a number</code> / <code>value must be finite</code> — bad value</li>
+  <li><code>tags must be an object</code> / <code>tags must be string-&gt;string</code> — bad tags</li>
+  <li><code>timestamp must be a number</code> / <code>timestamp must be finite</code> — bad timestamp</li>
+  <li><code>client timestamp skew Ns exceeds Ns</code> — clock-skew guard</li>
+  <li>Frame larger than <code>ingestion.max_message_size</code> (50 MiB) — dropped at the socket level, peer disconnected</li>
+  <li>Send HWM full (default 10000) — the producer blocks on a blocking <code>send()</code> (backpressure, not an error)</li>
+</ul>
+<p>The Python <code>Client</code> raises <code>sqtseries.client.ClientError</code>
+when a query, aggregate, or admin command returns an error reply, and when no
+reply arrives within its 30-second receive timeout. HTTP 400/422 messages are
+returned in the response body, not as this error shape.</p>
+
+<h3>8. Background tasks</h3>
+<div class="table-wrap"><table>
+  <tr><th>Task</th><th>Interval (default)</th><th>What it does</th></tr>
+  <tr><td>Rollup</td><td>5m</td><td>Pre-aggregates completed hours into <code>rollup_hourly</code> for the query fast path; hours are only rolled once they are at least the client-skew window past completion</td></tr>
+  <tr><td>Retention</td><td>1h</td><td>Drops monthly partitions older than <code>retention.default_ttl</code> (30d) and their rollup rows</td></tr>
+  <tr><td>Maintenance</td><td>1h</td><td>Runs <code>ANALYZE</code> to refresh query-planner statistics</td></tr>
+  <tr><td>Checkpoint</td><td>60s</td><td>Keeps the WAL file bounded; warns when readers block it</td></tr>
+</table></div>
+
+<h3>Where to go next</h3>
+<ul>
+  <li><a href="ingestion.html">Ingestion</a> — the write path and validation
+      rules.</li>
+  <li><a href="queries.html">Queries</a> — aggregation functions and interval
+      syntax.</li>
+  <li><a href="streaming.html">Streaming</a> — the XPUB bus and WebSocket
+      subscriptions.</li>
+  <li><a href="clients.html">Client Libraries</a> — ready-made examples in
+      Python, Go, Rust, PHP, and Node.js.</li>
+  <li><a href="examples.html">Examples</a> — runnable scripts for every
+      operation.</li>
+</ul>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

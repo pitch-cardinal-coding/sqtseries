@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Examples — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a class="here" href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Examples &amp; Scenarios</h2>
+<p>Each section shows a real-world task with complete code you can copy and
+run. Every example assumes sqtseries is running on <code>127.0.0.1</code> with
+its default ports. If you have not installed it yet, start with the
+<a href="quickstart.html">Quick Start</a>.</p>
+
+<div class="note">
+  <strong>Ready-to-run scripts.</strong> The <code>examples/</code> directory
+  in the project repository contains standalone scripts for every operation
+  described below. They run against any sqtseries instance — most accept
+  <code>--host</code> and port-specific flags (e.g. <code>--write-port</code>,
+  <code>--query-port</code>, <code>--http-port</code>). Run them with
+  <code>python3 examples/&lt;name&gt;.py</code>.
+  <br><br>
+  <strong>Available scripts:</strong>
+  <code>run_custom.py</code> (start/verify/stop your own instance with your
+  own config, ports, and database),
+  <code>overlay_server.py</code> (simulated camera-metrics WebSocket source),
+  <code>camera_feed.py</code> (pump a camera feed into sqtseries and answer
+  every question the data can answer),
+  <code>sqtcam.sh</code> (one-command runner: sqtseries + simulator + feed
+  in a tmux session, for overnight data collection),
+  <code>producer.py</code> (ZMQ ingestion),
+  <code>ingest_http.py</code> (HTTP ingestion),
+  <code>consumer.py</code> (ZMQ/HTTP query),
+  <code>query_examples.py</code> (every query type),
+  <code>question_examples.py</code> (13 classic questions answered end to end,
+  each with machine-readable output),
+  <code>question_examples_advanced.py</code> (10 advanced questions: per-series,
+  percentiles, trends, data quality, staleness, and more),
+  <code>stream_examples.py</code> (live subscription),
+  <code>admin_examples.py</code> (all 9 admin commands),
+  <code>stats_monitor.py</code> (live stats feed),
+  <code>maintenance_examples.py</code> (backup, vacuum, health loop).
+  <br><br>
+  <strong>The question catalog.</strong> Start with
+  <code>question_examples.py</code>: it seeds deterministic sample data and
+  answers the classic questions people ask — averages, yesterday's peak,
+  99th percentiles, counts, trends, buckets, busiest hour/day, sums,
+  staleness, all-time stats, and HTTP/curl variants — printing each answer
+  as a machine-readable <code>ANSWER: key = value</code> line. A short note:
+  the demo seeds "history" (yesterday, last week), so start the service with
+  the clock-skew guard raised:
+  <code>[ingestion] reject_client_timestamp_skew_s = 864000</code> (10 days).
+</div>
+
+<h3>0. Running the service with your own config, ports, and database</h3>
+<p>Every example below assumes sqtseries is running on the default ports.
+When you want your own ports or your own database file, the one command
+that starts it is (global options like <code>--config</code> and
+<code>--db</code> come <em>before</em> the <code>run</code> subcommand):</p>
+<pre><code>sqtseries --config /etc/sqtseries/config.toml run
+# identical with python -m (what the examples/ scripts and systemd use):
+python3 -m sqtseries --config /etc/sqtseries/config.toml run
+</code></pre>
+<p>Pick any ports, DB path, etc. in the config — see
+<a href="configuration.html">Configuration</a>. To choose only the
+database on the command line:
+<code>sqtseries --db /data/tsdb.sqlite run</code>.</p>
+<p>The script <code>examples/run_custom.py</code> walks the full cycle for
+you: it writes a config with free ports and a fresh database file, starts
+the service with <code>--config… run</code>, waits for the admin ping,
+writes and queries one metric over those ports, then stops the service —
+and on each step prints the exact command it ran, so you can copy it line
+by line:</p>
+<pre><code>python3 examples/run_custom.py</code></pre>
+<p>To register the service with systemd instead, the unit embeds the same
+config (plus the database path as an environment variable) — install it
+with the global <code>--config</code> flag:</p>
+<pre><code>sqtseries --config /etc/sqtseries/config.toml install   # user unit
+sqtseries --config /etc/sqtseries/config.toml install --system  # system unit
+</code></pre>
+
+<hr>
+
+<h3>0a. Script reference: every example and its options</h3>
+<p>Most scripts accept <code>--host</code> (default <code>127.0.0.1</code>)
+and the port flag(s) listed below, so they work against any sqtseries
+instance — including one running on custom ports
+(<code>run_custom.py</code> and <code>overlay_server.py</code> are the
+exceptions: they manage their own ports). Unless stated otherwise, scripts
+connect to an already-running service and exit on their own; the ones
+marked <em>streaming</em> run until Ctrl+C.</p>
+<div class="table-wrap"><table>
+  <tr><th>Script</th><th>Purpose</th><th>Options (default)</th><th>Runs until</th></tr>
+  <tr><td><code>producer.py</code></td>
+      <td>Send measurements via ZMQ PUSH</td>
+      <td><code>--port</code> 12501, <code>--rate</code> 10 msg/s
+          (0 = as fast as possible), <code>--count</code> 0 (0 = forever),
+          <code>--batch</code> 500 (checkpoint print)</td>
+      <td>— count sent or forever</td></tr>
+  <tr><td><code>ingest_http.py</code></td>
+      <td>Send measurements via HTTP (no ZMQ needed)</td>
+      <td><code>--port</code> 12505, <code>--rate</code> 2 msg/s,
+          <code>--batch</code> 20 points per request,
+          <code>--count</code> 0 (0 = forever)</td>
+      <td>— count sent or forever</td></tr>
+  <tr><td><code>consumer.py</code></td>
+      <td>Run a query over ZMQ or HTTP</td>
+      <td><code>--port</code> 12502 (ZMQ query),
+          <code>--http</code> base URL (e.g. <code>http://127.0.0.1:12505</code>)</td>
+      <td>— one query</td></tr>
+  <tr><td><code>query_examples.py</code></td>
+      <td>Every query type: raw, whole-window agg, downsampling,
+          multi-agg, HTTP</td>
+      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
+          <code>--http-port</code> 12505</td>
+      <td>— seeds data, then runs</td></tr>
+  <tr><td><code>question_examples.py</code></td>
+      <td>13 classic questions answered (question catalog)</td>
+      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
+          <code>--http-port</code> 12505</td>
+      <td>— seeds data, then runs</td></tr>
+  <tr><td><code>stream_examples.py</code></td>
+      <td>Live measurements (ZMQ SUB, Python client, or WebSocket)</td>
+      <td>positional <code>topic</code> prefix (<code>*</code> = all),
+          <code>--port</code> 12503, <code>--http-port</code> 12505 (for
+          <code>--ws</code>), <code>--ws</code>, <code>--client</code></td>
+      <td>streaming — Ctrl+C</td></tr>
+  <tr><td><code>admin_examples.py</code></td>
+      <td>Every admin command (ping → vacuum)</td>
+      <td><code>--port</code> 12504</td>
+      <td>— one pass</td></tr>
+  <tr><td><code>stats_monitor.py</code></td>
+      <td>Live stats PUB events (conn/sub/report)</td>
+      <td>positional <code>filter</code> prefix
+          (conn, sub, report, or empty = all), <code>--port</code> 12506</td>
+      <td>streaming — Ctrl+C</td></tr>
+  <tr><td><code>maintenance_examples.py</code></td>
+      <td>Health check, stats, backup, optimize, vacuum</td>
+      <td><code>--admin-port</code> 12504, <code>--http-port</code> 12505,
+          <code>--backup-only</code>, <code>--health-loop</code> N seconds
+          (0 = run once)</td>
+      <td>— one pass (or loop with Ctrl+C)</td></tr>
+  <tr><td><code>question_examples_advanced.py</code></td>
+      <td>10 advanced questions: per-series breakdowns, percentiles,
+          trends, data quality, staleness</td>
+      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
+          <code>--http-port</code> 12505, <code>--admin-port</code> 12504,
+          <code>--db</code> PATH (needed for the per-series questions)</td>
+      <td>— seeds data, then runs</td></tr>
+  <tr><td><code>run_custom.py</code></td>
+      <td>Start, verify, and stop your own instance (writes a config,
+          picks free ports, runs <code>python3 -m sqtseries
+          --config … run</code>)</td>
+      <td><code>--workdir</code> (default <code>sqt-custom-work</code>)</td>
+      <td>— full lifecycle, then exits</td></tr>
+  <tr><td><code>overlay_server.py</code></td>
+      <td>Simulated camera-metrics WebSocket source (people/vehicles,
+          battery, CPU) — feeds <code>camera_feed.py</code></td>
+      <td><code>--port</code> (default: a random free port),
+          <code>TEST_*</code> env vars (host, port, push interval,
+          camera ID)</td>
+      <td>streaming — Ctrl+C</td></tr>
+  <tr><td><code>camera_feed.py</code></td>
+      <td>Pump a camera WebSocket feed into sqtseries and answer every
+          question the stored data can answer</td>
+      <td>pump: <code>--ws</code> URL, <code>--host</code>,
+          <code>--http-port</code>; <code>--ask</code> (17 questions),
+          <code>--hours</code> window, <code>--once</code></td>
+      <td>pump: streaming — Ctrl+C; <code>--ask</code>: one pass</td></tr>
+  <tr><td><code>sqtcam.sh</code></td>
+      <td>One-command runner: starts sqtseries, the overlay simulator, and
+          the camera feed in a three-window tmux session for long data
+          collection</td>
+      <td>— (uses <code>/tmp/sqtcam/conf.toml</code>; refuses to start a
+          second session)</td>
+      <td>— runs until <code>tmux kill-session -t sqtcam</code></td></tr>
+</table></div>
+<p>Note: <code>question_examples.py</code> and <code>query_examples.py</code>
+backfill historical data, so the service must be running with
+<code>reject_client_timestamp_skew_s</code> raised (see section 0).</p>
+
+<hr>
+
+<h3>1. Server monitoring</h3>
+<p>You want to record CPU, memory, and disk usage from several servers and
+query per-machine averages over the last hour. Each server sends readings with
+a <code>host</code> tag to distinguish them.</p>
+
+<h4>Send data (Python, one machine)</h4>
+<pre><code>from sqtseries import Client
+import psutil
+
+c = Client()
+
+while True:
+    c.write("cpu.percent", psutil.cpu_percent(), {"host": "web1"})
+    c.write("mem.percent", psutil.virtual_memory().percent, {"host": "web1"})
+    c.write("disk.percent", psutil.disk_usage("/").percent, {"host": "web1"})
+    time.sleep(10)
+</code></pre>
+
+<h4>Send data (Go, another machine — no sqtseries installed)</h4>
+<pre><code>// go get github.com/pebbe/zmq4
+sock, _ := zmq.NewSocket(zmq.PUSH)
+sock.Connect("tcp://192.168.1.10:12501")  // sqtseries is on this machine
+sock.Send(`{"metric":"cpu.percent","value":42.0,"tags":{"host":"web2"}}`, 0)
+</code></pre>
+
+<h4>Query the last hour of CPU</h4>
+<pre><code>import time
+from sqtseries import Client
+
+c = Client()
+now_ns = time.time_ns()
+rows = c.query("cpu.percent", start=now_ns - 3600 * 10**9, end=now_ns,
+               aggregation="avg", interval="1m")
+for row in rows:
+    print(f"Average CPU at {row['timestamp']}: {row['value']:.1f}%")
+</code></pre>
+<p>Note that the client takes <em>nanosecond</em> epochs for
+<code>start</code>/<code>end</code>; returned rows carry epoch-
+<em>seconds</em> timestamps.</p>
+
+<h4>Peak across all machines</h4>
+<pre><code>stats = c.aggregate("cpu.percent", funcs=["avg", "max", "p95"])
+print(f"Average: {stats['avg']:.1f}%, Max: {stats['max']:.1f}%, P95: {stats['p95']:.1f}%")
+</code></pre>
+
+<hr>
+
+<h3>2. Instant dashboard (browser)</h3>
+<p>You want a web page that shows live readings the moment they arrive, and
+also displays how many other viewers are watching right now.</p>
+
+<h4>Live data feed (WebSocket)</h4>
+<pre><code>const ws = new WebSocket("ws://127.0.0.1:12505/ws/subscribe?metric=sensor.");
+ws.onmessage = (e) => {
+    const point = JSON.parse(e.data);
+    document.getElementById("latest").textContent =
+        `${point.metric}: ${point.value}`;
+};
+// the service also sends {"type":"ping"} roughly every 30s — ignore it
+</code></pre>
+
+<h4>Viewer count (admin socket)</h4>
+<p>Every 10 seconds, ask the admin socket how many WebSocket clients are
+connected:</p>
+<pre><code>import zmq, orjson, time
+
+ctx = zmq.Context()
+s = ctx.socket(zmq.REQ)
+s.connect("tcp://127.0.0.1:12504")
+
+while True:
+    s.send(orjson.dumps({"cmd": "connections"}))
+    reply = orjson.loads(s.recv())
+    print(f"Connected viewers: {len(reply.get('data', []))}")
+    time.sleep(10)
+</code></pre>
+
+<p>Or subscribe to the stats PUB socket (port 12506) for a push-based
+alternative — see example 5 below.</p>
+
+<hr>
+
+<h3>3. Logging sensor data and running reports</h3>
+<p>You have 20 temperature sensors around a building, each writing once per
+minute. You want daily summary reports showing the minimum, maximum, and
+average per sensor.</p>
+
+<h4>Writing (this runs on each sensor's device)</h4>
+<pre><code>from sqtseries import Client
+c = Client()
+c.write("temp.celsius", 19.2, {"room": "lobby", "floor": "1"})
+c.write("temp.celsius", 22.7, {"room": "kitchen", "floor": "1"})
+c.write("temp.celsius", 18.1, {"room": "basement", "floor": "-1"})
+</code></pre>
+
+<h4>Daily report (run once a day from a script)</h4>
+<pre><code>import time
+from sqtseries import Client
+
+c = Client()
+now_ns = time.time_ns()
+yesterday_ns = now_ns - 86400 * 10**9
+
+rows = c.query("temp.celsius", start=yesterday_ns, end=now_ns,
+               aggregation="avg", interval="1h")
+# each row is one hour's average temperature across all sensors
+
+# Or ask for the summary numbers directly:
+stats = c.aggregate("temp.celsius", start=yesterday_ns, end=now_ns,
+                    funcs=["avg", "min", "max", "count"])
+print(f"Yesterday: avg={stats['avg']:.1f}, min={stats['min']:.1f}, "
+      f"max={stats['max']:.1f}, readings={stats['count']}")
+</code></pre>
+
+<h4>Which rooms are too hot?</h4>
+<p>Query the embedded engine directly when you need per-tag breakdowns (the
+wire protocol filters by metric, not by tag):</p>
+<pre><code>from sqtseries.engine import StorageEngine, create_sqlite_engine
+
+engine = create_sqlite_engine("~/.sqtseries/data/db.sqlite")
+store = StorageEngine(engine)
+
+# group every series_id by its room tag
+rooms = {}
+for sid in store.series_ids_for_metric("temp.celsius"):
+    _, tags_json = store.get_series_meta(sid)
+    tags = orjson.loads(tags_json) if tags_json else {}
+    rooms.setdefault(tags.get("room", "unknown"), []).append(sid)
+
+# query each room separately
+for room, sids in sorted(rooms.items()):
+    rows = list(store.query_time_range(
+        series_ids=sids, start_ns=yesterday_ns, end_ns=now_ns))
+    avg = sum(v for _, v in rows) / len(rows) if rows else 0
+    print(f"{room}: {avg:.1f} °C")
+</code></pre>
+
+<hr>
+
+<h3>4. Alerting on anomalies</h3>
+<p>You want to know instantly when a reading goes outside normal bounds. You
+subscribe to the live stream and check every value as it arrives.</p>
+
+<h4>Python subscriber that alerts</h4>
+<pre><code>from sqtseries import Client
+
+c = Client()
+THRESHOLD = 90.0  # alert if CPU goes above 90%
+
+for payload in c.subscribe("cpu."):
+    if payload is None:   # idle heartbeat
+        continue
+    value = payload["value"]
+    if value > THRESHOLD:
+        print(f"ALERT: {payload['metric']} = {value}% "
+              f"on {payload['tags']['host']}")
+</code></pre>
+
+<h4>ZMQ subscriber (Go — no Python needed)</h4>
+<pre><code>sub, _ := zmq.NewSocket(zmq.SUB)
+sub.Connect("tcp://127.0.0.1:12503")
+sub.SetSubscribe("cpu.")
+
+for {
+    msg, _ := sub.RecvMessage(0)
+    if len(msg) >= 2 {
+        fmt.Println("ALERT:", string(msg[1]))
+    }
+}
+</code></pre>
+
+<hr>
+
+<h3>5. Monitoring connections (admin + stats socket)</h3>
+<p>You want to know at all times how many clients are connected, which topics
+they are watching, and whether a specific device is still online.</p>
+
+<h4>Quick check: who is connected right now?</h4>
+<pre><code>from sqtseries import Client
+c = Client()
+reply = c.admin("connections")
+for conn in reply["data"]:
+    print(f"{conn['id']}: {conn['kind']} from {conn['peer']} "
+          f"watching {conn['topic']}")
+</code></pre>
+
+<h4>Is this specific device still connected?</h4>
+<pre><code># You saved a connection ID when the WebSocket first connected:
+device_id = "a1b2c3d4e5f6"
+
+reply = c.admin("conncheck", ids=[device_id])
+if device_id in reply["present"]:
+    print("Device is online")
+else:
+    print("Device has disconnected")
+</code></pre>
+
+<h4>How many subscribers does each topic have?</h4>
+<pre><code>reply = c.admin("subscribers")
+for sub in reply["subscriptions"]:
+    print(f"{sub['topic']}: {sub['subscribers']} listeners")
+</code></pre>
+
+<h4>Live stats feed (PUB socket subscription)</h4>
+<p>The stats PUB socket (port 12506) emits events in real time — no polling
+needed. Subscribe with a prefix to receive only what you care about:</p>
+<pre><code>import zmq, orjson
+
+ctx = zmq.Context()
+stats = ctx.socket(zmq.SUB)
+stats.connect("tcp://127.0.0.1:12506")
+stats.setsockopt(zmq.SUBSCRIBE, b"conn")  # only connection events
+
+while True:
+    event_type, payload = stats.recv_multipart()
+    data = orjson.loads(payload)
+    if data.get("connected"):
+        print(f"CONNECTED: {data['id']} from {data['peer']} "
+              f"({data['kind']})")
+    else:
+        print(f"DISCONNECTED: {data['id']}")
+</code></pre>
+
+<p>Subscribe to <code>b"sub"</code> for ZMQ subscription events, or
+<code>b""</code> for all events including the periodic report (every 10
+seconds: <code>uptime_s</code>, <code>ws_connections</code>,
+<code>zmq_subscribers</code>, <code>active_topics</code>).</p>
+
+<hr>
+
+<h3>6. Data retention and cleanup</h3>
+<p>You want to keep the last 30 days of detailed data but drop anything older.
+By default this happens automatically — no configuration needed. To change the
+window or disable it:</p>
+
+<pre><code># config.toml
+[retention]
+enabled = true
+default_ttl = "90d"      # keep 90 days instead of 30
+check_interval = "1h"    # check every hour
+</code></pre>
+
+<p>When a partition's data is entirely older than the TTL, its table and all
+associated rollup rows are dropped in one operation (<code>DROP TABLE</code>,
+whole monthly partition at a time). The pages are freed to SQLite's internal
+freelist and reused by new data, but the file itself keeps its peak size
+until you run <code>sqtseries vacuum</code> — see
+<a href="backup.html">Backup &amp; Restore</a> for how vacuum works and
+when to run it.</p>
+
+<h4>Manual cleanup on demand</h4>
+<pre><code># Check current storage:
+sqtseries stats
+
+# Shrink the file (stop the service first for a full VACUUM):
+sqtseries stop
+sqtseries vacuum
+
+# Or run ANALYZE to refresh query-plan statistics while running:
+sqtseries optimize
+</code></pre>
+
+<hr>
+
+<h3>7. High-rate ingestion</h3>
+<p>You are logging millions of rows and need the fastest possible write path.
+Batch your measurements and send them over ZeroMQ.</p>
+
+<pre><code>import zmq, orjson
+import time, random
+
+ctx = zmq.Context()
+sock = ctx.socket(zmq.PUSH)
+sock.setsockopt(zmq.SNDHWM, 10000)
+sock.setsockopt(zmq.LINGER, 500)
+sock.connect("tcp://127.0.0.1:12501")
+
+# Generate and send 100,000 points as fast as possible
+start = time.monotonic()
+for i in range(100_000):
+    sock.send(orjson.dumps({
+        "metric": "throughput.test",
+        "value": random.random(),
+        "tags": {"batch": str(i % 100)},
+    }))
+sock.close(linger=0)
+
+elapsed = time.monotonic() - start
+print(f"sent 100,000 points in {elapsed:.1f}s "
+      f"({100_000 / elapsed:.0f} pts/sec)")
+</code></pre>
+
+<p>What to expect: the service commits <em>one transaction per message</em>
+(no app-level batching on the live path), so keep high-rate senders on the
+same fast network or use multiple senders — the PUSH HWM (10,000) acts as
+backpressure. Engine-level numbers (batched <code>executemany</code> inserts
+via <code>scripts/benchmark.py</code>, ~65–253K rows/s on an NVMe machine)
+are higher than what the one-message-at-a-time service path sustains; and
+output reliably on your own hardware with
+<code>python3 scripts/benchmark.py</code>.</p>
+
+<hr>
+
+<h3>8. Health check for load balancers</h3>
+<p>You want your load balancer or monitoring tool to know if sqtseries is
+healthy. Two options — CLI and HTTP:</p>
+
+<pre><code># CLI: exits 0 if the database passes its check
+sqtseries health
+echo $?  # 0 = healthy, 1 = degraded
+
+# HTTP: returns JSON (status + version only)
+curl http://127.0.0.1:12505/api/v1/health
+# {"status":"ok","version":"0.1.0"}
+
+# ZMQ admin (inside a Python health check):
+from sqtseries import Client
+c = Client()
+h = c.admin("health")
+if h["status"] == "ok" and h["database"] is True:
+    print("healthy")
+</code></pre>
+
+<p>The HTTP health endpoint runs a <code>quick_check</code> on the SQLite
+file — it is not just a port check. If the database file is corrupted, the
+endpoint returns <code>{"status":"degraded"}</code>. Use it in your load
+balancer's health check configuration.</p>
+
+<hr>
+
+<h2>The question catalog — four canonical questions</h2>
+<p>The repo's <code>examples/question_examples.py</code> answers 13 questions;
+the four most common ones are shown below, each over the Python client
+(nanosecond epochs, <code>aggregate(funcs=…)</code>) and over HTTP with curl
+(second epochs, <code>funcs=…</code>). Timestamps differ by API: the HTTP
+gateway takes epoch <em>seconds</em>, the ZMQ client takes epoch
+<em>nanoseconds</em>. The values in the sample responses are illustrative
+shapes from the seeded demo data, not measured outputs.</p>
+
+<h3>Q1. Average CPU load over the last hour</h3>
+<pre><code>import time
+from sqtseries import Client
+
+c = Client()
+now_ns = time.time_ns()
+avg = c.aggregate("cpu.load", start=now_ns - 3600 * 10**9, end=now_ns,
+                  funcs=["avg"])["avg"]
+print(f"Answer: {avg:.2f}")
+</code></pre>
+<pre><code>now=$(date +%s)
+curl "http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&start=$((now-3600))&end=$now&funcs=avg"
+# {"status":"ok","aggregations":{"avg":52.3}}
+</code></pre>
+
+<h3>Q2. Peak temperature yesterday</h3>
+<pre><code>import time
+from sqtseries import Client
+
+c = Client()
+day_ns = (time.time() // 86400) * 86400 * 10**9               # UTC midnight today
+peak = c.aggregate("temp.celsius",
+                   start=day_ns - 86400 * 10**9, end=day_ns,
+                   funcs=["max"])["max"]
+print(f"Answer: {peak:.2f} °C")
+</code></pre>
+<pre><code>now=$(date +%s)
+yesterday=$((now / 86400 * 86400 - 86400))   # UTC midnight yesterday
+today=$((now / 86400 * 86400))               # UTC midnight today
+curl "http://127.0.0.1:12505/api/v1/aggregate?metric=temp.celsius&start=$yesterday&end=$today&funcs=max"
+# {"status":"ok","aggregations":{"max":24.5}}
+</code></pre>
+
+<h3>Q3. p99 response time over the past week</h3>
+<pre><code>import time
+from sqtseries import Client
+
+c = Client()
+now_ns = time.time_ns()
+p99 = c.aggregate("latency.web", start=now_ns - 7 * 86400 * 10**9, end=now_ns,
+                  funcs=["p99"])["p99"]
+print(f"Answer: {p99:.0f} ms")
+</code></pre>
+<pre><code>now=$(date +%s)
+curl "http://127.0.0.1:12505/api/v1/aggregate?metric=latency.web&start=$((now - 7*86400))&end=$now&funcs=p99"
+# {"status":"ok","aggregations":{"p99":107.0}}
+</code></pre>
+<p><code>p99</code> (like <code>median</code>/<code>p95</code>) is served from
+raw rows — it has no rollup fast path. <code>avg</code>/<code>sum</code>/
+<code>min</code>/<code>max</code>/<code>count</code> over wide windows use the
+hourly rollup automatically when the window spans completed hours.</p>
+
+<h3>Q4. How many measurements were recorded today?</h3>
+<pre><code>import time
+from sqtseries import Client
+
+c = Client()
+day_start_ns = (time.time() // 86400) * 86400 * 10**9
+count = c.aggregate("visitors.web", start=day_start_ns, end=time.time_ns(),
+                    funcs=["count"])["count"]
+print(f"Answer: {count:.0f} readings")
+</code></pre>
+<pre><code>now=$(date +%s)
+day=$((now / 86400 * 86400))
+curl "http://127.0.0.1:12505/api/v1/aggregate?metric=visitors.web&start=$day&end=$now&funcs=count"
+# {"status":"ok","aggregations":{"count":288.0}}
+</code></pre>
+
+<p>Run <code>python3 examples/question_examples.py</code> to see all 13
+questions answered end to end against a seeded instance.</p>
+
+<hr>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <div class="card"><h3><a href="ingestion.html">Ingestion</a></h3>
+    <p>All the ways to get data in: ZMQ, HTTP, and the Client, with
+    timestamps and the clock-skew guard.</p></div>
+  <div class="card"><h3><a href="queries.html">Queries</a></h3>
+    <p>Aggregations, intervals, the rollup fast path, gap filling, and
+    streaming queries in bounded memory.</p></div>
+  <div class="card"><h3><a href="api.html">API Reference</a></h3>
+    <p>The embedded Python API, Client, CLI, wire protocol, every admin
+    command, and the stats PUB socket.</p></div>
+  <div class="card"><h3><a href="architecture.html">Architecture</a></h3>
+    <p>The engine layout, SQLite schema, write path, rollup design, and error
+    handling strategy.</p></div>
+</div>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

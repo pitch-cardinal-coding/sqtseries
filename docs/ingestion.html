@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Ingestion — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a class="here" href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Data Ingestion</h2>
+<p>"Ingestion" is the word for getting data in. Two transports accept the
+same JSON measurement object:</p>
+<div class="table-wrap"><table>
+  <tr><th>Transport</th><th>Endpoint</th><th>Behaviour</th></tr>
+  <tr><td><strong>ZMQ PUSH</strong></td>
+      <td><code>tcp://127.0.0.1:&lt;ingest&gt;</code> (default 12501; auto-detected — see below)</td>
+      <td>Fire-and-forget. One frame per measurement, no acknowledgement, no
+          ZMQ-level batching.</td></tr>
+  <tr><td><strong>HTTP</strong></td>
+      <td><code>POST http://127.0.0.1:12505/api/v1/write</code></td>
+      <td>Acknowledged. Accepts one object or an array; replies
+          <code>{"status":"ok","written":N}</code>.</td></tr>
+</table></div>
+<p>All sockets bind to <code>127.0.0.1</code>. The ingest port is the only
+auto-detected one. With <code>ports.auto_detect</code> on (the default) the
+service scans 12500–12700 and binds the <em>first free port</em> — usually
+12500, not the configured 12501. The configured 12501 is used only when
+<code>auto_detect = false</code>.
+<code>sqtseries ports</code> shows the live set and
+<code>sqtseries status</code> prints them next to the pid.</p>
+
+<div class="note">
+  <strong>Time units.</strong> Ingestion timestamps are Unix epoch
+  <em>seconds</em> (integer or float) and are converted to nanoseconds by the
+  server. Query <code>start</code>/<code>end</code> are <em>nanoseconds</em>
+  on the ZMQ query path and <em>seconds</em> on the HTTP gateway; query results
+  always carry <em>seconds</em>.
+</div>
+
+<h3>The message shape</h3>
+<p>A measurement is a small JSON object. Only <code>metric</code> and
+<code>value</code> are required:</p>
+<pre><code>{
+  "metric": "cpu.usage",
+  "tags": {"host": "web1", "env": "prod"},   // optional
+  "value": 0.72,
+  "timestamp": 1720000000.123                // optional epoch SECONDS
+}</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>metric</code></td><td>string</td><td>Yes</td><td>Metric name (any non-empty string; dots are conventional, not enforced)</td></tr>
+  <tr><td><code>value</code></td><td>number</td><td>Yes</td><td>Numeric value (int or float; boolean is rejected; must be finite — no NaN or ±Inf)</td></tr>
+  <tr><td><code>tags</code></td><td>object</td><td>No</td><td>String → string dimensions. Each unique (metric, tags) pair becomes a series</td></tr>
+  <tr><td><code>timestamp</code></td><td>number</td><td>No</td><td>Unix epoch <em>seconds</em> (float allowed). Defaults to the server clock</td></tr>
+</table></div>
+<p>Unknown extra fields are ignored.</p>
+
+<h3>ZeroMQ ingestion (PUSH)</h3>
+<p>Connect a PUSH socket to <code>tcp://127.0.0.1:12501</code>. Each message is
+exactly one measurement; sends are fire-and-forget — there is no reply, so a
+send that completes has reached the socket, not the database.</p>
+<pre><code>import zmq
+import orjson
+
+ctx = zmq.Context()
+sock = ctx.socket(zmq.PUSH)
+sock.setsockopt(zmq.SNDHWM, 10000)
+sock.setsockopt(zmq.LINGER, 500)     # flush queued messages on close
+sock.connect("tcp://127.0.0.1:12501")
+
+sock.send(orjson.dumps({"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72}))</code></pre>
+<p>Send each point as one frame; there is no ZMQ-level batching and the server
+handles each message individually. Invalid messages (bad JSON or bad fields)
+are dropped and counted — they are never acknowledged and never stored.</p>
+<pre><code>metrics = [
+    {"metric": "cpu.usage", "tags": {"host": f"web{i}"}, "value": 0.7 + i * 0.01}
+    for i in range(1000)
+]
+for m in metrics:
+    sock.send(orjson.dumps(m))
+</code></pre>
+<p>Use the bundled client for a managed socket. <code>write()</code> and
+<code>write_many()</code> send the same one-frame-per-measurement layout:</p>
+<pre><code>from sqtseries import Client
+c = Client()
+c.write("cpu.usage", 0.72, {"host": "web1"})
+c.write_many([
+    {"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}},
+    {"metric": "mem.usage", "value": 512.0, "tags": {"host": "web1"}},
+])
+</code></pre>
+
+<h3>HTTP ingestion</h3>
+<p><code>POST /api/v1/write</code> accepts a single object <em>or an array</em>.
+A batch is validated <strong>before any insert</strong>: if one item is bad,
+the whole request fails with <code>400</code> and nothing is written — safe to
+retry. The response says how many were written.</p>
+<pre><code>curl -X POST http://127.0.0.1:12505/api/v1/write \
+  -H "Content-Type: application/json" \
+  -d '{"metric":"cpu.usage","tags":{"host":"web1"},"value":0.72}'
+# {"status":"ok","written":1}
+
+curl -X POST http://127.0.0.1:12505/api/v1/write \
+  -H "Content-Type: application/json" \
+  -d '[
+    {"metric":"cpu.usage","tags":{"host":"web1"},"value":0.72},
+    {"metric":"cpu.usage","tags":{"host":"web2"},"value":0.68}
+  ]'
+# {"status":"ok","written":2}
+</code></pre>
+<p>An invalid body returns <code>400</code> with a message naming the problem —
+see <a href="api.html#errors">Error codes</a> for the full list (non-empty
+string metric, numeric finite value, string→string tags, numeric timestamp).</p>
+
+<h3>Timestamps and clock skew</h3>
+<p>If you omit <code>timestamp</code>, the server stamps the measurement with
+its own clock — recommended, since it avoids clock differences on the sending
+machine. If you do send a timestamp, it must be within
+<code>ingestion.reject_client_timestamp_skew_s</code> (default 300s) of the
+server clock; anything further out is rejected:</p>
+<ul>
+  <li><strong>HTTP:</strong> the write fails with <code>400</code> and
+      <code>"client timestamp skew exceeds 300.0s"</code>.</li>
+  <li><strong>ZMQ:</strong> the message is dropped and counted in the
+      <code>invalid</code> admin stat — the PUSH path never replies.</li>
+</ul>
+<p>The guard also keeps the hourly rollup consistent: data arrives in (near)
+chronological order, and an hour is only rolled once it is at least this far
+past completion, so a late write can never land in an already-rolled hour.</p>
+
+<h3>Error handling</h3>
+<ul>
+  <li>On ZMQ there is no per-message acknowledgement. Invalid messages (JSON
+      parse errors, missing metric, non-numeric value, non-finite values,
+      rejected skew) are dropped and counted — see <code>invalid</code> (and
+      <code>ingest_errors</code>) in the admin <code>stats</code> reply.</li>
+  <li>Frames larger than <code>ingestion.max_message_size</code> (default
+      50 MiB) are dropped at the socket level — the peer is disconnected —
+      and never ingested.</li>
+  <li>The PUSH socket HWM (default 10000) provides natural
+      backpressure: when the send queue is full, a blocking
+      <code>send()</code> blocks instead of silently losing data.</li>
+  <li>On HTTP every failed write is a <code>400</code> with a message; a
+      multi-item batch fails as a whole.</li>
+</ul>
+
+<h3>Performance</h3>
+<p>On the wire path every accepted message is written to SQLite immediately
+(there is no batching queue); throughput is dominated by the storage layer.
+Engine-level measurements with batched inserts (<code>scripts/benchmark.py</code>)
+are on the <a href="benchmarks.md">benchmarks</a> page: roughly
+<code>~65K–253K rows/sec</code> depending on dataset size, page-cache-bound up
+to ~1M rows and disk-bound beyond. Run the benchmark on your own machine if
+you need numbers for your hardware.</p>
+
+<h3>Where to go next</h3>
+<ul>
+  <li><a href="queries.html">Queries</a> — read the data back, with
+      aggregations, intervals, and limits.</li>
+  <li><a href="streaming.html">Streaming</a> — every accepted measurement is
+      republished live to subscribers.</li>
+  <li><a href="clients.html">Client Libraries</a> — Python, Go, Rust, PHP, and
+      Node.js examples for ingestion.</li>
+  <li><a href="api.html">API Reference</a> — full wire protocol, admin
+      commands, and error codes.</li>
+  <li><a href="examples.html">Examples</a> — ready-to-run scripts
+      (<code>producer.py</code>, <code>ingest_http.py</code>).</li>
+</ul>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

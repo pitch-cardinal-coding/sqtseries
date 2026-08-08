@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Backup, Restore &amp; Vacuum — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a class="here" href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Backup, Restore &amp; Vacuum</h2>
+<p>sqtseries keeps everything in one SQLite file. That makes backup simple,
+restore trivial, and — because databases grow — occasional vacuuming
+worth understanding. This page covers all three.</p>
+
+<h3>1. What to back up</h3>
+<p>Your data lives in exactly one place: the database file configured by
+<code>database.path</code> (default <code>~/.sqtseries/data/db.sqlite</code>).
+Back up that file. Everything — the series table, every monthly
+measurements partition, and the hourly rollup summaries — is inside it.</p>
+
+<div class="note">
+  <strong>Never copy <code>db.sqlite</code> alone while the service is
+  running.</strong> In WAL mode, recent writes live in the companion
+  <code>db.sqlite-wal</code> file until a checkpoint writes them into the
+  main file. A plain file copy at an arbitrary moment can silently miss
+  committed-but-uncheckpointed data. Always use a proper backup instead
+  (below), which reads through the WAL and is always consistent.</div>
+
+<h4>The database folder</h4>
+<p>Alongside <code>db.sqlite</code> you may see:</p>
+<div class="table-wrap"><table>
+  <tr><th>File</th><th>What it is</th><th>Do you back it up?</th></tr>
+  <tr><td><code>db.sqlite</code></td><td>The database itself</td>
+      <td>Via a proper backup, yes. Never a bare copy while running.</td></tr>
+  <tr><td><code>db.sqlite-wal</code></td><td>Write-ahead log holding recent
+      committed writes</td><td>Not separately — a proper backup reads through
+      it. A bare copy would need this file too, and even then only if the
+      service is stopped.</td></tr>
+  <tr><td><code>db.sqlite-shm</code></td><td>Shared-memory index for the
+      WAL</td><td>Never. Recreated automatically.</td></tr>
+  <tr><td><code>runtime.json</code></td><td>PID + ports of the running
+      service</td><td>Never. Recreated on start.</td></tr>
+</table></div>
+
+<h3>2. How to back up</h3>
+<p>Backups are consistent point-in-time snapshots taken with SQLite's
+<code>VACUUM INTO</code> — safe even while writes are in flight. Each backup
+is a single standalone <code>.db</code> file you can open with any SQLite
+tool.</p>
+
+<h4>Automatic (scheduled)</h4>
+<p>By default the service takes a snapshot on startup and then every
+<code>backup.interval</code> (default <code>24h</code>). To change or
+disable it:</p>
+<pre><code># config.toml
+[backup]
+enabled = true
+interval = "24h"              # how often a snapshot is taken
+path = "~/.sqtseries/backups/"</code></pre>
+<p>The first pass runs immediately at startup, then once per interval. A
+snapshot younger than the interval is skipped, so restarts do not pile up
+duplicate backups. The newest snapshot is reported in admin
+<code>stats</code> as <code>last_backup</code>; <code>backup_runs</code> and
+<code>backups_created</code> track the scheduler.</p>
+
+<h4>On demand</h4>
+<pre><code># CLI — one snapshot, prints the path
+sqtseries backup
+
+# Admin command (ZMQ REP, port 12504)
+{"cmd": "backup"}      # -> {"status":"ok","path":"..."}
+
+# Python client
+c.admin("backup")</code></pre>
+
+<h4>Backup file naming</h4>
+<p>Backups are written to <code>backup.path</code> as
+<code>sqtseries-YYYYMMDD-HHMMSS.db</code>, e.g.
+<code>sqtseries-20260808-171500.db</code>. Two backups in the same second
+collide (a <code>BackupExistsError</code>, skipped silently by the
+scheduler). There is no built-in rotation or deletion of old backups —
+prune them yourself with your usual file tools, e.g. keep only the newest
+N files (delete lines N+1 onwards):
+<code>ls -t ~/.sqtseries/backups/*.db | tail -n +$((N+1)) | xargs rm</code>.</p>
+
+<h3>3. How to restore</h3>
+<p>There is no <code>restore</code> command — restoring is pointing sqtseries
+at a backup file. A backup is a complete database, so it starts, migrates,
+and serves exactly like any other:</p>
+
+<pre><code># 1. Stop the service that owns the database you are replacing
+sqtseries stop
+
+# 2. (Optional) keep a copy of the current state
+cp ~/.sqtseries/data/db.sqlite ~/db-before-restore.sqlite
+
+# 3. Point a config at the backup file and start
+# config.toml
+[database]
+path = "/path/to/sqtseries-20260808-171500.db"
+
+sqtseries --config config.toml run</code></pre>
+
+<p>On startup the service runs any pending migrations, creates the current
+monthly partition if the backup predates it, checks integrity, and switches
+the file to WAL mode. The backup file itself is not modified; the service
+works on it in place (WAL files appear next to it once running).</p>
+
+<div class="note">
+  <strong>Restoring to a new machine</strong> — copy the backup file to the
+  new machine, set <code>database.path</code> to it, and run. That is the
+  whole procedure: one file, one setting. The default ports, admin socket,
+  and everything else come up normally.
+</div>
+
+<h3>4. Vacuum: what it is, when and how to run it</h3>
+<p><code>VACUUM</code> rewrites the entire database file into a compact
+form, reclaiming space from deleted rows and dropped partitions.</p>
+
+<h4>Why the file grows</h4>
+<p>sqtseries drops expired monthly partitions automatically (retention,
+default 30 days) and deletes data as you prune it. Those pages are freed to
+SQLite's internal freelist — the space is <em>reusable</em> but the file
+does <em>not</em> shrink, because the database is set to
+<code>auto_vacuum = INCREMENTAL</code> (set once when the file is created).
+The file stays at its historical peak size until you vacuum it. WAL
+checkpointing (background, at 64 MB) truncates the <code>-wal</code> file —
+it never shrinks the main database file.</p>
+
+<h4>When to run it</h4>
+<ul>
+  <li>After heavy pruning or retention drops, when you want the disk space
+      back.</li>
+  <li>Periodically as part of maintenance (weekly/monthly is plenty for most
+      workloads).</li>
+  <li>When the file size matters (backups, moving machines, quotas).</li>
+</ul>
+
+<h4>How to run it</h4>
+<pre><code># CLI — full VACUUM (recommended; stop the service first)
+sqtseries stop
+sqtseries vacuum          # prints "VACUUM complete"
+sqtseries run</code></pre>
+<p><code>VACUUM</code> needs exclusive access to the file. A live service's
+concurrent reads and writes usually block it. The admin command exists for
+small maintenance, but it often fails while the service is busy:</p>
+<pre><code># Admin command — may fail with VACUUM_BUSY while running
+{"cmd": "vacuum"}    # -> {"status":"ok","vacuumed":true}
+                     # or {"status":"error","error":{"code":"VACUUM_BUSY",...}}</code></pre>
+<p>The offline <code>sqtseries vacuum</code> (service stopped) is the
+recommended path for anything larger than a quick tidy.</p>
+
+<h4>Backup vs vacuum — don't confuse them</h4>
+<div class="table-wrap"><table>
+  <tr><th></th><th><code>VACUUM INTO</code> (backup)</th>
+      <th><code>VACUUM</code> (vacuum)</th></tr>
+  <tr><td>Creates a file</td><td>Yes — a standalone snapshot</td>
+      <td>No — rewrites the existing file in place</td></tr>
+  <tr><td>Needs the service stopped</td><td>No — safe while running</td>
+      <td>Yes (recommended)</td></tr>
+  <tr><td>Shrinks the database</td><td>No (source untouched)</td>
+      <td>Yes</td></tr>
+  <tr><td>Use for</td><td>Backup, restore, moving machines</td>
+      <td>Reclaiming disk space</td></tr>
+</table></div>
+
+<h3>5. Storage layout summary</h3>
+<pre><code>~/.sqtseries/
+├── data/
+│   ├── db.sqlite          # the database — everything lives here
+│   ├── db.sqlite-wal      # WAL (recent writes; checkpointed automatically)
+│   ├── db.sqlite-shm      # WAL index (recreated)
+│   └── runtime.json       # pid + active ports (recreated)
+└── backups/
+    └── sqtseries-YYYYMMDD-HHMMSS.db   # consistent snapshots</code></pre>
+<p>Everything you need to back up is one folder; everything you need to
+restore is one file.</p>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <div class="card"><h3><a href="configuration.html">Configuration</a></h3>
+    <p>The <code>[backup]</code> and <code>[database]</code> settings, env
+    vars, and every default.</p></div>
+  <div class="card"><h3><a href="architecture.html">Architecture</a></h3>
+    <p>Retention, WAL checkpointing, and how the storage engine is laid
+    out.</p></div>
+  <div class="card"><h3><a href="api.html">API Reference</a></h3>
+    <p>The admin <code>backup</code>/<code>vacuum</code> commands and
+    error codes (<code>BACKUP_FAILED</code>, <code>VACUUM_BUSY</code>).</p></div>
+  <div class="card"><h3><a href="examples.html">Examples</a></h3>
+    <p><code>maintenance_examples.py</code> runs backup/vacuum/health
+    against a live service.</p></div>
+</div>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

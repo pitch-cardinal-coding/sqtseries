@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqtseries"
+version = "0.1.0"
+description = "Embedded time-series database built on SQLite with ZeroMQ messaging"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [{ name = "sqtseries contributors" }]
+keywords = ["timeseries", "sqlite", "zeromq", "database", "embedded"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Database :: Database Engines/Servers",
+]
+dependencies = [
+    "click>=8.1",
+    "fastapi>=0.115",
+    "httpx>=0.28",
+    "orjson>=3.11",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.9",
+    "pyzmq>=27",
+    "structlog>=25",
+    "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.25",
+    "pytest-timeout>=2.3",
+    "pytest-cov>=6",
+    "coverage>=7",
+    "hypothesis>=6",
+    "ruff>=0.9",
+    "black>=25",
+    "isort>=6",
+    "httpx2>=2.0",
+]
+bench = ["memory-profiler>=0.61"]
+
+[project.scripts]
+sqtseries = "sqtseries.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourname/sqtseries"
+Documentation = "https://github.com/yourname/sqtseries/docs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RET", "PTH", "S", "RUF", "PERF"]
+ignore = ["E501", "S101", "SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "S110", "S603"]
+"tests/test_backup.py" = ["S608"]  # table name is server-derived + validated against sqlite_master
+"tests/test_concurrency.py" = ["S608"]  # table names from sqlite_master (server-controlled)
+"src/sqtseries/systemd.py" = ["S603", "S607"]  # systemctl invoked via PATH; args are internal
+"scripts/benchmark.py" = ["S108"]  # /tmp is a CLI default path arg, not temp usage
+"scripts/stress.py" = ["S108"]  # /tmp is a CLI default path arg, not temp usage
+"examples/*" = ["S310", "S311", "S603", "PERF401", "RUF005", "PTH202"]  # Run scripts launch the sqtseries CLI by design (argv-derived, no untrusted input)
+"examples/overlay_server.py" = ["S104"]  # Overlay must be reachable by OBS browser sources on the LAN (0.0.0.0 by design)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+timeout = 60
+
+[tool.isort]
+profile = "black"
+line_length = 88

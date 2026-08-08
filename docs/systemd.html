@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Systemd — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a class="here" href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Systemd Integration</h2>
+<p>Systemd is the tool most Linux computers use to start programs in the
+background and keep them running. Running sqtseries as a systemd service
+gives it three things automatically: it starts when you boot the computer, it
+restarts if it crashes, and its logs are collected in one place
+(journald). <code>sqtseries install</code> writes a pre-hardened unit file and
+enables + starts it; <code>sqtseries uninstall</code> removes it.</p>
+
+<h3>Install</h3>
+<pre><code># per-user service (no root)
+sqtseries install
+
+# system-wide (root) — run as a dedicated user in production
+sudo sqtseries install --system
+</code></pre>
+<p><code>install</code> does three things: writes the unit file, runs
+<code>systemctl --user daemon-reload</code> (or plain
+<code>daemon-reload</code> for <code>--system</code>), and runs
+<code>systemctl [--user] enable --now sqtseries</code> (start now + start on
+boot). It uses the Python interpreter of the <code>sqtseries</code> command
+you ran (its <code>sys.executable</code>), so the unit starts the same
+Python that installed it.</p>
+<p>There is no root check in the code: <code>--system</code> simply targets
+<code>/etc/systemd/system</code>, so without root the write fails with a
+permission error — run it under <code>sudo</code>.</p>
+
+<h3>User vs system unit</h3>
+<div class="table-wrap"><table>
+  <tr><th></th><th>User unit (default)</th><th>System unit (<code>--system</code>)</th></tr>
+  <tr><td>Location</td><td><code>~/.config/systemd/user/sqtseries.service</code></td><td><code>/etc/systemd/system/sqtseries.service</code></td></tr>
+  <tr><td>Control</td><td><code>systemctl --user ...</code> (or
+      <code>journalctl --user ...</code>)</td><td><code>sudo systemctl ...</code>
+      (or <code>journalctl ...</code>)</td></tr>
+  <tr><td>Runs as</td><td>your user, in your session</td><td>root unless the unit
+      sets <code>User=</code> (see the dedicated-user example below)</td></tr>
+  <tr><td>Boot start</td><td>after you log in (needs <code>loginctl
+      enable-linger $USER</code> to survive logout)</td><td>on boot, independent
+      of any login</td></tr>
+</table></div>
+
+<h3>The generated unit</h3>
+<p>Rendered with the database at its default location, for a per-user
+install with a config file (lines shown are the exact template):</p>
+<pre><code>[Unit]
+Description=sqtseries time-series database
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/home/user/.venv/bin/python -m sqtseries --config /home/user/sqtseries.toml run
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sqtseries
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/user/.sqtseries/data /home/user/.sqtseries/backups
+
+# Environment
+Environment=SQT_SERIES_DATABASE__PATH=/home/user/.sqtseries/data/db.sqlite
+Environment=SQT_SERIES_LOGGING__LEVEL=INFO
+
+[Install]
+WantedBy=default.target
+</code></pre>
+<p>Field by field:</p>
+<div class="table-wrap"><table>
+  <tr><th>Directive</th><th>Value</th><th>Purpose</th></tr>
+  <tr><td><code>[Unit] After</code></td><td><code>network.target</code></td><td>Start once the network stack is up (the service binds local sockets).</td></tr>
+  <tr><td><code>StartLimitIntervalSec</code> / <code>StartLimitBurst</code></td><td><code>60</code> / <code>3</code></td><td>Refuse to start more than 3 times within 60 s — breaks crash loops (e.g. a persistent port conflict).</td></tr>
+  <tr><td><code>Type</code></td><td><code>simple</code></td><td>sqtseries stays in the foreground and is the main process.</td></tr>
+  <tr><td><code>ExecStart</code></td><td><code>&lt;python&gt; -m sqtseries [--config &lt;path&gt;] run</code></td><td>The same command the CLI runs. <code>--config</code> appears only when you installed with one.</td></tr>
+  <tr><td><code>Restart</code></td><td><code>on-failure</code></td><td>Restart only when the process exits abnormally (non-zero, or killed by a signal).</td></tr>
+  <tr><td><code>RestartSec</code></td><td><code>5</code></td><td>Wait 5 s between restarts.</td></tr>
+  <tr><td><code>StandardOutput</code> / <code>StandardError</code></td><td><code>journal</code></td><td>All logs go to journald, nothing is written to files.</td></tr>
+  <tr><td><code>SyslogIdentifier</code></td><td><code>sqtseries</code></td><td>Tag for <code>journalctl -u sqtseries</code>.</td></tr>
+  <tr><td><code>NoNewPrivileges</code></td><td><code>true</code></td><td>Cannot gain new privileges (setuid etc.).</td></tr>
+  <tr><td><code>ProtectSystem</code></td><td><code>strict</code></td><td>The whole filesystem is read-only for the service.</td></tr>
+  <tr><td><code>ProtectHome</code></td><td><code>read-only</code></td><td><code>~</code> is readable but not writable.</td></tr>
+  <tr><td><code>ReadWritePaths</code></td><td>database parent dir + <code>backup.path</code> dir</td><td>The only places the service may write: its SQLite file lives in the first, backups written by <code>sqtseries backup</code> go to the second.</td></tr>
+  <tr><td><code>Environment=SQT_SERIES_DATABASE__PATH</code></td><td>resolved <code>database.path</code></td><td>Keeps the service pointed at the same database the CLI resolves to (including any <code>--db</code> you used when installing).</td></tr>
+  <tr><td><code>Environment=SQT_SERIES_LOGGING__LEVEL</code></td><td><code>INFO</code></td><td>Stable log level for the journal.</td></tr>
+  <tr><td><code>WantedBy</code></td><td><code>default.target</code></td><td>Start (and auto-start) with the default target, i.e. normal boot.</td></tr>
+</table></div>
+
+<h3>Custom ports and settings (--config)</h3>
+<p>Install with a config file and the file's path is embedded in
+<code>ExecStart</code>, so the service boots with exactly the ports and
+settings you configured. As with every command, <code>--config</code> is a
+<b>global</b> flag and must come before the subcommand:</p>
+<pre><code>sqtseries --config config.toml install            # per-user
+sudo sqtseries --config config.toml install --system</code></pre>
+<p>From then on the unit runs <code>python -m sqtseries --config
+config.toml run</code>. Change the config and restart the unit to apply
+the new values. <code>--db</code> works the same way when installing
+without a config: the database path is embedded via
+<code>SQT_SERIES_DATABASE__PATH</code> and <code>ReadWritePaths</code>.</p>
+
+<h3>Management commands</h3>
+<p>Manage the service with <code>systemctl</code> (and inspect it with the
+sqtseries CLI). There is no <code>sqtseries enable/disable/restart/logs</code>
+command — those are systemctl/journalctl:</p>
+<pre><code>systemctl --user status sqtseries
+systemctl --user restart sqtseries
+systemctl --user stop sqtseries
+systemctl --user enable sqtseries        # start on boot
+systemctl --user disable sqtseries       # stop auto-start
+
+# system service
+sudo systemctl status sqtseries
+sudo systemctl restart sqtseries
+</code></pre>
+
+<h3>Status &amp; logs</h3>
+<pre><code>sqtseries status            # reads runtime: pid, ports, db
+journalctl --user -u sqtseries -f        # follow logs
+journalctl --user -u sqtseries -n 100    # last 100 lines
+journalctl --user -u sqtseries --since today
+# system service: journalctl -u sqtseries -f
+</code></pre>
+<p>Logs go to journald, not a file. On a headless server, enable lingering so
+the user service survives logout:</p>
+<pre><code>loginctl enable-linger $USER</code></pre>
+
+<h3>Restart semantics and graceful shutdown</h3>
+<p><code>Restart=on-failure</code> only restarts when the process exits
+abnormally. sqtseries handles SIGTERM and SIGINT with a graceful shutdown —
+it drains in-flight work, checkpoints the WAL, removes its runtime file, and
+exits 0. A deliberate <code>systemctl stop</code>, <code>sqtseries stop</code>
+or Ctrl-C therefore does <em>not</em> trip Restart. Only genuine failures
+(crash, non-zero exit) trigger a restart, and the <code>StartLimitIntervalSec
+60 + StartLimitBurst 3</code> guard stops a crash loop from hammering the
+machine. Clean shutdowns are logged as "shutting down" / "shutdown complete"
+in the journal.</p>
+
+<h3>System service as a dedicated user</h3>
+<p>For production, run the system unit under its own user with the database
+in a service-owned directory:</p>
+<pre><code>sudo useradd -r -s /bin/false sqtseries
+sudo mkdir -p /var/lib/sqtseries /var/backups/sqtseries \
+&amp;&amp; sudo chown -R sqtseries:sqtseries /var/lib/sqtseries /var/backups/sqtseries
+
+# config.toml with the data/backup locations and any custom ports
+cat &gt; /etc/sqtseries/config.toml &lt;&lt;'EOF'
+[database]
+path = "/var/lib/sqtseries/db.sqlite"
+
+[backup]
+path = "/var/backups/sqtseries/"
+
+# custom ports, retention, etc. go here too
+EOF
+
+sudo sqtseries --config /etc/sqtseries/config.toml install --system
+</code></pre>
+<p>Then edit <code>/etc/systemd/system/sqtseries.service</code> to add
+<code>User=sqtseries</code> and a matching <code>ReadWritePaths</code>,
+then reload:</p>
+<pre><code># add to [Service]:
+#   User=sqtseries
+sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart sqtseries</code></pre>
+<p>The unit is written by the <code>sqtseries</code> command, so it does not
+know about the dedicated user until you add it by hand — after that the
+service runs with those permissions (and <code>NoNewPrivileges</code> /
+<code>ProtectSystem=strict</code> keep the exposure small).</p>
+
+<h3>Uninstall</h3>
+<pre><code>sqtseries uninstall          # stop + disable + remove the unit (user)
+sudo sqtseries uninstall --system
+</code></pre>
+<p><code>uninstall</code> runs <code>systemctl [--user] disable --now
+sqtseries</code> and removes the unit file. Uninstalling the unit does
+<em>not</em> delete your data. To remove the package and data too, see the
+the <a href="../README.md">README</a> (CLI reference).</p>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

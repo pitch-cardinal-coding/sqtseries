@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Queries — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a class="here" href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Queries</h2>
+<p>Querying means asking for stored measurements, usually over a time range,
+sometimes with a summary (aggregation). You can query over the ZMQ REP socket
+(port 12502) or the HTTP gateway (port 12505). One thing to keep in mind: the
+two transports use different time units, described in the warning below.</p>
+
+<div class="note">
+  <strong>Time units differ by transport.</strong> The ZMQ query path takes
+  <code>start</code>/<code>end</code> in <em>epoch nanoseconds</em>; the HTTP
+  gateway takes them in <em>epoch seconds</em>. Query results always return
+  timestamps in <em>seconds</em>. Ingestion timestamps are seconds on both.
+</div>
+
+<h3>ZMQ request format</h3>
+<p>This is the raw JSON sent over the query socket. With the bundled Python
+client you normally do not build it yourself — it is shown here for
+completeness and for other languages.</p>
+<pre><code>{
+  "type": "query",                    // optional — omitted is treated as a query
+  "metric": "cpu.usage",             // required: non-empty string
+  "start": 1720000000000000000,      // epoch NANOSECONDS (optional, inclusive)
+  "end":   1720003600000000000,      // epoch NANOSECONDS (optional, inclusive)
+  "aggregation": "avg",              // optional
+  "interval": "15m",                 // optional bucket size
+  "limit": 100,                      // optional, first N in the selected order
+  "order": "asc"                     // optional: asc | desc
+}</code></pre>
+<p>Notes:</p>
+<ul>
+  <li>Omitting <code>start</code>/<code>end</code> queries all time. Bounds are
+      inclusive. A query with <code>aggregation</code> and no
+      <code>interval</code> returns a single value over the whole window;
+      with an <code>interval</code> it returns one value per bucket
+      (buckets aligned to the Unix epoch).</li>
+  <li>There is no tag filter on the wire — a metric's data is queried as a
+      whole. (Write <code>tags</code> to split a metric into series; only the
+      embedded Python API can query by <code>series_ids</code> directly — see
+      below.)</li>
+  <li><code>limit</code> and <code>order</code> apply to the raw paths; results
+      are ordered ascending (or descending with <code>order=desc</code>) and
+      the first N are kept.</li>
+  <li>Server-side budget: queries are answered through a worker thread with a
+      <code>query.timeout_s</code> budget (default 30.0; set to 0 to disable).
+      A query that exceeds the budget gets <code>QUERY_TIMEOUT</code> back and
+      the service stays responsive. The bundled client also applies its own
+      30s receive timeout and raises <code>ClientError</code> if no reply
+      arrives in time.</li>
+</ul>
+
+<h3>Aggregation functions</h3>
+<div class="table-wrap"><table>
+  <tr><th>Function</th><th>Description</th></tr>
+  <tr><td><code>avg</code></td><td>Average (arithmetic mean)</td></tr>
+  <tr><td><code>sum</code></td><td>Sum of values</td></tr>
+  <tr><td><code>min</code></td><td>Smallest value</td></tr>
+  <tr><td><code>max</code></td><td>Largest value</td></tr>
+  <tr><td><code>count</code></td><td>Number of values</td></tr>
+  <tr><td><code>first</code></td><td>First value in the window/bucket</td></tr>
+  <tr><td><code>last</code></td><td>Last value in the window/bucket</td></tr>
+  <tr><td><code>median</code></td><td>Median (middle value)</td></tr>
+  <tr><td><code>p95</code></td><td>95th percentile: 95% of values are at or below this</td></tr>
+  <tr><td><code>p99</code></td><td>99th percentile: 99% of values are at or below this</td></tr>
+</table></div>
+<p>Percentiles use rank interpolation: for a sorted list of <em>n</em> values,
+the <em>q</em>-th percentile sits at rank <code>(n-1) * q</code> and is
+linearly interpolated between the two neighbours. Empty windows — a window
+with no data — behave differently by endpoint: on the
+<code>/api/v1/aggregate</code> (and ZMQ <code>aggregations</code>) paths,
+<code>count</code> and <code>sum</code> return <code>0.0</code> and every
+other function returns <code>NaN</code> (serialized as <code>null</code>);
+on the single-function paths (<code>/read?aggregation=…</code> and ZMQ
+<code>aggregation</code>) an empty window returns <code>data: []</code>.</p>
+
+<h3>Intervals</h3>
+<p>An interval is a number plus a unit: <code>s</code> (seconds),
+<code>m</code> (minutes), <code>h</code> (hours), <code>d</code> (days).
+Examples: <code>5s</code>, <code>1m</code>, <code>15m</code>, <code>1h</code>,
+<code>1d</code>. Buckets start at Unix-epoch boundaries
+(<code>ts // bucket_ns * bucket_ns</code>).</p>
+
+<h3>Multiple whole-window aggregations</h3>
+<p>Send <code>aggregations</code> (a comma-separated string) instead of
+<code>aggregation</code> to get several values over one window. The reply's
+<code>data</code> becomes a <em>dict</em> of function → value instead of a
+list:</p>
+<pre><code>{
+  "type": "query",
+  "metric": "cpu.usage",
+  "aggregations": "avg,min,max,p95"
+}
+# → {"status":"ok","data":{"avg":0.71,"min":0.4,"max":0.98,"p95":0.91}}
+</code></pre>
+
+<h3>Response format</h3>
+<pre><code>{
+  "status": "ok",
+  "data": [
+    {"timestamp": 1720000000.0, "value": 0.72},   // seconds
+    {"timestamp": 1720000060.0, "value": 0.68}
+  ]
+}</code></pre>
+<p>For a whole-window <code>aggregation</code> (no interval) the single result
+row is anchored at the window's oldest sample (the last one when
+<code>order=desc</code>). For an aggregations (multi-func) query,
+<code>data</code> is <code>{func: value}</code>.</p>
+
+<h3>HTTP queries</h3>
+<p>HTTP is the easiest path from scripts, browsers, and languages without a
+ZMQ binding. Timestamps are in <em>seconds</em> here; results are identical in
+shape to the ZMQ path.</p>
+<div class="table-wrap"><table>
+  <tr><th>Endpoint</th><th>Params</th><th>Returns</th></tr>
+  <tr><td><code>GET /api/v1/read</code></td>
+      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds),
+          <code>aggregation</code>, <code>interval</code>, <code>limit</code> (1–100000),
+          <code>order</code> (asc|desc)</td>
+      <td><code>{"status":"ok","data":[{timestamp,value}]}</code></td></tr>
+  <tr><td><code>GET /api/v1/aggregate</code></td>
+      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds),
+          <code>funcs</code> (comma list, default <code>avg</code>)</td>
+      <td><code>{"status":"ok","aggregations":{func:value}}</code></td></tr>
+  <tr><td><code>GET /api/v1/stats</code></td>
+      <td>—</td>
+      <td><code>{"status":"ok","metrics":N,"series":M}</code></td></tr>
+</table></div>
+<pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
+curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=1720000000&amp;end=1720003600&amp;limit=10&amp;order=desc"
+curl "http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.usage&amp;funcs=avg,min,max,p95"
+curl "http://127.0.0.1:12505/api/v1/stats"
+curl "http://127.0.0.1:12505/api/v1/health"</code></pre>
+<p>Bad parameters (<code>limit</code> outside 1–100000, invalid
+<code>order</code>, missing <code>metric</code>) are rejected with
+<code>422</code>; an unknown aggregation or interval with <code>400</code>.</p>
+
+<h3>Examples</h3>
+<p>For every classic question phrased the way a person asks it ("average
+CPU last hour?", "peak temperature yesterday?", "99th percentile over the
+week?"), see the runnable
+<a href="examples.html">question catalog</a> —
+<code>examples/question_examples.py</code> seeds data and answers 13 such
+questions with machine-readable output. The building blocks below are the
+same ones it uses.</p>
+<h4>Last hour of raw data (Python client)</h4>
+<pre><code>from sqtseries import Client
+import time
+
+c = Client()
+now_ns = time.time_ns()
+rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns)</code></pre>
+
+<h4>Per-minute averages</h4>
+<pre><code>c.query("cpu.usage", aggregation="avg", interval="1m")</code></pre>
+
+<h4>Daily max over the last week</h4>
+<pre><code>c.query("cpu.usage", start=now_ns - 7 * 86400 * 10**9, end=now_ns,
+        aggregation="max", interval="1d")</code></pre>
+
+<h4>Raw ZMQ query</h4>
+<pre><code>import zmq, orjson
+
+ctx = zmq.Context()
+sock = ctx.socket(zmq.REQ)
+sock.setsockopt(zmq.LINGER, 500)
+sock.setsockopt(zmq.RCVTIMEO, 30000)
+sock.connect("tcp://127.0.0.1:12502")
+sock.send(orjson.dumps({
+    "type": "query", "metric": "cpu.usage",
+    "start": now_ns - 3600 * 10**9, "end": now_ns,
+    "aggregation": "avg", "interval": "1m",
+}))
+reply = orjson.loads(sock.recv())
+print(reply)</code></pre>
+
+<h4>HTTP (seconds)</h4>
+<pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=1720000000&amp;end=1720003600&amp;aggregation=avg&amp;interval=1m"</code></pre>
+
+<h3>Querying by series_id (embedded API)</h3>
+<p>Each unique <code>(metric, tags)</code> pair is a <em>series</em>. The
+embedded Python API can query a specific series directly — the wire protocol
+cannot (it has no tag filter). This path uses the clustered primary key
+<code>(series_id, timestamp_ns)</code> and is the fastest way to isolate one
+host:</p>
+<pre><code>from sqtseries.engine import StorageEngine, create_sqlite_engine, initialize_schema
+from sqtseries.query import TimeSeriesDB
+
+engine = create_sqlite_engine("~/.sqtseries/data/db.sqlite")
+initialize_schema(engine)
+tsdb = TimeSeriesDB(StorageEngine(engine))
+
+sids = tsdb.store.series_ids_for_metric("cpu.usage")
+rows = tsdb.query(series_ids=[sids[0]], start=now_ns - 3600 * 10**9, end=now_ns)</code></pre>
+<p>This is the same clustered-PK path the rollup uses.</p>
+
+<h3>Gap filling (embedded API)</h3>
+<p>The embedded query API supports linear interpolation of small gaps
+(<code>fill_gaps_ns</code> inserts a midpoint between two samples when the gap
+is at most that size):</p>
+<pre><code># fill gaps &lt;= 60s by inserting a midpoint value
+rows = tsdb.query("cpu.usage", start=..., end=..., fill_gaps_ns=60 * 10**9)</code></pre>
+<p><code>downsample_to_intervals(..., fill_missing=True)</code> (in
+<code>sqtseries.query.agg</code>) emits <code>NaN</code> buckets for empty
+intervals instead of skipping them. Both are embedded-only conveniences —
+there is no wire parameter for them.</p>
+
+<h3>NaN and infinity values</h3>
+<p>Non-finite values (<code>NaN</code>, <code>±Inf</code>) are
+<strong>rejected</strong> at ingest on both paths (ZMQ: dropped and counted
+<code>invalid</code>; HTTP: <code>400</code> "value must be finite"). They can
+however be <em>returned</em>: empty-window aggregate results are
+<code>NaN</code>, serialized as <code>null</code>.</p>
+
+<h3>The rollup fast path</h3>
+<p>Wide-window aggregates can be answered from the hourly rollup table instead
+of scanning every raw row. The exact eligibility rules:</p>
+<ul>
+  <li><strong>Eligible when</strong> the aggregation is
+      <code>avg</code>, <code>sum</code>, <code>min</code>, <code>max</code>,
+      or <code>count</code> (the functions expressible from the rollup's
+      count/sum/min/max columns).</li>
+  <li><strong>The interval</strong>, if given, must be a whole-hour multiple
+      (<code>1h</code>, <code>2h</code>, <code>1d</code>, …); non-hour
+      intervals (<code>1m</code>, <code>30m</code>, <code>90m</code>, …)
+      fall back to raw rows.</li>
+  <li><strong>The window</strong> must span at least two completed hours and
+      its end-hour boundary must be at or below the rollup watermark (which
+      tracks the last completed, rolled hour) — i.e. the window's tail cannot
+      reach into the current hour.</li>
+  <li><strong>Not eligible:</strong> <code>first</code>, <code>last</code>,
+      <code>median</code>, <code>p95</code>, <code>p99</code>; non-whole-hour
+      intervals; windows shorter than two completed hours.</li>
+  <li><strong>Always exact.</strong> Only completed hours are rolled, and the
+      in-progress hour is read from raw rows and merged — the rollup is an
+      acceleration, never an approximation.</li>
+</ul>
+<p>Measured effect (<a href="benchmarks.md">benchmarks</a>, 2M rows at 20K
+points per series): the same wide-window query drops from ~12.0ms linear
+(raw scan) to ~1.3ms near-constant. The rollup runs in the background
+(<code>rollup.interval</code>, default every 5 minutes); hours are only
+rolled once they are at least the client-skew window past completion.</p>
+
+<h3>Where to go next</h3>
+<ul>
+  <li><a href="ingestion.html">Ingestion</a> — get data into the database
+      first.</li>
+  <li><a href="streaming.html">Streaming</a> — live data instead of (or in
+      addition to) history.</li>
+  <li><a href="clients.html">Client Libraries</a> — the same query shapes
+      from Go, Rust, PHP, and Node.js.</li>
+  <li><a href="api.html">API Reference</a> — response/error formats and the
+      full wire protocol.</li>
+  <li><a href="examples.html">Examples</a> — <code>consumer.py</code> and
+      <code>query_examples.py</code> are runnable.</li>
+</ul>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

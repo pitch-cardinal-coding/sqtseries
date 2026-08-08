@@ -1,0 +1,21 @@
+# Core
+orjson==3.11.9
+pyzmq==27.1.0
+
+# HTTP Gateway
+fastapi==0.141.1
+uvicorn==0.52.1
+httpx==0.28.1
+
+# CLI
+click==8.4.2
+
+# Configuration
+pydantic==2.13.4
+pydantic-settings==2.14.2
+
+# Logging
+structlog==26.1.0
+
+# Performance
+uvloop==0.22.1

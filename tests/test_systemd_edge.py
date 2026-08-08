@@ -1,0 +1,71 @@
+"""systemd unit management edge cases (mocked systemctl + HOME)."""
+
+import pytest
+
+import sqtseries.systemd as sd
+
+
+@pytest.fixture
+def isolated(monkeypatch, tmp_path):
+    """Point unit paths + systemctl at a temp dir; record calls."""
+    calls = []
+    monkeypatch.setattr(
+        sd,
+        "_unit_path",
+        lambda system: tmp_path / ("system" if system else "user") / sd.UNIT_NAME,
+    )
+    monkeypatch.setattr(sd, "_systemctl", lambda args: calls.append(args))
+    return calls
+
+
+def test_install_writes_and_enables(isolated, tmp_path):
+    sd.install_systemd_unit(
+        python="/usr/bin/python3",
+        db_path="/data/db.sqlite",
+        backup_path="/data/backups",
+    )
+    unit = (tmp_path / "user" / sd.UNIT_NAME).read_text()
+    assert "ExecStart=/usr/bin/python3 -m sqtseries run" in unit
+    assert "ReadWritePaths=/data /data/backups" in unit
+    assert "SQT_SERIES_DATABASE__PATH=/data/db.sqlite" in unit
+    assert isolated == [
+        ["--user", "daemon-reload"],
+        ["--user", "enable", "--now", sd.UNIT_NAME],
+    ]
+
+
+def test_install_system_uses_no_user_prefix(isolated, tmp_path):
+    sd.install_systemd_unit(
+        python="/usr/bin/python3", db_path="/data/db.sqlite", system=True
+    )
+    assert (tmp_path / "system" / sd.UNIT_NAME).exists()
+    assert ["daemon-reload"] in isolated
+    assert ["enable", "--now", sd.UNIT_NAME] in isolated
+
+
+def test_uninstall_disables_and_removes(isolated, tmp_path):
+    unit_path = tmp_path / "user" / sd.UNIT_NAME
+    unit_path.parent.mkdir(parents=True)
+    unit_path.write_text("[Unit]")
+    sd.uninstall_systemd_unit()
+    assert not unit_path.exists()
+    assert ["--user", "disable", "--now", sd.UNIT_NAME] in isolated
+
+
+def test_uninstall_system(isolated, tmp_path):
+    unit_path = tmp_path / "system" / sd.UNIT_NAME
+    unit_path.parent.mkdir(parents=True)
+    unit_path.write_text("[Unit]")
+    sd.uninstall_systemd_unit(system=True)
+    assert not unit_path.exists()
+    assert ["disable", "--now", sd.UNIT_NAME] in isolated
+
+
+def test_template_quotes_python_with_spaces():
+    unit = sd.unit_template_contents("/opt/my env/bin/python3", "/data/db.sqlite")
+    assert "ExecStart='/opt/my env/bin/python3' -m sqtseries run" in unit
+
+
+def test_template_defaults():
+    unit = sd.unit_template_contents("/usr/bin/python3", "~/.sqtseries/data/db.sqlite")
+    assert "ReadWritePaths=/home/" in unit or "/sqtseries/data" in unit

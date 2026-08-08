@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Camera Analytics — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a class="here" href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Camera analytics: pumping a metrics feed and answering everything</h2>
+<p>A camera with edge analytics streams JSON over a WebSocket — people and
+vehicle counts, per-minute rates, battery and CPU telemetry. sqtseries
+stores each number as a flat measurement tagged with the camera ID, and
+once data accumulates you can answer questions like <em>what was the
+busiest hour?</em>, <em>how fast is the battery draining?</em>, and
+<em>does heavy footfall load the CPU?</em></p>
+
+<h3>How it works</h3>
+<p>One message from the feed (about 4 per second) looks like this:</p>
+<pre><code>{
+  "camera_id": "test_cam_001",
+  "generated_at": "2026-08-08T16:26:30.33+00:00",
+  "current_visible_people": 21,
+  "total_detected_people": 150,
+  "current_visible_cars": 6,
+  "total_detected_vehicles": 81,
+  "people_last_minute": 20,
+  "cars_last_minute": 6,
+  "system_metrics": {
+    "batteryPercent": 84.3,
+    "batteryTemperature": 28.9,
+    "cpuUsagePercent": 38.5,
+    "cpuTemperature": 63.8
+  }
+}</code></pre>
+<p>sqtseries stores flat <code>metric + value + tags</code>, so
+<code>camera_feed.py</code> flattens each message into 11 measurements,
+all tagged with <code>camera_id=test_cam_001</code>:</p>
+<pre><code>traffic.people.current        21      camera_id=test_cam_001
+traffic.people.total          237     camera_id=test_cam_001
+traffic.vehicles.current      9       camera_id=test_cam_001
+traffic.vehicles.total        100     camera_id=test_cam_001
+traffic.people.last_minute    21      camera_id=test_cam_001
+traffic.cars.last_minute      9       camera_id=test_cam_001
+system.battery.percent        84.3    camera_id=test_cam_001
+system.battery.temperature    28.5    camera_id=test_cam_001
+system.cpu.usage              41.3    camera_id=test_cam_001
+system.cpu.temperature        62.4    camera_id=test_cam_001
+status.detection_overlay      1       camera_id=test_cam_001</code></pre>
+<p>String fields (battery health, footer text, overlay URLs) are not
+numeric and are skipped. All points of one message are written in a single
+HTTP batch, which keeps the writes well under the default rate limit.</p>
+
+<h3>Running the full pipeline</h3>
+<p>The repository includes a simulator (<code>overlay_server.py</code>)
+that generates this feed on a random free port, so the whole flow works
+end to end without any camera hardware. The one-command runner
+(<code>examples/sqtcam.sh</code>) starts everything in a single tmux
+session — ideal for leaving overnight to accumulate data:</p>
+<pre><code># one command: sqtseries + simulator + camera feed in a tmux session
+python3 examples/sqtcam.sh        # or: bash examples/sqtcam.sh
+tmux attach -t sqtcam             # watch the three windows live
+tmux kill-session -t sqtcam       # stop everything (data persists)
+
+# anytime — answer every question from the stored data
+python3 examples/camera_feed.py --ask --host 127.0.0.1 --http-port 17105</code></pre>
+<p><code>sqtcam.sh</code> starts three windows: <code>sqtseries</code>
+(the service, config at <code>/tmp/sqtcam/conf.toml</code>, ports
+17101–17106), <code>overlay</code> (the simulator), and <code>camera</code>
+(the feed, wired to the simulator's random port automatically). It refuses
+to start a second session if one is already running.</p>
+<p>Without the runner, the same flow works in four terminals:</p>
+<pre><code># terminal 1 — the data source (note the printed WebSocket URL)
+python3 examples/overlay_server.py
+
+# terminal 2 — sqtseries
+sqtseries --config config.toml run
+
+# terminal 3 — pump the feed into sqtseries
+python3 examples/camera_feed.py --ws ws://localhost:&lt;port&gt;/ws/metrics
+#   let it run for a few minutes (or hours/days for real data)
+
+# terminal 4 — answer every question from the stored data
+python3 examples/camera_feed.py --ask</code></pre>
+<p><code>--ask</code> runs 17 questions: traffic levels and percentiles,
+busiest hour and day, total footfall, day-over-day trend, pass-through
+turnover, anomaly vs the same hour on previous days, battery drain rate
+and time-to-empty projection, CPU and thermal profile, footfall/CPU
+correlation, feed staleness and uptime, per-camera notes, monthly
+projection, storage growth, and overlay availability. Every question is
+safe to run against sparse data: if the window holds less history than a
+question needs, it prints a short "not enough data" note instead of
+guessing (for example, a battery that gained charge is reported as a
+recharge rather than a negative drain rate).</p>
+<p>The pump script only needs the standard library plus
+<code>websockets</code> — it talks to sqtseries over plain HTTP, so it can
+run from a different machine, a different venv, or a different language
+entirely.</p>
+
+<h3>The scripts</h3>
+<div class="table-wrap"><table>
+  <tr><th>Script</th><th>Purpose</th><th>Options (default)</th><th>Runs until</th></tr>
+  <tr><td><code>overlay_server.py</code></td>
+      <td>Simulated camera-metrics WebSocket source (people/vehicles,
+          battery, CPU) — feeds <code>camera_feed.py</code></td>
+      <td><code>--port</code> (default: a random free port),
+          <code>TEST_*</code> env vars (host, port, push interval,
+          camera ID)</td>
+      <td>streaming — Ctrl+C</td></tr>
+  <tr><td><code>camera_feed.py</code></td>
+      <td>Pump a camera WebSocket feed into sqtseries and answer every
+          question the stored data can answer</td>
+      <td>pump: <code>--ws</code> URL, <code>--host</code>,
+          <code>--http-port</code>; <code>--ask</code> (17 questions),
+          <code>--hours</code> window, <code>--once</code></td>
+      <td>pump: streaming — Ctrl+C; <code>--ask</code>: one pass</td></tr>
+  <tr><td><code>sqtcam.sh</code></td>
+      <td>One-command runner: starts sqtseries, the overlay simulator, and
+          the camera feed in a three-window tmux session for long data
+          collection</td>
+      <td>— (uses <code>/tmp/sqtcam/conf.toml</code>; refuses to start a
+          second session)</td>
+      <td>— runs until <code>tmux kill-session -t sqtcam</code></td></tr>
+</table></div>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <div class="card"><h3><a href="ingestion.html">Ingestion</a></h3>
+    <p>All the ways to get data in: ZMQ, HTTP, and the Client, with
+    timestamps and the clock-skew guard.</p></div>
+  <div class="card"><h3><a href="streaming.html">Streaming</a></h3>
+    <p>Live data over ZMQ SUB, WebSocket, and the Client.</p></div>
+  <div class="card"><h3><a href="queries.html">Queries</a></h3>
+    <p>Aggregations, intervals, the rollup fast path, gap filling, and
+    streaming queries in bounded memory.</p></div>
+  <div class="card"><h3><a href="examples.html">Examples</a></h3>
+    <p>Every example script and the question catalogs.</p></div>
+</div>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

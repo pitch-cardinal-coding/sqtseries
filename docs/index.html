@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>sqtseries — a time-series database for your own projects</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a class="here" href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>What is sqtseries?</h2>
+<p>sqtseries is a program that lets you record measurements — temperature,
+CPU usage, website visits, stock prices, energy use, anything that changes
+over time — and later ask questions like "what was the average this last
+hour?", "what is the latest reading?", or "how did it change day by day?".
+The answers come back in milliseconds, and stay fast even after you have
+stored millions of numbers.</p>
+
+<p>It is designed for your own projects rather than big shared services. You
+do not install a separate database server: <code>sqtseries run</code> starts
+the service, its data lives in a single SQLite file on your machine
+(<code>~/.sqtseries/data/db.sqlite</code> by default), and you can copy, back
+up, or delete that file like any other. It also ships a ZeroMQ message bus
+and an HTTP gateway, so programs written in other languages can send it data
+and read results too.</p>
+
+<p>Behind the scenes, the engine keeps your questions fast without you doing
+anything: measurements are stored in monthly partitions, and a background
+task pre-aggregates every completed hour into a summary table. A query about
+months of history reads a handful of summary rows instead of every stored
+point, so wide queries stay fast as the data grows.</p>
+
+<div class="cards">
+  <div class="card">
+    <h3>One file database</h3>
+    <p>Everything lives in one SQLite file in WAL mode, split into monthly
+    partitions. Consistent backups are one command away.</p>
+  </div>
+  <div class="card">
+    <h3>Fast, crash-safe writes</h3>
+    <p>Every measurement is written in its own transaction the moment it
+    arrives — no batch buffer to lose or flush. SQLite's WAL journal makes
+    every write atomic.</p>
+  </div>
+  <div class="card">
+    <h3>Fast reads</h3>
+    <p>Queries draw on a built-in hourly summary table, so a question about
+    months of data reads a handful of rows instead of every stored point.</p>
+  </div>
+  <div class="card">
+    <h3>Two ways to talk</h3>
+    <p>ZeroMQ (a message bus) and HTTP (web requests). The bundled Python
+    client (<code>sqtseries.Client</code>) talks ZeroMQ; plain HTTP works
+    from any tool.</p>
+  </div>
+</div>
+
+<h2>Try it</h2>
+<p>Install sqtseries and start the service, then send and read back some
+data. The whole loop is a few commands:</p>
+
+<pre><code>pip install sqtseries
+sqtseries run</code></pre>
+
+<p>In another terminal, send a measurement and read it back:</p>
+
+<pre><code>from sqtseries import Client
+
+c = Client()
+c.write("cpu.usage", 0.72, {"host": "web1"})
+
+rows = c.query("cpu.usage", aggregation="avg", interval="1m")
+print(rows)</code></pre>
+
+<p>You can also use plain HTTP from any tool that speaks it:</p>
+
+<pre><code>curl -X POST http://127.0.0.1:12505/api/v1/write \
+  -H "Content-Type: application/json" \
+  -d '{"metric":"cpu.usage","value":0.72}'
+curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;limit=5"</code></pre>
+
+<h2>Camera analytics</h2>
+<p>A camera with edge analytics streams JSON over a WebSocket — people and
+vehicle counts, battery and CPU telemetry, every quarter second. sqtseries
+stores each number as a flat measurement tagged with the camera ID, and
+then answers the questions that matter: busiest hour, footfall trend,
+battery drain rate and time-to-empty, CPU/thermal profile, feed uptime,
+and more.</p>
+<p>The repo ships a self-contained demo: <code>overlay_server.py</code>
+simulates the camera feed on a random port, <code>camera_feed.py</code>
+pumps it into sqtseries over plain HTTP (no sqtseries installed needed —
+just <code>websockets</code>), and <code>camera_feed.py --ask</code>
+answers 17 questions from the stored data. One command —
+<code>examples/sqtcam.sh</code> — starts sqtseries, the simulator, and
+the feed in a tmux session so you can leave it collecting data overnight.
+See <a href="camera.html">Camera analytics</a> for the full
+walkthrough.</p>
+
+<h2>Ports</h2>
+<p>The service is configured to listen on these six local ports
+(defaults; note the ingest port is auto-detected from 12500 when
+<code>ports.auto_detect</code> is on, so it is usually 12500, not 12501):</p><div class="table-wrap"><table>
+  <tr><th>Port</th><th>Purpose</th><th>Protocol</th><th>Doc</th></tr>
+  <tr><td>12501</td><td>Ingestion</td><td>ZMQ PULL</td><td><a href="ingestion.html">Ingestion</a></td></tr>
+  <tr><td>12502</td><td>Queries</td><td>ZMQ REP</td><td><a href="queries.html">Queries</a></td></tr>
+  <tr><td>12503</td><td>Live streaming</td><td>ZMQ XPUB</td><td><a href="streaming.html">Streaming</a></td></tr>
+  <tr><td>12504</td><td>Admin commands</td><td>ZMQ REP</td><td><a href="api.html#admin">Admin</a></td></tr>
+  <tr><td>12505</td><td>HTTP gateway</td><td>HTTP + WebSocket</td><td><a href="api.html#http">HTTP API</a></td></tr>
+  <tr><td>12506</td><td>Stats events</td><td>ZMQ PUB</td><td><a href="api.html#stats">Admin</a></td></tr>
+</table></div>
+<p>All sockets are local only (bound to 127.0.0.1). Of the six, only the
+ingest port is auto-detected: <code>run</code> scans the port range (default
+12500–12700, plus <code>ports.port_offset</code>) for the first free port,
+skipping the query/streaming/admin/http ports it is told to avoid
+(<code>ports.auto_detect</code>). The other five ports are fixed — if one of
+them is already bound, startup fails so you can fix the conflict. The active
+ports are shown by <code>sqtseries ports</code> and stored in
+<code>runtime.json</code> next to the database.</p>
+
+<h2>Documentation</h2>
+<div class="table-wrap"><table>
+  <tr><th>Page</th><th>What it covers</th></tr>
+  <tr><td><a href="quickstart.html">Quick Start</a></td><td>End to end: install, run, send, query, subscribe, run as a service.</td></tr>
+  <tr><td><a href="configuration.html">Configuration</a></td><td>Every setting, config file, environment variables, port rules.</td></tr>
+  <tr><td><a href="ingestion.html">Ingestion</a></td><td>How data gets in over HTTP, ZMQ, and the client; format rules and limits.</td></tr>
+  <tr><td><a href="queries.html">Queries</a></td><td>Time ranges, aggregations, intervals, and examples.</td></tr>
+  <tr><td><a href="streaming.html">Streaming</a></td><td>Live data over ZMQ SUB, WebSocket, and the client.</td></tr>
+  <tr><td><a href="camera.html">Camera</a></td><td>Pump a camera metrics feed into sqtseries and answer 17 questions about it.</td></tr>
+  <tr><td><a href="clients.html">Client Libraries</a></td><td>Code samples for Python, Go, Rust, PHP, and Node.js.</td></tr>
+  <tr><td><a href="systemd.html">Systemd</a></td><td>Run sqtseries as a hardened service that stays up.</td></tr>
+  <tr><td><a href="api.html">API Reference</a></td><td>The programmer-facing details on one page.</td></tr>
+  <tr><td><a href="architecture.html">Architecture</a></td><td>How the engine, storage, and background tasks fit together.</td></tr>
+  <tr><td><a href="backup.html">Backup &amp; Restore</a></td><td>What to back up, how to restore, and how vacuum works.</td></tr>
+  <tr><td><a href="examples.html">Examples</a></td><td>Real-world scenarios with complete code.</td></tr>
+</table></div>
+
+<div class="cards">
+  <div class="card">
+    <h3><a href="quickstart.html">Quick Start</a></h3>
+    <p>From install to data in, step by step.</p>
+  </div>
+  <div class="card">
+    <h3><a href="configuration.html">Configuration</a></h3>
+    <p>How to change ports, the database location, logging, and more.</p>
+  </div>
+  <div class="card">
+    <h3><a href="ingestion.html">Ingestion</a></h3>
+    <p>How data gets in, and the (few) rules its format follows.</p>
+  </div>
+  <div class="card">
+    <h3><a href="queries.html">Queries</a></h3>
+    <p>How to ask questions of the data, with examples.</p>
+  </div>
+  <div class="card">
+    <h3><a href="streaming.html">Streaming</a></h3>
+    <p>How to get data live as it arrives.</p>
+  </div>
+  <div class="card">
+    <h3><a href="clients.html">Client Libraries</a></h3>
+    <p>Code samples for Python, Go, Rust, PHP, and Node.js.</p>
+  </div>
+  <div class="card">
+    <h3><a href="systemd.html">Systemd</a></h3>
+    <p>Run sqtseries as a service that always stays up.</p>
+  </div>
+  <div class="card">
+    <h3><a href="api.html">API Reference</a></h3>
+    <p>The programmer-facing details, in one page.</p>
+  </div>
+  <div class="card">
+    <h3><a href="architecture.html">Architecture</a></h3>
+    <p>The big picture if you are curious how it is put together.</p>
+  </div>
+  <div class="card">
+    <h3><a href="examples.html">Examples</a></h3>
+    <p>Real-world scenarios with complete code: monitoring, dashboards,
+    alerting, sensor logging, and more.</p>
+  </div>
+</div>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

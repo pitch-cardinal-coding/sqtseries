@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Architecture — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a class="here" href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Architecture</h2>
+
+<h3>System overview</h3>
+<pre><code>                  ┌───────────────────────────────  sqtseries  ───────────────────────────────┐
+ Producer ─PUSH───►│ PULL 12501 ──► validate ──► store.insert_many ──► SQLite (WAL, monthly     │
+                   │                                        │               partitions)          │
+                   │                                        └──► PUB 12503 ────► Subscriber      │
+ QueryClient ◄─REQ─│ REP 12502 ◄── TimeSeriesDB ◄───────────┘                                   │
+ Admin     ◄─REQ── │ REP 12504 ◄── ping/health/stats/optimize/backup/vacuum/connections         │
+ Browser   ◄─HTTP─►│ FastAPI 12505 ──► TimeSeriesDB + PubSub (direct, no ZMQ hop)               │
+ Monitor   ◄─SUB── │ PUB 12506 ── conn / sub / report events (every 10s)                        │
+                   └────────────────────────────────────────────────────────────────────────────┘</code></pre>
+
+<p>sqtseries is one process, one event loop, one SQLite file. The HTTP gateway
+(FastAPI served in-process by uvicorn on port 12505) talks directly to the
+engine and the PubSub bus; there is no ZMQ hop for HTTP traffic.</p>
+
+<p>The rest of this page is for maintainers and anyone curious how things are
+put together. Regular users do not need it.</p>
+
+<h3>Ports and protocols</h3>
+<p>Ports are fixed by default (12501–12506, configurable in
+<a href="configuration.html">Configuration</a>). The only port that is
+auto-detected is the ingest port (<code>[ports] auto_detect = true</code> scans
+12500–12700 for a free port); the six protocol ports always use their
+configured values.</p>
+<div class="table-wrap"><table>
+  <tr><th>Protocol</th><th>Port</th><th>Data</th><th>HWM</th></tr>
+  <tr><td>PUSH → PULL</td><td>12501</td><td>Ingestion (one measurement per frame, JSON)</td><td>10,000</td></tr>
+  <tr><td>REQ/REP</td><td>12502</td><td>Query / aggregate requests</td><td>1,000</td></tr>
+  <tr><td>XPUB/SUB</td><td>12503</td><td>Live measurements (topic = metric)</td><td>10,000</td></tr>
+  <tr><td>REQ/REP</td><td>12504</td><td>Admin commands (ping/health/stats/optimize/backup/vacuum/connections/conncheck/subscribers)</td><td>1,000</td></tr>
+  <tr><td>HTTP + WebSocket</td><td>12505</td><td>REST (<code>/api/v1/*</code>) + <code>/ws/subscribe</code> — direct engine access, no ZMQ</td><td>n/a (rate-limited)</td></tr>
+  <tr><td>PUB</td><td>12506</td><td>Stats events (<code>conn</code>, <code>sub</code>, <code>report</code> every 10 s)</td><td>1,000</td></tr>
+</table></div>
+
+<h3>Components</h3>
+<div class="cards">
+  <div class="card"><h3>SQLite engine</h3>
+    <p>Raw <code>sqlite3</code> layer (<code>engine/</code>): WAL pragmas,
+    <code>BEGIN IMMEDIATE</code> writer transactions, <code>executemany</code>
+    inserts, monthly partitions, VACUUM INTO backups.</p></div>
+  <div class="card"><h3>Query engine</h3>
+    <p><code>query/</code>: raw fetches, Python aggregation/downsampling, and
+    the rollup fast path (eligible queries only).</p></div>
+  <div class="card"><h3>Messaging</h3>
+    <p><code>messaging/</code>: PULL ingest, REP query + admin, XPUB live
+    bus, stats PUB, connection registry, worker pool.</p></div>
+  <div class="card"><h3>HTTP gateway</h3>
+    <p>FastAPI REST + WebSocket (<code>gateway/</code>), rate-limited
+    (600 req/min), CORS-enabled.</p></div>
+  <div class="card"><h3>Background tasks</h3>
+    <p>Rollup (hourly pre-aggregates), retention (partition drops), maintenance
+    (<code>ANALYZE</code>), backup (scheduled snapshots), WAL checkpointing.</p></div>
+  <div class="card"><h3>Service</h3>
+    <p><code>service.py</code>: startup sequence, runtime file, graceful
+    shutdown (PRAGMA optimize + checkpoint of the WAL).</p></div>
+</div>
+
+<h3>SQLite schema</h3>
+<p>Tables are created by <code>engine/schema.py</code>; measurements live in
+monthly partitions named <code>measurements_YYYY_MM</code>.</p>
+<pre><code>-- Series identity: metric + JSON tags -> integer id
+CREATE TABLE series (
+    series_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric TEXT NOT NULL,
+    tags TEXT,                      -- JSON-encoded TEXT (not SQLite JSON type)
+    CONSTRAINT ck_tags_json CHECK (tags IS NULL OR json_valid(tags))
+);
+CREATE UNIQUE INDEX uq_series_metric_tags ON series(metric, tags);
+
+-- Measurements: monthly partitions, WITHOUT ROWID = clustered PK
+CREATE TABLE measurements_YYYY_MM (
+    series_id INTEGER NOT NULL,
+    timestamp_ns INTEGER NOT NULL,   -- nanosecond epoch
+    value REAL NOT NULL,
+    PRIMARY KEY (series_id, timestamp_ns)
+) WITHOUT ROWID;
+CREATE INDEX ix_measurements_YYYY_MM_ts ON measurements_YYYY_MM(timestamp_ns);
+
+-- Hourly rollup (count/sum/min/max so avg is derived) + watermark table
+CREATE TABLE rollup_hourly (
+    series_id INTEGER NOT NULL,
+    hour_start_ns INTEGER NOT NULL,
+    count INTEGER NOT NULL,
+    sum REAL NOT NULL,
+    min REAL NOT NULL,
+    max REAL NOT NULL,
+    PRIMARY KEY (series_id, hour_start_ns)
+) WITHOUT ROWID;
+CREATE TABLE rollup_meta (
+    k TEXT PRIMARY KEY,
+    v INTEGER NOT NULL
+);
+</code></pre>
+<p>The <code>timestamp_ns</code> secondary index serves cross-series range
+queries and retention; per-series ranges use the clustered primary key
+(<code>EXPLAIN QUERY PLAN</code>: <code>SEARCH … USING PRIMARY KEY</code>).</p>
+
+<h3>Write path</h3>
+<p>Ingestion is serialized by SQLite itself — there is no app-level write
+queue and no app-level batching:</p>
+<ol>
+  <li>PUSH frames arrive on port <code>12501</code> (HWM 10,000; a slow
+      consumer blocks the producer through the socket buffer).</li>
+  <li>Each frame is validated: <code>orjson</code> decode, then
+      <code>parse_ingest</code> (metric/value/tags/timestamp shape plus the
+      clock-skew guard, default 300 s). Invalid frames are dropped and
+      counted (<code>invalid</code> in admin stats).</li>
+  <li>The sink calls <code>store.insert_many</code> <em>with that single
+      measurement</em> inside one <code>BEGIN IMMEDIATE</code> transaction
+      (series resolution, partition DDL, and the measurement insert all
+      commit together). There is no row-level batching on the service path —
+      each frame is one transaction.</li>
+</ol>
+<p><code>database.batch_size</code> (default 2000) exists in the config and is
+honored by benchmark/load tooling (<code>scripts/benchmark.py</code> batches
+via <code>insert_many</code> with <code>--batch</code>), but the live service
+path is per-message inserts. A fast writer therefore has higher per-write
+overhead than the benchmark numbers suggest; see
+<a href="benchmarks.md">benchmarks</a> for the distinction.</p>
+
+<h3>Query path and the rollup fast path</h3>
+<p>A query first decides whether the rollup can answer it (see
+<a href="queries.html">Queries</a>):</p>
+<ul>
+  <li><strong>Eligible:</strong> aggregation ∈ {<code>avg</code>,
+      <code>sum</code>, <code>min</code>, <code>max</code>, <code>count</code>};
+      a whole-hour interval (<code>1h</code>, <code>2h</code>,
+      <code>1d</code>, …) or none; a window spanning at least two completed
+      hours; an end hour at or below the rollup watermark (i.e. not in the
+      still-rolling region).</li>
+  <li><strong>Not eligible (falls back to raw rows):</strong>
+      <code>first</code>, <code>last</code>, <code>median</code>,
+      <code>p95</code>, <code>p99</code>; non-hour intervals; windows shorter
+      than two hours; or a window whose end hour is beyond the
+      rollup watermark (the in-progress hour's partial data is still read
+      from raw rows and merged).</li>
+</ul>
+<p>Eligible queries split the window into three disjoint sources: the first
+edge hour and the last (partial) hour read from raw rows, the fully-inside
+hours read from <code>rollup_hourly</code> — then merged per bucket. Nothing is
+double-counted, and the in-progress hour is always served from raw rows, so
+rollup results are <em>exact</em>, never approximate. Ineligible queries keep
+the raw path: every row in the window is streamed and aggregated in Python.
+This is what makes wide-window aggregates near-constant cost instead of linear
+in rows scanned (benchmarked ~9× at 20,000 points per series — see
+<a href="benchmarks.md">benchmarks</a>).</p>
+
+<h3>Rollup maintenance</h3>
+<p><code>rollup_new_hours</code> aggregates each part of the partition
+grouped by hour (<code>SUM/Min/Max</code> of count/sum/min/max) and writes
+into <code>rollup_hourly</code> with <code>INSERT OR REPLACE</code>, so
+re-runs are idempotent. Progress is tracked by a <code>last_hour</code>
+watermark in <code>rollup_meta</code>; each pass only scans data accrued since
+the previous pass. <code>RollupManager</code> runs this in a worker thread
+every <code>rollup.interval</code> (default <code>5m</code>), and only rolls
+hours that are at least <code>reject_client_timestamp_skew_s</code> old — a
+late write can never land in an already-rolled hour. Assumption: in-order
+ingestion (enforced by the 300 s clock-skew guard); a backfill into an
+already-rolled past hour needs a rebuild (<code>replace=True</code>).</p>
+
+<h3>Retention</h3>
+<p>Retention is monthly-granular: <code>RetentionManager</code>
+(<code>retention.check_interval</code>, default <code>1h</code>; first pass
+runs on boot) drops each <code>measurements_YYYY_MM</code> partition whose
+last day is older than the TTL (<code>retention.default_ttl</code>, default
+<code>30d</code>, units <code>s</code>/<code>m</code>/<code>h</code>/
+<code>d</code>/<code>w</code>). A drop removes the whole partition table and
+it also deletes those hours from <code>rollup_hourly</code> (two
+operations in one pass — a table drop plus a row delete). Deleted data
+leaves no aggregate trace. Space is <em>reusable</em> incrementally
+(<code>auto_vacuum = INCREMENTAL</code>) plus on demand via
+<code>sqtseries vacuum</code>.</p>
+
+<h3>Background tasks</h3>
+<div class="table-wrap"><table>
+  <tr><th>Task</th><th>Default interval</th><th>Purpose</th></tr>
+  <tr><td>RollupManager</td><td>5m</td><td>Build hourly pre-aggregates of completed hours (raw-read cost amortized)</td></tr>
+  <tr><td>RetentionManager</td><td>1h</td><td>Drop partitions older than the TTL and their rollup rows</td></tr>
+  <tr><td>MaintenanceManager</td><td>1h</td><td><code>ANALYZE</code> planner statistics</td></tr>
+  <tr><td>CheckpointManager</td><td>60s</td><td>TRUNCATE WAL past 64 MB; warn on readers blocking checkpoints</td></tr>
+</table></div>
+<p>Rollup, retention, maintenance, and backup run in worker threads; the WAL checkpoint runs on the event loop
+(<code>asyncio.to_thread</code>) so the event loop stays responsive; the
+CheckpointManager issues its short <code>wal_checkpoint</code> PRAGMA
+directly from the loop. Rollup and retention start with an immediate first
+pass instead of waiting out the interval.</p>
+
+<h3>SQLite pragmas</h3>
+<div class="table-wrap"><table>
+  <tr><th>PRAGMA</th><th>Value</th><th>When</th></tr>
+  <tr><td><code>journal_mode</code></td><td>WAL</td><td>Every connection</td></tr>
+  <tr><td><code>synchronous</code></td><td>NORMAL</td><td>Every connection</td></tr>
+  <tr><td><code>page_size</code></td><td>8192</td><td>Once, before tables (fresh file only)</td></tr>
+  <tr><td><code>auto_vacuum</code></td><td>INCREMENTAL</td><td>Once, before tables (fresh file only)</td></tr>
+  <tr><td><code>cache_size</code></td><td>−64000</td><td>Every connection</td></tr>
+  <tr><td><code>mmap_size</code></td><td>268435456 (256 MB)</td><td>Every connection</td></tr>
+  <tr><td><code>busy_timeout</code></td><td>5000</td><td>Every connection</td></tr>
+  <tr><td><code>temp_store</code></td><td>MEMORY</td><td>Every connection</td></tr>
+  <tr><td><code>journal_size_limit</code></td><td>67108864 (64 MB)</td><td>Every connection</td></tr>
+  <tr><td><code>foreign_keys</code></td><td>ON</td><td>Every connection</td></tr>
+  <tr><td><code>threads</code></td><td>4</td><td>Every connection</td></tr>
+  <tr><td><code>analysis_limit</code></td><td>400</td><td>Every connection</td></tr>
+  <tr><td><code>wal_autocheckpoint</code></td><td>0 (readers) / 10000 (writer)</td><td>Per connection</td></tr>
+</table></div>
+<p>Reader connections never trigger checkpoints (prevents reader/writer
+contention); the writer autocheckpoints every 10,000 pages (~80 MB at the
+configured 8 KiB page size, far above SQLite's 1,000-page default). The <code>CheckpointManager</code> (every 60 s) performs a TRUNCATE checkpoint as soon as the
+WAL file reaches 64 MB — a reader holding a read lock that blocks TRUNCATE is
+reported (<code>busy_runs</code>, warning after 3 consecutive blocked runs).</p>
+
+<h3>Durability and crash recovery</h3>
+<p>Writes are crash-atomic: <code>synchronous=NORMAL</code> + WAL means an
+abrupt <code>SIGKILL</code> loses nothing the process acknowledged. On the
+next startup the service runs <code>check_integrity_on_startup</code>
+(<code>quick_check</code>, <em>warn on failure rather than refuse to boot</em>)
+and then <code>recover_wal</code> (ensures WAL mode + one PASSIVE
+checkpoint). <code>run_analyze_once</code> runs after all sockets have bound.
+On shutdown, the service runs <code>run_optimize</code> (PRAGMA optimize) and
+finishes with a TRUNCATE WAL checkpoint — a clean close with no WAL residue.
+For the full picture — what to back up, how to restore, and when vacuum actually shrinks the file — see <a href="backup.html">Backup &amp; Restore</a>.
+Backups via <code>VACUUM INTO</code> are consistent snapshots even while
+writes are in flight, and are fully restorable (<code>backup_database</code>
+returns the snapshot path; a name collision within the same second raises
+<code>BackupExistsError</code>). A <code>BackupManager</code> background task
+takes one snapshot on startup and then every <code>backup.interval</code>
+(shared with on-demand backups), skipping a snapshot if one younger than
+the interval already exists. Every connection is closed per-use; no
+<code>ResourceWarning</code>/fd leaks are observed across the public API.</p>
+
+<h3>Concurrency model</h3>
+<ul>
+  <li>Single process, a single asyncio event loop. uvicorn runs
+      in-process on the same loop (no subprocess, no thread pool for HTTP).</li>
+  <li><code>WorkerPool(size=1)</code> pumps ingress, query broker, and admin
+      broker in each loop iteration; sockets are never shared with other
+      threads.</li>
+  <li>Writers are serialized by SQLite itself: <code>BEGIN IMMEDIATE</code>
+      takes the write lock up front, <code>busy_timeout</code> waits for it at
+      the file level. Checkpoints, rollup, retention, and maintenance run in
+      worker threads and use their own short-lived connections.</li>
+  <li>State after boot is recorded in <code>runtime.json</code> next to the
+      database file (PID, live ports, DB path) — used by <code>status</code>,
+      <code>stop</code>, and <code>ports</code>; removed on shutdown.</li>
+</ul>
+
+<h3>Error handling</h3>
+<div class="table-wrap"><table>
+  <tr><th>Failure</th><th>Handling</th></tr>
+  <tr><td>Invalid ingest frame</td><td>Dropped + counted (<code>invalid</code> in admin stats)</td></tr>
+  <tr><td>Client timestamp skew &gt; 300 s</td><td>Rejected at the ingress (default window)</td></tr>
+  <tr><td>Query errors</td><td>Structured error reply (<code>INVALID_REQUEST</code>, <code>INVALID_QUERY</code>, <code>INTERNAL_ERROR</code>, …)</td></tr>
+  <tr><td>SQLITE_BUSY</td><td><code>busy_timeout</code> (5 s) waits on the writer lock</td></tr>
+  <tr><td>Corruption</td><td><code>quick_check</code> at startup (warn, not fail); full <code>integrity_check</code> on suspicion</td></tr>
+  <tr><td>Long-running reader</td><td>CheckpointManager logs a warning after 3 blocked runs</td></tr>
+  <tr><td>VACUUM while writes are in flight</td><td>Admin returns <code>VACUUM_BUSY</code> — stop the service and run <code>sqtseries vacuum</code></td></tr>
+</table></div>
+
+<h3>Performance characteristics</h3>
+<p>Measured numbers live in <a href="benchmarks.md">benchmarks</a>, but read
+them with the path in mind: the benchmark tool drives the <em>engine</em>
+(<code>insert_many</code> with <code>executemany</code> batches, default
+5,000 rows per call) and reaches ~65K–253K rows/sec; sub-millisecond
+single-series range queries; near-constant wide-window aggregates via the
+rollup path. The live <em>service</em> ingest path is one transaction per
+message, so per-frame steady-state throughput is lower — measure on your own
+hardware with <code>python3 scripts/benchmark.py</code>.</p>
+
+<h3>References</h3>
+<ul>
+  <li><a href="https://www.sqlite.org/wal.html">SQLite WAL</a></li>
+  <li><a href="https://www.sqlite.org/withoutrowid.html">SQLite WITHOUT ROWID</a></li>
+  <li><a href="https://pyzmq.readthedocs.io/">PyZMQ</a></li>
+  <li><a href="https://zguide.zeromq.org/">ZeroMQ Guide</a></li>
+</ul>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <div class="card"><h3><a href="ingestion.html">Ingestion</a></h3>
+    <p>All the ways to get data in: ZMQ, HTTP, Client, timestamp handling, and
+    the clock-skew guard.</p></div>
+  <div class="card"><h3><a href="queries.html">Queries</a></h3>
+    <p>Aggregation examples, interval rules, and when the rollup fast path
+    applies.</p></div>
+  <div class="card"><h3><a href="api.html">API Reference</a></h3>
+    <p>Every wire-format message, admin command, and stats event.</p></div>
+  <div class="card"><h3><a href="benchmarks.md">Benchmarks</a></h3>
+    <p>Engine-level numbers: ingestion throughput and rollup-accelerated
+    queries.</p></div>
+</div>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

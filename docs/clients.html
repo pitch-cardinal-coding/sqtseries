@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Client Libraries — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a class="here" href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
+
+<h2>Client Libraries</h2>
+<p>sqtseries speaks JSON over two transports, so any language can talk to it
+without a special driver:</p>
+
+<div class="table-wrap"><table>
+  <tr><th>Transport</th><th>Best for</th><th>Ports</th></tr>
+  <tr><td><strong>ZeroMQ</strong> (<code>tcp://127.0.0.1</code>)</td>
+      <td>High-volume senders, live subscribers, admin</td>
+      <td>12501 ingest (PUSH), 12502 query (REQ), 12503 subscribe (SUB),
+          12504 admin (REQ), 12506 stats (SUB)</td></tr>
+  <tr><td><strong>HTTP</strong> (<code>http://127.0.0.1:12505</code>)</td>
+      <td>Anything with an HTTP client — curl, browsers, scripts</td>
+      <td>12505 (REST + WebSocket)</td></tr>
+</table></div>
+
+<p>Both transports use the same JSON shapes. The one consistent difference:
+<strong>query <code>start</code>/<code>end</code> are epoch nanoseconds on the
+ZMQ path and epoch seconds on the HTTP path</strong>. Ingestion timestamps are
+seconds on both; query results are always seconds.</p>
+
+<h3>Choose your language</h3>
+<div class="table-wrap"><table>
+  <tr><th>Language</th><th>Recommended transport</th><th>Client</th></tr>
+  <tr><td><a href="#python">Python</a></td><td>ZMQ</td><td>Bundled <code>sqtseries.Client</code></td></tr>
+  <tr><td><a href="#go">Go</a></td><td>ZMQ</td><td>github.com/pebbe/zmq4</td></tr>
+  <tr><td><a href="#rust">Rust</a></td><td>ZMQ</td><td><code>zmq</code> crate</td></tr>
+  <tr><td><a href="#php">PHP</a></td><td>HTTP</td><td>curl (ext-curl)</td></tr>
+  <tr><td><a href="#node">Node.js</a></td><td>HTTP</td><td>fetch / WebSocket (built-in)</td></tr>
+</table></div>
+
+<hr>
+
+<h3 id="python">Python</h3>
+<p>The bundled <code>sqtseries.Client</code> wraps the ZMQ transports:
+<code>write</code> 12501, <code>query</code> 12502,
+<code>subscribe</code> 12503, <code>admin</code> 12504. Override with
+<code>Client(host=..., ports={...})</code>.</p>
+<pre><code>from sqtseries import Client
+
+c = Client()  # defaults to 127.0.0.1, ports 12501-12504
+
+c.write("cpu.usage", 0.72, {"host": "web1", "env": "prod"})
+c.write_many([
+    {"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72},
+    {"metric": "mem.usage", "tags": {"host": "web1"}, "value": 512.0},
+])
+
+# query (start/end in NANOSECONDS; rows carry epoch-seconds timestamps)
+import time
+now_ns = time.time_ns()
+rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns,
+               aggregation="avg", interval="15m", limit=100, order="asc")
+stat = c.aggregate("cpu.usage", funcs=["avg", "max", "p95"])   # {func: value}
+
+# subscribe: yields dicts, or None as an idle heartbeat every ~0.5s
+for payload in c.subscribe("cpu."):
+    if payload is not None:
+        print(payload)
+
+# admin: ping | health | stats | connections | conncheck | subscribers
+#        | optimize | backup | vacuum
+c.admin("health")   # {"status":"ok","version":"0.1.0","uptime":N,"database":true}
+c.admin("stats")    # counters and DB sizes; keys listed in the API reference
+
+c.close()            # idempotent
+# or: with Client() as c: ...
+</code></pre>
+<p><code>ClientError</code> is raised when a query, aggregate, or admin
+command returns an error reply — and when no reply arrives within the client's
+30-second receive timeout. <code>close()</code> is safe to call twice; the
+class is also a context manager.</p>
+
+<p>The raw ZMQ call for a write, for anything that is not Python:</p>
+<pre><code>import zmq, orjson
+
+ctx = zmq.Context()
+sock = ctx.socket(zmq.PUSH)
+sock.setsockopt(zmq.SNDHWM, 10000)
+sock.setsockopt(zmq.LINGER, 500)
+sock.connect("tcp://127.0.0.1:12501")
+sock.send(orjson.dumps({"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72}))
+sock.close(linger=0)
+ctx.term()
+</code></pre>
+
+<hr>
+
+<h3 id="go">Go</h3>
+<pre><code># go get github.com/pebbe/zmq4</code></pre>
+<pre><code>package main
+
+import (
+    "encoding/json"
+    "log"
+    zmq "github.com/pebbe/zmq4"
+)
+
+func main() {
+    // write (PUSH, fire-and-forget)
+    sock, _ := zmq.NewSocket(zmq.PUSH)
+    defer sock.Close()
+    sock.SetLinger(500)
+    sock.SetSndhwm(10000)
+    sock.Connect("tcp://127.0.0.1:12501")
+    p := map[string]any{"metric": "cpu.usage", "tags": map[string]string{"host": "web1"}, "value": 0.72}
+    data, _ := json.Marshal(p)
+    sock.SendBytes(data, 0)
+
+    // query (REQ) — start/end are NANOSECONDS; set a receive timeout
+    qs, _ := zmq.NewSocket(zmq.REQ)
+    defer qs.Close()
+    qs.Connect("tcp://127.0.0.1:12502")
+    qs.SetRcvtimeo(30_000)
+    req, _ := json.Marshal(map[string]any{
+        "type": "query", "metric": "cpu.usage",
+        "aggregation": "avg", "interval": "15m",
+    })
+    qs.SendBytes(req, 0)
+    reply, _ := qs.RecvBytes(0)
+    log.Println(string(reply))
+}
+</code></pre>
+
+<hr>
+
+<h3 id="rust">Rust</h3>
+<pre><code># Cargo.toml: zmq = "0.10", serde_json = "1"</code></pre>
+<pre><code>use serde_json::json;
+
+fn main() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    let ctx = zmq::Context::new();
+
+    // write (PUSH, fire-and-forget)
+    let sock = ctx.socket(zmq::PUSH)?;
+    sock.set_linger(500)?;
+    sock.set_sndhwm(10_000)?;
+    sock.connect("tcp://127.0.0.1:12501")?;
+    sock.send(json!({"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72}).to_string().as_bytes(), 0)?;
+
+    // query (REQ) — start/end are NANOSECONDS
+    let qs = ctx.socket(zmq::REQ)?;
+    qs.set_rcvtimeo(30_000)?;
+    qs.connect("tcp://127.0.0.1:12502")?;
+    let req = json!({"type": "query", "metric": "cpu.usage", "aggregation": "avg", "interval": "15m"});
+    qs.send(req.to_string().as_bytes(), 0)?;
+    let reply = qs.recv_bytes(0)?;
+    println!("{}", String::from_utf8_lossy(&reply));
+    Ok(())
+}
+</code></pre>
+
+<hr>
+
+<h3 id="php">PHP</h3>
+<p>PHP has no widely available ZMQ extension — use the HTTP gateway.
+Timestamps here are epoch <em>seconds</em>:</p>
+<pre><code>&lt;?php
+// write
+$ch = curl_init("http://127.0.0.1:12505/api/v1/write");
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "metric" =&gt; "cpu.usage", "tags" =&gt; ["host" =&gt; "web1"], "value" =&gt; 0.72,
+]));
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+echo curl_exec($ch);
+
+// query (seconds on HTTP)
+echo file_get_contents(
+    "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
+);
+</code></pre>
+
+<hr>
+
+<h3 id="node">Node.js</h3>
+<pre><code>// write
+await fetch("http://127.0.0.1:12505/api/v1/write", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ metric: "cpu.usage", tags: { host: "web1" }, value: 0.72 }),
+});
+
+// query (seconds on HTTP)
+const r = await fetch(
+  "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
+);
+console.log(await r.json());
+
+// subscribe — metric is a single topic prefix; pings arrive as {"type":"ping"}
+const ws = new WebSocket("ws://127.0.0.1:12505/ws/subscribe?metric=cpu.");
+ws.onmessage = (e) =&gt; {
+  const msg = JSON.parse(e.data);
+  if (msg.type !== "ping") console.log(msg);
+};
+</code></pre>
+
+<hr>
+
+<h3 id="another-python">Another Python service (separate venv / process)</h3>
+<p>sqtseries runs as its own process (for example under systemd). If your other
+Python project has its own virtualenv and <em>does not</em> want
+<code>sqtseries</code> installed, do not import it — talk to the running
+service over the wire, exactly like PHP or Node.js. Two options:</p>
+<p><strong>HTTP</strong> (zero dependencies, best for one-off calls and
+browsers):</p>
+<pre><code>import httpx  # or urllib, requests, aiohttp, ...
+
+c = httpx.Client(base_url="http://127.0.0.1:12505")
+
+# write (timestamp optional; epoch seconds)
+c.post("/api/v1/write", json={"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}})
+
+# read — start/end are epoch SECONDS on HTTP
+import time
+now = time.time()
+rows = c.get("/api/v1/read", params={
+    "metric": "cpu.usage", "start": now - 3600, "end": now,
+    "aggregation": "avg", "interval": "15m",
+}).json()["data"]
+
+# whole-window stats
+c.get("/api/v1/aggregate", params={"metric": "cpu.usage", "funcs": "avg,max,p95"}).json()
+
+# health / stats (no admin socket over HTTP)
+c.get("/api/v1/health").json()
+c.get("/api/v1/stats").json()
+</code></pre>
+<p><strong>ZeroMQ</strong> (high-throughput ingestion / live subscription /
+admin; needs a ZMQ binding such as <code>pyzmq</code>):</p>
+<pre><code>import zmq, orjson, time
+
+ctx = zmq.Context()
+
+# write (PUSH, fire-and-forget; timestamp epoch seconds, optional)
+push = ctx.socket(zmq.PUSH)
+push.setsockopt(zmq.LINGER, 500)
+push.connect("tcp://127.0.0.1:12501")
+push.send(orjson.dumps({"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}}))
+
+# query (REQ; start/end are epoch NANOSECONDS)
+now_ns = time.time_ns()
+req = ctx.socket(zmq.REQ)
+req.setsockopt(zmq.RCVTIMEO, 30000)
+req.connect("tcp://127.0.0.1:12502")
+req.send(orjson.dumps({"type": "query", "metric": "cpu.usage",
+                       "start": now_ns - 3600 * 10**9, "end": now_ns,
+                       "aggregation": "avg", "interval": "15m"}))
+reply = orjson.loads(req.recv())
+
+# subscribe (SUB; topic = metric-name prefix)
+sub = ctx.socket(zmq.SUB)
+sub.connect("tcp://127.0.0.1:12503")
+sub.setsockopt(zmq.SUBSCRIBE, b"cpu.")
+topic, payload = sub.recv_multipart()
+
+# admin (REQ; 12504) — send {"cmd": "health"} etc.
+adm = ctx.socket(zmq.REQ)
+adm.setsockopt(zmq.RCVTIMEO, 30000)
+adm.connect("tcp://127.0.0.1:12504")
+adm.send(orjson.dumps({"cmd": "stats"}))
+print(orjson.loads(adm.recv()))
+</code></pre>
+<div class="note">
+  Time units at a glance: ingestion timestamps are epoch <em>seconds</em> on
+  both paths; query bounds are <em>nanoseconds</em> on ZMQ and
+  <em>seconds</em> on HTTP; query results are always seconds.
+</div>
+
+<hr>
+
+<h2>Guidelines</h2>
+<ul>
+  <li>Set a <strong>LINGER</strong> on ZMQ sockets (500 ms) so messages are not
+      dropped when a socket closes.</li>
+  <li>Ingestion is fire-and-forget: one frame per measurement, no
+      acknowledgement and no ZMQ-level batching. Send frames as fast as your
+      sender can; the server writes each one immediately. There is no
+      "batch until the server flushes" contract to reason about.</li>
+  <li>Set a <strong>receive timeout</strong> on REQ sockets (the bundled
+      client uses 30s). The server also enforces its own budget,
+      <code>query.timeout_s</code> (default 30s): a query that runs longer
+      gets a <code>QUERY_TIMEOUT</code> error back — see
+      <a href="queries.html">Queries</a>.</li>
+  <li><strong>Omit ingestion timestamps</strong> to let the server stamp with
+      its clock (avoids the clock-skew guard and keeps the rollup consistent).</li>
+  <li><strong>Use HTTP for one-off scripts</strong>; ZMQ for sustained
+      ingestion, live subscription, and admin.</li>
+</ul>
+
+<h3>Where to go next</h3>
+<ul>
+  <li><a href="ingestion.html">Ingestion</a> — the exact message shape and
+      validation rules.</li>
+  <li><a href="queries.html">Queries</a> — aggregation functions, intervals,
+      and response formats.</li>
+  <li><a href="streaming.html">Streaming</a> — subscribing live from any
+      language.</li>
+  <li><a href="api.html">API Reference</a> — full wire protocol, admin
+      commands, and error codes.</li>
+  <li><a href="examples.html">Examples</a> — runnable scripts for every
+      operation.</li>
+</ul>
+
+
+  </div>
+  <aside class="toc" aria-label="On this page">
+    <h3>On this page</h3>
+    <ul id="toc-list"></ul>
+  </aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
