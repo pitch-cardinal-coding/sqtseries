@@ -35,8 +35,9 @@ CONNECTION_PRAGMAS: dict[str, str] = {
 }
 
 # Reader connections never trigger checkpoints (prevents reader-writer
-# contention); the writer checkpoints every ~40MB (10x fewer fsync spikes
-# than the 1000-page default). See sqtseries-research-2026.md §9.
+# contention); the writer checkpoints every ~80MB at 8192-byte pages (10000
+# pages, 10x fewer fsync spikes than the 1000-page default). See
+# sqtseries-research-2026.md §9.
 READER_AUTOCHECKPOINT = 0
 WRITER_AUTOCHECKPOINT = 10000
 

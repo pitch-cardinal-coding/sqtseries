@@ -150,11 +150,14 @@ class Service:
 
         allocator = PortAllocator.from_settings(self.settings.ports)
         # the auto-detected ingest port must not collide with the fixed ports
+        # (stats included: a missed reservation lets the detector pick 12506 for
+        # ingest and the StatsPublisher bind then fails -> service won't start)
         allocator.reserved = {
             self.settings.query.port,
             self.settings.streaming.port,
             self.settings.admin.port,
             self.settings.http.port,
+            self.settings.stats.port,
         }
         ingest_port = self.settings.ingestion.port
         if self.settings.ports.auto_detect:
@@ -184,10 +187,21 @@ class Service:
         )
         await self.admin_broker.start()
 
-        async def step() -> None:
-            await self.ingress.run_once(block=False)
-            await self.broker.run_once(block=False)
-            await self.admin_broker.run_once(block=False)
+        async def step() -> bool:
+            # The pump must not busy-poll when idle: a NOBLOCK recv loop that
+            # only yields via asyncio.sleep(0) keeps the event-loop thread
+            # re-grabbing the GIL, which starves CPU-bound worker threads (e.g.
+            # a slow query offloaded via asyncio.to_thread). Return whether any
+            # socket had work; the worker sleeps longer when idle (see
+            # WorkerPool._run).
+            did = False
+            if await self.ingress.run_once(block=False):
+                did = True
+            if await self.broker.run_once(block=False):
+                did = True
+            if await self.admin_broker.run_once(block=False):
+                did = True
+            return did
 
         self.pool = WorkerPool(step, size=1)
         await self.pool.start()
@@ -241,6 +255,7 @@ class Service:
             pubsub=self.pubsub,
             ingestion=self.settings.ingestion,
             registry=self.connection_registry,
+            query_timeout_s=self.settings.query.timeout_s,
         )
         config = uvicorn.Config(
             app,
@@ -249,9 +264,26 @@ class Service:
             # structlog owns logging
             log_config=None,
             access_log=False,
+            # Belt-and-suspenders: a stop/SIGTERM must always complete. If a
+            # connection task refuses to end (e.g. a stuck WebSocket), uvicorn
+            # cancels the stragglers after this many seconds instead of waiting
+            # forever, so `sqtseries stop` is deterministic.
+            timeout_graceful_shutdown=5,
+            # WebSocket limits & keepalive (explicit for clarity):
+            # - ws_max_size bounds one inbound frame (16 MiB) — a larger frame
+            #   closes the connection with 1009.
+            # - protocol-level ping every 20s (timeout 20s) drops dead peers.
+            # - the app-level {"type":"ping"} every 30s idle is separate and
+            #   tells clients the stream is alive even without new data.
+            ws_max_size=16 * 1024 * 1024,
+            ws_ping_interval=20.0,
+            ws_ping_timeout=20.0,
         )
-        # Service.run() owns signals
-        config.install_signal_handlers = False
+        # Service.run() owns signals: uvicorn 0.52's serve() installs its own
+        # SIGINT/SIGTERM handlers via capture_signals() (it no longer honors an
+        # `install_signal_handlers` config option), but run()'s
+        # loop.add_signal_handler() then replaces them, so should_exit is only
+        # ever set here in shutdown() — never by uvicorn's own handle_exit.
         self.http_server = uvicorn.Server(config)
         self.http_task = asyncio.create_task(self.http_server.serve())
         # Wait up to ~5s for the socket to bind
@@ -307,6 +339,11 @@ class Service:
         start = query.get("start")
         end = query.get("end")
         try:
+            limit = query.get("limit")
+            if limit is not None and (
+                not isinstance(limit, int) or isinstance(limit, bool) or limit < 1
+            ):
+                raise ValueError("limit must be a positive integer")
             aggs = query.get("aggregations")
             if aggs:
                 funcs = [f.strip() for f in str(aggs).split(",") if f.strip()]
@@ -322,7 +359,7 @@ class Service:
                 end=end,
                 aggregation=query.get("aggregation"),
                 interval=query.get("interval"),
-                limit=query.get("limit"),
+                limit=limit,
                 order=query.get("order", "asc"),
             )
         except (ValueError, KeyError, TypeError, IndexError, OverflowError) as exc:

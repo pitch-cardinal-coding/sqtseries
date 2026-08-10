@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 
 from sqtseries.config import Settings
@@ -14,6 +15,7 @@ from sqtseries.service import Service
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO_ROOT / "examples"
+CAMERA = EXAMPLES / "camera"
 
 SAMPLE_MESSAGE = {
     "camera_id": "test_cam_001",
@@ -102,7 +104,7 @@ async def run_example(script: str, *args: str) -> subprocess.CompletedProcess:
 
 class TestFlatten:
     def test_flatten_message(self):
-        from examples.camera_feed import flatten
+        from examples.camera.camera_feed import flatten
 
         points = flatten(SAMPLE_MESSAGE)
         assert len(points) == 11
@@ -117,7 +119,7 @@ class TestFlatten:
             assert "timestamp" in p  # generated_at preserved
 
     def test_flatten_skips_strings_and_missing(self):
-        from examples.camera_feed import flatten
+        from examples.camera.camera_feed import flatten
 
         msg = dict(SAMPLE_MESSAGE)
         del msg["current_visible_people"]  # missing numeric -> skipped
@@ -129,7 +131,7 @@ class TestFlatten:
         assert not any(p["metric"].startswith("stats_footer") for p in points)
 
     def test_flatten_error_payload(self):
-        from examples.camera_feed import flatten
+        from examples.camera.camera_feed import flatten
 
         # simulator error messages have no camera_id / metrics -> empty
         points = flatten({"status": "error", "message": "simulated unavailable"})
@@ -142,7 +144,7 @@ class TestAskSparseData:
     async def test_ask_on_empty_db_no_errors(self, running_service):
         _, _s, ports = running_service
         res = await run_example(
-            "camera_feed.py",
+            "camera/camera_feed.py",
             "--ask",
             "--host",
             "127.0.0.1",
@@ -159,7 +161,7 @@ class TestAskSparseData:
     async def test_ask_single_point(self, running_service):
         """One point: questions degrade gracefully, no tracebacks."""
         svc, _s, ports = running_service
-        from examples.camera_feed import flatten
+        from examples.camera.camera_feed import flatten
 
         now = time.time()
         for p in flatten(SAMPLE_MESSAGE):
@@ -167,7 +169,7 @@ class TestAskSparseData:
                 p["metric"], p["value"], p["tags"], timestamp_ns=int(now * 1e9)
             )
         res = await run_example(
-            "camera_feed.py",
+            "camera/camera_feed.py",
             "--ask",
             "--host",
             "127.0.0.1",
@@ -182,7 +184,7 @@ class TestAskSparseData:
     async def test_ask_after_real_pump(self, running_service):
         """Write a batch of realistic points, then ask: answers appear."""
         svc, _s, ports = running_service
-        from examples.camera_feed import flatten
+        from examples.camera.camera_feed import flatten
 
         base = time.time() - 3600
         for i in range(60):  # one message per minute for an hour
@@ -197,7 +199,7 @@ class TestAskSparseData:
                     timestamp_ns=int((base + i * 60) * 1e9),
                 )
         res = await run_example(
-            "camera_feed.py",
+            "camera/camera_feed.py",
             "--ask",
             "--host",
             "127.0.0.1",
@@ -213,7 +215,7 @@ class TestAskSparseData:
     async def test_ask_q8_recharge_message(self, running_service):
         """Battery that gains charge is reported as a recharge."""
         svc, _s, ports = running_service
-        from examples.camera_feed import flatten
+        from examples.camera.camera_feed import flatten
 
         base = time.time() - 7200
         for i in range(10):
@@ -227,7 +229,7 @@ class TestAskSparseData:
                     timestamp_ns=int((base + i * 600) * 1e9),
                 )
         res = await run_example(
-            "camera_feed.py",
+            "camera/camera_feed.py",
             "--ask",
             "--host",
             "127.0.0.1",
@@ -241,35 +243,51 @@ class TestAskSparseData:
 
 
 class TestOverlayServer:
-    async def test_random_port_mode(self, tmp_path):
-        """overlay_server.py --port 0 picks a random free port and serves
-        the WebSocket metrics endpoint."""
-        import websockets
-
+    async def _boot_overlay(self) -> tuple[asyncio.subprocess.Process, int]:
+        """Start overlay_server.py on a random port; return (proc, port)."""
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
-            str(EXAMPLES / "overlay_server.py"),
+            str(EXAMPLES / "camera" / "overlay_server.py"),
             "--port",
             "0",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        try:
-            port = None
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                line = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
-                text = line.decode()
-                if "WebSocket: ws://localhost:" in text:
-                    port = int(
-                        text.split("WebSocket: ws://localhost:")[1].split(
-                            "/ws/metrics"
-                        )[0]
-                    )
-                    break
-            assert port is not None, "overlay did not report a port"
-            assert 1024 <= port <= 65535
+        port = None
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            line = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
+            text = line.decode()
+            if "WebSocket: ws://localhost:" in text:
+                port = int(
+                    text.split("WebSocket: ws://localhost:")[1].split("/ws/metrics")[0]
+                )
+                break
+        assert port is not None, "overlay did not report a port"
+        assert 1024 <= port <= 65535
+        # uvicorn logs its port before it starts accepting connections;
+        # wait for the HTTP endpoint so callers don't race it.
+        async with httpx.AsyncClient(timeout=1.0) as c:
+            for _ in range(50):
+                try:
+                    if (await c.get(f"http://127.0.0.1:{port}/")).status_code == 200:
+                        break
+                except httpx.TransportError:
+                    pass
+                await asyncio.sleep(0.2)
+            else:
+                proc.terminate()
+                await proc.wait()
+                raise AssertionError("overlay HTTP endpoint did not become ready")
+        return proc, port
 
+    async def test_random_port_mode(self, tmp_path):
+        """overlay_server.py --port 0 picks a random free port and serves
+        the WebSocket metrics endpoint."""
+        import websockets
+
+        proc, port = await self._boot_overlay()
+        try:
             import json as j
 
             async def probe():
@@ -291,6 +309,26 @@ class TestOverlayServer:
             assert msg["camera_id"] == "test_cam_001"
             assert "current_visible_people" in msg
             assert "system_metrics" in msg
+        finally:
+            proc.terminate()
+            await proc.wait()
+
+    async def test_serves_live_dashboard_html(self, tmp_path):
+        """The simulator serves the live dashboard at both / and
+        /overlay.html (they must not 404)."""
+        import httpx
+
+        proc, port = await self._boot_overlay()
+        try:
+            async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as c:
+                for path in ("/", "/overlay.html"):
+                    r = await c.get(path)
+                    assert r.status_code == 200, f"{path} -> {r.status_code}"
+                    body = r.text
+                    assert "<title>Camera Analytics — Live</title>" in body
+                    # the page must target the same-origin metrics WebSocket
+                    assert "/ws/metrics" in body
+                    assert "camera_id" in body or "current_visible_people" in body
         finally:
             proc.terminate()
             await proc.wait()

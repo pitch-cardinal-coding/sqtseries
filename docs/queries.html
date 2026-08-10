@@ -172,8 +172,11 @@ curl "http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.usage&amp;funcs=avg,min
 curl "http://127.0.0.1:12505/api/v1/stats"
 curl "http://127.0.0.1:12505/api/v1/health"</code></pre>
 <p>Bad parameters (<code>limit</code> outside 1–100000, invalid
-<code>order</code>, missing <code>metric</code>) are rejected with
-<code>422</code>; an unknown aggregation or interval with <code>400</code>.</p>
+<code>order</code>, missing <code>metric</code>, non-numeric
+<code>start</code>/<code>end</code>) are rejected with
+<code>422</code>; an unknown <code>aggregation</code>, or an invalid
+<code>interval</code> used together with an <code>aggregation</code>, with
+<code>400</code>.</p>
 
 <h3>Examples</h3>
 <p>For every classic question phrased the way a person asks it ("average
@@ -217,7 +220,7 @@ print(reply)</code></pre>
 <h4>HTTP (seconds)</h4>
 <pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=1720000000&amp;end=1720003600&amp;aggregation=avg&amp;interval=1m"</code></pre>
 
-<h3>Querying by series_id (embedded API)</h3>
+<h3 id="series-id">Querying by series_id (embedded API)</h3>
 <p>Each unique <code>(metric, tags)</code> pair is a <em>series</em>. The
 embedded Python API can query a specific series directly — the wire protocol
 cannot (it has no tag filter). This path uses the clustered primary key
@@ -232,7 +235,28 @@ tsdb = TimeSeriesDB(StorageEngine(engine))
 
 sids = tsdb.store.series_ids_for_metric("cpu.usage")
 rows = tsdb.query(series_ids=[sids[0]], start=now_ns - 3600 * 10**9, end=now_ns)</code></pre>
-<p>This is the same clustered-PK path the rollup uses.</p>
+<p>To answer <em>per-tag</em> questions (which host is hottest? which room is
+busiest?), map each series_id back to its tags and query the ones you care
+about:</p>
+<pre><code>import orjson
+
+sids = tsdb.store.series_ids_for_metric("cpu.usage")
+by_host = {}
+for sid in sids:
+    _, tags_json = tsdb.store.get_series_meta(sid)
+    tags = orjson.loads(tags_json) if tags_json else {}
+    by_host.setdefault(tags.get("host", "untagged"), []).append(sid)
+
+# the two web hosts only — per-series averages in one clustered-PK pass
+target = [sid for host, sids_ in by_host.items() if host.startswith("web") for sid in sids_]
+rows = tsdb.query(series_ids=target, start=start_ns, end=end_ns)
+for host, sids_ in by_host.items():
+    rows = tsdb.query(series_ids=sids_, start=start_ns, end=end_ns)
+    avg = sum(v for _, v in rows) / len(rows) if rows else 0
+    print(f"{host}: avg {avg:.2f}")</code></pre>
+<p>The same pattern works with any tag key. See
+<a href="ingestion.html">Tags: why and how</a> for when to use tags and
+cardinality guidance, and the runnable <code>examples/tags_examples.py</code>.</p>
 
 <h3>Gap filling (embedded API)</h3>
 <p>The embedded query API supports linear interpolation of small gaps
@@ -276,8 +300,8 @@ of scanning every raw row. The exact eligibility rules:</p>
       acceleration, never an approximation.</li>
 </ul>
 <p>Measured effect (<a href="benchmarks.md">benchmarks</a>, 2M rows at 20K
-points per series): the same wide-window query drops from ~12.0ms linear
-(raw scan) to ~1.3ms near-constant. The rollup runs in the background
+points per series): the same wide-window query drops from ~13ms linear
+(raw scan) to ~1.3ms near-constant (~10x). The rollup runs in the background
 (<code>rollup.interval</code>, default every 5 minutes); hours are only
 rolled once they are at least the client-skew window past completion.</p>
 

@@ -240,6 +240,33 @@ class TestOtherExamples:
         ):
             assert marker in res.stdout
 
+    async def test_tags_examples(self, running_service):
+        """tags_examples.py: tagged writes, whole-metric merge, validation."""
+        _, _, ports = running_service
+        res = await run_example(
+            "tags_examples.py",
+            "--host",
+            "127.0.0.1",
+            "--write-port",
+            str(ports["ingest"]),
+            "--query-port",
+            str(ports["query"]),
+            "--http-port",
+            str(ports["http"]),
+        )
+        assert (
+            res.returncode == 0
+        ), f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        for marker in (
+            "=== 1. Writing tagged measurements",
+            "=== 3. Whole-metric query over the wire (merged)",
+            "(all hosts merged)",
+            "=== 5. Tag validation",
+            "HTTP 400",
+            "=== 6. Cardinality warning",
+        ):
+            assert marker in res.stdout, f"missing {marker!r}"
+
     async def test_run_custom_lifecycle(self, tmp_path):
         """run_custom.py starts its own instance (own ports, own db)."""
         res = await run_example("run_custom.py", "--workdir", str(tmp_path / "custom"))

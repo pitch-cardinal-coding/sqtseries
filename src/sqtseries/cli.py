@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -153,9 +154,28 @@ def stop(ctx: click.Context) -> None:
             )
     try:
         os.kill(pid, 15)
-        click.echo(f"Sent SIGTERM to pid {pid}")
     except ProcessLookupError:
         raise click.ClickException(f"pid {pid} not running") from None
+    click.echo(f"Sent SIGTERM to pid {pid}")
+    # Wait (bounded) for the service to actually exit. A restart script that
+    # immediately rebinds the same ports must not race a still-dying process.
+    # Clean shutdown removes runtime.json as its last step, so watch that file;
+    # os.kill(pid, 0) alone is not enough because a not-yet-reaped zombie still
+    # answers to signal 0. Also bail early if the pid disappears outright.
+    rt_path = Path(rt_db).parent / "runtime.json" if rt_db else None
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if rt_path is not None and not rt_path.exists():
+            return
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.05)
+    click.echo(
+        f"Warning: pid {pid} still running 10s after SIGTERM; " "check the service log",
+        err=True,
+    )
 
 
 @main.command()

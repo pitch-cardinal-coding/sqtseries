@@ -69,8 +69,7 @@ busiest hour?</em>, <em>how fast is the battery draining?</em>, and
 }</code></pre>
 <p>sqtseries stores flat <code>metric + value + tags</code>, so
 <code>camera_feed.py</code> flattens each message into 11 measurements,
-all tagged with <code>camera_id=test_cam_001</code>:</p>
-<pre><code>traffic.people.current        21      camera_id=test_cam_001
+all tagged with <code>camera_id=test_cam_001</code>:</p><pre><code>traffic.people.current        21      camera_id=test_cam_001
 traffic.people.total          237     camera_id=test_cam_001
 traffic.vehicles.current      9       camera_id=test_cam_001
 traffic.vehicles.total        100     camera_id=test_cam_001
@@ -85,19 +84,77 @@ status.detection_overlay      1       camera_id=test_cam_001</code></pre>
 numeric and are skipped. All points of one message are written in a single
 HTTP batch, which keeps the writes well under the default rate limit.</p>
 
+<h3>Live dashboard</h3>
+<p>The simulator also serves a live web page at the same port — open
+<code>http://&lt;host&gt;:&lt;port&gt;/</code> (or
+<code>/overlay.html</code>) in any browser. The page connects to the
+same-origin metrics WebSocket and renders each reading as it arrives:
+people and vehicle counts, per-minute rates, battery charge/temperature/
+health, CPU usage/temperature, and the detection-overlay status — with a
+connection badge that auto-reconnects if the simulator restarts. It is a
+single self-contained file (<code>examples/camera/overlay.html</code>, no
+external assets), so it works offline on a LAN and can be dropped into an
+OBS browser source. The dashboard reads the raw feed only; it does not
+touch sqtseries. It uses inline CSS/JS by design (it is a trusted,
+developer-owned artifact with no user input) — the sqtseries HTTP gateway,
+by contrast, serves strict security headers on every response.</p>
+
+<h3>Also subscribing to the time-series database</h3>
+<p>Give the page a <code>?sqtseries=</code> parameter pointing at the
+<code>/ws/subscribe</code> endpoint of a running sqtseries instance and it
+adds a <em>Time-series DB</em> card that streams what the database
+publishes back to the same page — the last reading per metric, with its
+tags and age, plus a frame counter and its own auto-reconnecting connection
+badge. HTTP writes to <code>/api/v1/write</code> are broadcast to live
+subscribers just like ZMQ ingests, so with the camera feed pumping, this
+card confirms the whole loop: camera → overlay WebSocket → sqtseries → page.
+An optional <code>&amp;metric=&lt;prefix&gt;</code> filters to one topic
+prefix (default <code>*</code>).</p>
+<pre><code># camera page + live sqtseries stream (sqtseries default HTTP port 12505)
+# &lt;port&gt; is the simulator's printed WebSocket port (random by default)
+http://&lt;host&gt;:&lt;port&gt;/overlay.html?sqtseries=ws://&lt;host&gt;:12505/ws/subscribe&amp;metric=traffic.
+
+# when started by examples/camera/sqtcam.sh (HTTP port 17105)
+http://&lt;host&gt;:&lt;port&gt;/overlay.html?sqtseries=ws://&lt;host&gt;:17105/ws/subscribe</code></pre>
+<p>Without the parameter the card shows a "not configured" hint and the
+page makes no connection attempts, so it stays usable as a pure overlay.</p>
+
+<h3>Live subscribers, clients, and activity</h3>
+<p>The DB card also shows, in real time, who is connected to sqtseries — by
+watching the push-only <code>/ws/connections</code> feed (no polling):
+a <em>Connected clients</em> table of active WebSocket subscribers (kind,
+peer, topic, arrival datetime, connected-for), a <em>ZMQ subscribers</em>
+table (topic, count, since), and an <em>Activity</em> log of every join and
+leave with its <code>YYYY-MM-DD HH:MM:SS</code> timestamp and duration.
+Arrival and leaving times come from the feed itself: <code>conn</code>
+events carry <code>connected_at</code> and (on leave) <code>left_at</code>;
+<code>sub</code> events carry <code>arrived_at</code>/<code>left_at</code> and
+<code>first_seen</code>. Joins and leaves are pushed the instant they happen.</p>
+<pre><code># validate the feed end to end against a running sqtseries (joins/leaves,
+# exact counts, arrival/leaving times, push latency)
+python3 examples/camera/conn_validate.py \
+    --host 127.0.0.1 --http-port 12505 --stream-port 12503
+# ...connects 3 WebSocket clients + 2 ZMQ subscribers, joins/leaves them, and
+# prints each event's latency; exits non-zero on any mismatch
+</code></pre>
+<p><code>examples/camera/conn_validate.py</code> is the same harness the test
+suite runs (<code>tests/test_websocket_edge.py</code>,
+<code>tests/test_camera_overlay_page.py</code>), so the page's live figures
+and the server's registry always agree.</p>
+
 <h3>Running the full pipeline</h3>
 <p>The repository includes a simulator (<code>overlay_server.py</code>)
 that generates this feed on a random free port, so the whole flow works
 end to end without any camera hardware. The one-command runner
-(<code>examples/sqtcam.sh</code>) starts everything in a single tmux
-session — ideal for leaving overnight to accumulate data:</p>
+(<code>examples/camera/sqtcam.sh</code>) starts everything in a single
+tmux session — ideal for leaving overnight to accumulate data:</p>
 <pre><code># one command: sqtseries + simulator + camera feed in a tmux session
-python3 examples/sqtcam.sh        # or: bash examples/sqtcam.sh
+python3 examples/camera/sqtcam.sh        # or: bash examples/camera/sqtcam.sh
 tmux attach -t sqtcam             # watch the three windows live
 tmux kill-session -t sqtcam       # stop everything (data persists)
 
 # anytime — answer every question from the stored data
-python3 examples/camera_feed.py --ask --host 127.0.0.1 --http-port 17105</code></pre>
+python3 examples/camera/camera_feed.py --ask --host 127.0.0.1 --http-port 17105</code></pre>
 <p><code>sqtcam.sh</code> starts three windows: <code>sqtseries</code>
 (the service, config at <code>/tmp/sqtcam/conf.toml</code>, ports
 17101–17106), <code>overlay</code> (the simulator), and <code>camera</code>
@@ -105,17 +162,17 @@ python3 examples/camera_feed.py --ask --host 127.0.0.1 --http-port 17105</code><
 to start a second session if one is already running.</p>
 <p>Without the runner, the same flow works in four terminals:</p>
 <pre><code># terminal 1 — the data source (note the printed WebSocket URL)
-python3 examples/overlay_server.py
+python3 examples/camera/overlay_server.py
 
 # terminal 2 — sqtseries
 sqtseries --config config.toml run
 
 # terminal 3 — pump the feed into sqtseries
-python3 examples/camera_feed.py --ws ws://localhost:&lt;port&gt;/ws/metrics
+python3 examples/camera/camera_feed.py --ws ws://localhost:&lt;port&gt;/ws/metrics
 #   let it run for a few minutes (or hours/days for real data)
 
 # terminal 4 — answer every question from the stored data
-python3 examples/camera_feed.py --ask</code></pre>
+python3 examples/camera/camera_feed.py --ask</code></pre>
 <p><code>--ask</code> runs 17 questions: traffic levels and percentiles,
 busiest hour and day, total footfall, day-over-day trend, pass-through
 turnover, anomaly vs the same hour on previous days, battery drain rate
@@ -134,21 +191,29 @@ entirely.</p>
 <h3>The scripts</h3>
 <div class="table-wrap"><table>
   <tr><th>Script</th><th>Purpose</th><th>Options (default)</th><th>Runs until</th></tr>
-  <tr><td><code>overlay_server.py</code></td>
+  <tr><td><code>examples/camera/overlay_server.py</code></td>
       <td>Simulated camera-metrics WebSocket source (people/vehicles,
-          battery, CPU) — feeds <code>camera_feed.py</code></td>
+          battery, CPU) — feeds <code>camera_feed.py</code> and serves the
+          live dashboard page</td>
       <td><code>--port</code> (default: a random free port),
           <code>TEST_*</code> env vars (host, port, push interval,
           camera ID)</td>
       <td>streaming — Ctrl+C</td></tr>
-  <tr><td><code>camera_feed.py</code></td>
+  <tr><td><code>examples/camera/overlay.html</code></td>
+      <td>Live dashboard served by the simulator at <code>/</code> and
+          <code>/overlay.html</code> — subscribes to the same-origin
+          <code>/ws/metrics</code> WebSocket and renders each reading as it
+          arrives, with auto-reconnect</td>
+      <td>— (no options; point a browser at the simulator's URL)</td>
+      <td>— stays live while the tab is open</td></tr>
+  <tr><td><code>examples/camera/camera_feed.py</code></td>
       <td>Pump a camera WebSocket feed into sqtseries and answer every
           question the stored data can answer</td>
       <td>pump: <code>--ws</code> URL, <code>--host</code>,
           <code>--http-port</code>; <code>--ask</code> (17 questions),
           <code>--hours</code> window, <code>--once</code></td>
       <td>pump: streaming — Ctrl+C; <code>--ask</code>: one pass</td></tr>
-  <tr><td><code>sqtcam.sh</code></td>
+  <tr><td><code>examples/camera/sqtcam.sh</code></td>
       <td>One-command runner: starts sqtseries, the overlay simulator, and
           the camera feed in a three-window tmux session for long data
           collection</td>

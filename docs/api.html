@@ -182,8 +182,10 @@ sqtseries uninstall        # disable + remove the unit
 <p>Fire-and-forget, one frame per measurement, no reply and no ZMQ-level
 batching. <code>timestamp</code> is optional epoch <em>seconds</em> (float
 allowed); skewed timestamps are rejected (default ±300s — dropped and counted
-as <code>invalid</code> on this path). The ingest port is auto-detected if
-12501 is busy (first free port in 12500–12700).</p>
+as <code>invalid</code> on this path). The ingest port is auto-detected by
+default (<code>ports.auto_detect</code>): the first free port in 12500–12700,
+so it is usually 12500, not 12501 (the configured 12501 is used only with
+<code>auto_detect = false</code>).</p>
 
 <h4>Query — REQ 12502</h4>
 <pre><code>→ {"type": "query", "metric": "cpu.usage",
@@ -272,12 +274,12 @@ real time, using prefix filters or subscribing to all events with
   <tr><th>Event type</th><th>Fields</th><th>When</th></tr>
   <tr><td><code>conn</code></td>
       <td>connect: <code>id</code>, <code>kind</code> (<code>"ws"</code>), <code>peer</code>, <code>topic</code>, <code>connected_at</code>, <code>connected: true</code>, <code>ttl</code> (60)<br>
-          disconnect: <code>id</code>, <code>kind</code>, <code>peer</code>, <code>topic</code>, <code>connected: false</code></td>
-      <td>A WebSocket client connects or disconnects</td></tr>
+          disconnect: <code>id</code>, <code>kind</code>, <code>peer</code>, <code>topic</code>, <code>connected: false</code>, <code>connected_at</code>, <code>left_at</code></td>
+      <td>A WebSocket client connects or disconnects (leave carries arrival + leaving times)</td></tr>
   <tr><td><code>sub</code></td>
-      <td>join: <code>kind</code> (<code>"zmq"</code>), <code>topic</code>, <code>subscribers</code>, <code>ttl</code> (30)<br>
-          leave: <code>kind</code>, <code>topic</code>, <code>subscribers</code> (no <code>ttl</code>)</td>
-      <td>A ZMQ SUB subscriber joins or leaves a topic</td></tr>
+      <td>join: <code>kind</code> (<code>"zmq"</code>), <code>topic</code>, <code>subscribers</code>, <code>arrived_at</code>, <code>ttl</code> (30)<br>
+          leave: <code>kind</code>, <code>topic</code>, <code>subscribers</code>, <code>left_at</code>, <code>first_seen</code> (no <code>ttl</code>)</td>
+      <td>A ZMQ SUB subscriber joins or leaves a topic (leave carries leaving time + when the topic first became active)</td></tr>
   <tr><td><code>report</code></td>
       <td><code>uptime_s</code>, <code>ws_connections</code>, <code>zmq_subscribers</code>, <code>active_topics</code></td>
       <td>Every 10 seconds</td></tr>
@@ -317,12 +319,21 @@ while True:
   <tr><td><code>GET /api/v1/stats</code></td>
       <td>—</td>
       <td><code>{"status":"ok","metrics":N,"series":M}</code></td></tr>
+  <tr><td><code>GET /api/v1/connections</code></td>
+      <td>—</td>
+      <td>live active WebSocket connections, oldest first: <code>{"status":"ok","data":[{id,kind,peer,topic,connected_at}]}</code></td></tr>
+  <tr><td><code>GET /api/v1/subscribers</code></td>
+      <td>—</td>
+      <td>live ZMQ subscriptions: <code>{"status":"ok","zmq_subscribers":N,"subscriptions":[{topic,subscribers,first_seen}]}</code></td></tr>
   <tr><td><code>GET /api/v1/health</code></td>
       <td>—</td>
       <td><code>{"status":"ok","version":"0.1.0"}</code> when the SQLite database passes <code>quick_check</code>; <code>{"status":"degraded","version":"0.1.0"}</code> otherwise. This is a live DB probe, not just a port check.</td></tr>
   <tr><td><code>WS /ws/subscribe?metric=PREFIX</code></td>
       <td>single topic prefix; <code>*</code> or omitted for all. Not a comma-separated list. Path is <code>/ws/subscribe</code>, not under <code>/api/v1</code>.</td>
       <td>streams <code>{metric,tags,value}</code> (no timestamp); <code>{"type":"ping"}</code> keepalives every ~30s of idle; close code 1008 "streaming disabled" if the pubsub bus is off</td></tr>
+  <tr><td><code>WS /ws/connections</code></td>
+      <td>live connection/subscription feed — no query params</td>
+      <td><code>{"type":"snapshot",...}</code> on connect, then one frame per change: <code>{"type":"conn", ...,"connected":true/false}</code> (ws clients) and <code>{"type":"sub",...}</code> (zmq subscribers), pushed instantly. Conn frames carry <code>connected_at</code> and (on leave) <code>left_at</code>; sub frames carry <code>arrived_at</code>/<code>left_at</code> and <code>first_seen</code></td></tr>
 </table></div>
 <p>Every response carries an <code>X-Request-ID</code> header (echoed from the
 request, or a fresh one). The gateway is rate-limited per client peer
@@ -331,6 +342,16 @@ CORS-enabled (<code>http.cors_origins</code>, default <code>*</code>). The
 rate limiter deliberately ignores the <code>X-Forwarded-For</code> header
 (it is client-supplied and spoofable), so all clients behind a reverse
 proxy share the proxy's limit — size the limit accordingly.</p>
+<p>WebSocket resilience: the server limits one inbound frame to 16&nbsp;MiB
+(<code>ws_max_size</code>; a larger frame closes the connection with code
+1009), pings the peer every 20s at the protocol level (20s timeout) to drop
+dead connections, and evicts a subscriber that cannot accept a frame within
+30s (close 1011 "slow consumer"). New connections beyond
+<code>http.max_websocket_connections</code> (default 1000) are accepted and
+immediately closed with code 1013 "try again later", so a connection flood
+cannot exhaust memory. Per-connection memory is bounded (ZMQ receive HWM of
+1000 frames); a slow subscriber is dropped at the HWM rather than stalling
+other subscribers.</p>
 
 <h3>7. Error codes <span id="errors"></span></h3>
 <p>Error replies share the shape
@@ -360,10 +381,12 @@ The table below lists every error the wire can produce.</p>
   <tr><td><code>400</code></td><td>HTTP write</td><td>Tags are not a string→string object</td><td><code>tags must be string-&gt;string object</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>Timestamp is not a number</td><td><code>timestamp must be a number</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>NaN / ±Inf timestamp</td><td><code>timestamp must be finite</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Timestamp beyond the signed 64-bit nanosecond storage range (or too large to convert to a float)</td><td><code>timestamp out of range</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>Clock skew beyond the guard</td><td><code>client timestamp skew exceeds 300.0s</code></td></tr>
-  <tr><td><code>400</code></td><td>HTTP read / aggregate</td><td>Engine rejects the parameters (unknown aggregation or interval, out-of-range values)</td><td><code>unsupported aggregation: bogus</code> etc.</td></tr>
+  <tr><td><code>400</code></td><td>HTTP read / aggregate</td><td>Engine rejects the parameters: unknown <code>aggregation</code>, or an invalid <code>interval</code> used together with an <code>aggregation</code> (a bare invalid <code>interval</code> with no aggregation is silently ignored)</td><td><code>unsupported aggregation: bogus</code> etc.</td></tr>
   <tr><td><code>422</code></td><td>HTTP</td><td>Parameter validation: missing required <code>metric</code>, <code>limit</code> outside 1–100000, <code>order</code> not <code>asc</code>/<code>desc</code>, non-numeric <code>start</code>/<code>end</code></td><td>FastAPI validation detail</td></tr>
   <tr><td><code>429</code> <code>RATE_LIMITED</code></td><td>HTTP</td><td>More than <code>http.rate_limit_per_minute</code> (default 600) requests in a minute from one client</td><td><code>too many requests</code></td></tr>
+  <tr><td><code>504</code></td><td>HTTP read / aggregate</td><td>Query exceeded the server-side budget (<code>query.timeout_s</code>, default 30s). Queries run off the event loop in a thread, so this only times out that request — health, streaming, and other requests stay responsive</td><td><code>query exceeded 30.0s</code></td></tr>
   <tr><td>close <code>1008</code></td><td>WebSocket</td><td>Streaming disabled (pubsub not running)</td><td><code>streaming disabled</code></td></tr>
 </table></div>
 <p>ZMQ <em>ingest</em> is different: bad messages are <strong>dropped, never

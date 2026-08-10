@@ -33,11 +33,18 @@ class RateLimitMiddleware:
         now = int(time.time())
         window = now // 60
         # bound memory: only current-window keys matter; drop older ones when
-        # the table grows (blocks a "random X-Forwarded-For"-style memory leak)
+        # the table grows (blocks a "random X-Forwarded-For"-style memory leak).
+        # Within a single window the sweep above clears nothing, so cap the
+        # table hard by evicting the oldest entries (FIFO) — extreme IP churn
+        # degrades tracking rather than growing memory without bound.
         if len(self._hits) > self._max_keys:
             stale = [k for k, (_, w) in self._hits.items() if w != window]
             for k in stale:
                 del self._hits[k]
+            excess = len(self._hits) - self._max_keys
+            if excess > 0:
+                for k in list(self._hits)[:excess]:
+                    del self._hits[k]
         count, seen = self._hits[client]
         if seen != window:
             self._hits[client] = (1, window)

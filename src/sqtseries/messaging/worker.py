@@ -18,11 +18,11 @@ class WorkerPool:
     """Run N asyncio worker tasks, each polling the ingress/broker loops.
 
     ``step`` is an async callable that performs one unit of work (e.g. one
-    drain iteration). The pool starts ``size`` tasks; on stop, waits for
-    current work then cancels.
+    drain iteration) and returns True if it did any work. The pool starts
+    ``size`` tasks; on stop it cancels the workers and awaits their completion.
     """
 
-    def __init__(self, step: Callable[[], Awaitable[None]], *, size: int = 1):
+    def __init__(self, step: Callable[[], Awaitable[bool]], *, size: int = 1):
         if size < 1:
             raise ValueError("worker pool size must be >= 1")
         self._step = step
@@ -41,18 +41,24 @@ class WorkerPool:
         try:
             while self._running:
                 try:
-                    await self._step()
+                    did_work = await self._step()
                 except asyncio.CancelledError:
                     raise
                 except Exception:
                     log.exception("worker %d error", idx)
                     await asyncio.sleep(0.05)
+                    continue
                 # Yield to the loop: recv(flags=NOBLOCK) raising zmq.Again
                 # does NOT release the event loop, so a tight step() loop would
                 # starve timers and other tasks (verified 2026-08-07: 112k
-                # spins/sec, call_later never fired). A zero-duration sleep
-                # gives other coroutines (checkpoints, shutdown) a chance.
-                await asyncio.sleep(0)
+                # spins/sec, call_later never fired). When the step found NO
+                # work, sleep 10ms instead of 0: an idle loop that re-grabs the
+                # GIL continuously starves CPU-bound worker threads (e.g. a
+                # query offloaded via asyncio.to_thread), so long HTTP/ZMQ
+                # queries stalled under idle load — and it burns CPU. 10ms only
+                # delays the FIRST message after an idle period; once work is
+                # flowing, busy cycles use sleep(0) with no added latency.
+                await asyncio.sleep(0 if did_work else 0.01)
         except asyncio.CancelledError:
             pass
 

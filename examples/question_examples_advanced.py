@@ -43,6 +43,13 @@ QUERY_PORT = 12502
 HTTP_PORT = 12505
 
 
+def _fmt(v, spec: str = ".1f") -> str:
+    """Format a number, or 'no data' when the aggregate returned nothing."""
+    if v is None or (isinstance(v, float) and v != v):
+        return "no data"
+    return f"{v:{spec}}"
+
+
 def utc_day_start(days_ago: int = 0) -> int:
     """Epoch seconds of UTC midnight, ``days_ago`` before today."""
     now_s = int(time.time())
@@ -216,8 +223,11 @@ def q1_busiest_host(env: ExampleEnv) -> None:
         print("  ANSWER: busiest_host = none")
         return
     hosts = sorted(avgs, key=lambda h: avgs[h])
-    print("  per-host averages: " + " | ".join(f"{h}={avgs[h]:.1f}%" for h in hosts))
-    print(f"  ANSWER: busiest_host = {hosts[-1]} ({avgs[hosts[-1]]:.1f}%)")
+    print(
+        "  per-host averages: "
+        + " | ".join(f"{h}={_fmt(avgs[h], '.1f')}%" for h in hosts)
+    )
+    print(f"  ANSWER: busiest_host = {hosts[-1]} ({_fmt(avgs[hosts[-1]], '.1f')}%)")
 
 
 def q2_p95_per_page(env: ExampleEnv) -> None:
@@ -230,7 +240,7 @@ def q2_p95_per_page(env: ExampleEnv) -> None:
         page = env.series_tags(sid).get("page", "?")
         p95 = env.series_aggregate(sid, now_s - 2 * 3600, now_s, "p95")
         key = "p95_" + page.strip("/").replace("/", "_")
-        print(f"  ANSWER: {key} = {p95:.1f} ms")
+        print(f"  ANSWER: {key} = {_fmt(p95, '.1f')} ms")
 
 
 def q3_visitors_per_page(env: ExampleEnv) -> None:
@@ -248,9 +258,9 @@ def q3_visitors_per_page(env: ExampleEnv) -> None:
         return
     for page, total in sorted(totals.items()):
         key = "visitors_" + page.strip("/").replace("/", "_")
-        print(f"  ANSWER: {key} = {total:.0f}")
+        print(f"  ANSWER: {key} = {_fmt(total, '.0f')}")
     top = max(totals, key=totals.get)
-    print(f"  ANSWER: top_page = {top} ({totals[top]:.0f})")
+    print(f"  ANSWER: top_page = {top} ({_fmt(totals[top], '.0f')})")
 
 
 def q4_throughput(env: ExampleEnv) -> None:
@@ -262,8 +272,10 @@ def q4_throughput(env: ExampleEnv) -> None:
         end=now_ns,
         funcs=["count"],
     )["count"]
-    print(f"  ANSWER: visitors_per_minute = {count / 60:.1f}")
-    print(f"  ({count:.0f} visitors over the last hour)")
+    print(
+        f"  ANSWER: visitors_per_minute = {_fmt(count / 60 if count else None, '.1f')}"
+    )
+    print(f"  ({_fmt(count, '.0f')} visitors over the last hour)")
 
 
 def q5_percentile_ladder(env: ExampleEnv) -> None:
@@ -277,7 +289,7 @@ def q5_percentile_ladder(env: ExampleEnv) -> None:
     )
     print(
         "  ANSWER: latency_ladder = "
-        + " ".join(f"{k}={v:.1f}ms" for k, v in stats.items())
+        + " ".join(f"{k}={_fmt(v, '.1f')}ms" for k, v in stats.items())
     )
 
 
@@ -292,7 +304,7 @@ def q6_compare_days(env: ExampleEnv) -> None:
             end=(start_s + 86400) * 10**9,
             funcs=["avg"],
         )["avg"]
-        result.append(f"{label}={avg:.0f}")
+        result.append(f"{label}={_fmt(avg, '.0f')}")
     print("  ANSWER: visitors_by_day = " + " | ".join(result))
 
 
@@ -330,7 +342,7 @@ def q8_data_quality(env: ExampleEnv) -> None:
     )["count"]
     expected = max(now_s - start_s, 1) // 60  # seed: one reading per minute
     print(f"  ANSWER: readings_expected = {expected}")
-    print(f"  ANSWER: readings_received = {count:.0f}")
+    print(f"  ANSWER: readings_received = {_fmt(count, '.0f')}")
     print(f"  ANSWER: readings_missing = {max(0, expected - int(count))}")
 
 
@@ -351,8 +363,10 @@ def q9_trend(env: ExampleEnv) -> None:
     first, last = counts[0], counts[-1]
     slope = last - first
     trend = "growing" if slope > 2 else ("shrinking" if slope < -2 else "flat")
-    print("  ANSWER: points_per_day = " + ", ".join(f"{c:.0f}" for c in counts))
-    print(f"  ANSWER: daily_trend = {trend} ({first:.0f} -> {last:.0f})")
+    print("  ANSWER: points_per_day = " + ", ".join(_fmt(c, ".0f") for c in counts))
+    print(
+        f"  ANSWER: daily_trend = {trend} ({_fmt(first, '.0f')} -> {_fmt(last, '.0f')})"
+    )
 
 
 def q10_staleness(env: ExampleEnv) -> None:

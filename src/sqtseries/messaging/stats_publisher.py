@@ -1,6 +1,7 @@
 """Stats PUB socket: broadcasts connection and subscription events in JSON."""
 
 import asyncio
+import contextlib
 import time
 
 import orjson
@@ -36,6 +37,7 @@ class StatsPublisher:
         self._task: asyncio.Task | None = None
         self._publish_tasks: set[asyncio.Task] = set()
         self._started_at: float = 0.0
+        self._event_hook = None
 
     async def start(self) -> None:
         from zmq.asyncio import Context as AContext
@@ -48,7 +50,8 @@ class StatsPublisher:
         self._started_at = time.time()
         self._task = asyncio.create_task(self._report_loop(), name="stats-publisher")
         # Hook the registry so stats events are forwarded in real time
-        self.registry.on_event(self._on_registry_event)
+        self._event_hook = self._on_registry_event
+        self.registry.on_event(self._event_hook)
         log.info("stats publisher started", endpoint=self.endpoint)
 
     async def publish(self, event_type: str, payload: dict) -> None:
@@ -87,9 +90,19 @@ class StatsPublisher:
             log.warning("stats report publish failed", exc_info=True)
 
     async def stop(self) -> None:
+        if self._event_hook is not None:
+            # unhook BEFORE draining, so no new per-event tasks are spawned
+            self.registry.remove_listener(self._event_hook)
+            self._event_hook = None
         if self._task is not None:
             self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
             self._task = None
+        if self._publish_tasks:
+            # drain in-flight event-forward tasks (they no-op on a closed socket)
+            await asyncio.gather(*self._publish_tasks, return_exceptions=True)
+            self._publish_tasks.clear()
         if self.socket is not None:
             self.socket.close(linger=0)
             self.socket = None

@@ -205,27 +205,6 @@ class StorageEngine:
             self.invalidate_partitions()
         return inserted
 
-    def _ensure_partitions(self, names: set[str]) -> None:
-        """Create missing partition tables + ts index (race-tolerant)."""
-        if not names:
-            return
-        existing = set(self.db.get_table_names())
-        missing = names - existing
-        if not missing:
-            return
-        with self.db.connect() as conn:
-            for pname in sorted(missing):
-                year, month = parse_partition_name(pname)
-                try:
-                    conn.executescript(measurements_ddl(year, month))
-                    conn.executescript(measurements_index_ddl(year, month))
-                except Exception as exc:
-                    # concurrent writer created it first — tolerate
-                    if "already exists" in str(exc).lower():
-                        continue
-                    raise
-        self.invalidate_partitions()
-
     def query_time_range(
         self,
         metric: str | None = None,

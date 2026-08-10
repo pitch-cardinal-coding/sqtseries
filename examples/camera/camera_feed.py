@@ -16,18 +16,18 @@ Two parts:
 Self-contained demo (three terminals):
 
     # terminal 1 — the data source (this repo's simulator, random port)
-    python3 examples/overlay_server.py
+    python3 examples/camera/overlay_server.py
     #   note the printed port (e.g. ws://localhost:58547/ws/metrics)
 
     # terminal 2 — sqtseries (any instance; default ports fine)
     sqtseries --config config.toml run
 
     # terminal 3 — pump readings into sqtseries
-    python3 examples/camera_feed.py --ws ws://localhost:58547/ws/metrics
+    python3 examples/camera/camera_feed.py --ws ws://localhost:58547/ws/metrics
     #   let it run for a few minutes
 
     # terminal 4 (anytime) — answer every question from the stored data
-    python3 examples/camera_feed.py --ask
+    python3 examples/camera/camera_feed.py --ask
 
 Each incoming message is flattened into numeric measurements tagged with
 ``camera_id`` (sqtseries stores flat ``metric + value + tags``):
@@ -49,10 +49,10 @@ stored as numeric measurements and are skipped.
 
 Usage:
     pip install websockets          # only extra dependency (pump mode)
-    python3 examples/camera_feed.py --ws ws://localhost:58547/ws/metrics
-    python3 examples/camera_feed.py --ask
-    python3 examples/camera_feed.py --ask --hours 24
-    python3 examples/camera_feed.py --host 192.168.1.10 --http-port 12505
+    python3 examples/camera/camera_feed.py --ws ws://localhost:58547/ws/metrics
+    python3 examples/camera/camera_feed.py --ask
+    python3 examples/camera/camera_feed.py --ask --hours 24
+    python3 examples/camera/camera_feed.py --host 192.168.1.10 --http-port 12505
 """
 
 import argparse
@@ -627,7 +627,12 @@ def main():
         "and answer questions about them"
     )
     parser.add_argument(
-        "--ws", default=DEFAULT_WS, help=f"metrics WebSocket URL (default {DEFAULT_WS})"
+        "--ws",
+        default=DEFAULT_WS,
+        help="metrics WebSocket URL (default "
+        f"{DEFAULT_WS!r}, which assumes the overlay was started with "
+        "--port 30080; the overlay defaults to a random free port, so pass "
+        "the URL it prints, e.g. --ws ws://localhost:PORT/ws/metrics)",
     )
     parser.add_argument("--host", default=DEFAULT_HTTP_HOST, help="sqtseries HTTP host")
     parser.add_argument(

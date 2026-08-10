@@ -87,6 +87,30 @@ class TestNotReady:
         assert reply["error"]["code"] == "NOT_READY"
 
 
+class TestQueryLimitValidation:
+    def test_negative_limit_invalid_query(self, settings, tmp_path):
+        from sqtseries.engine import (
+            StorageEngine,
+            create_sqlite_engine,
+            initialize_schema,
+        )
+        from sqtseries.query import TimeSeriesDB
+
+        eng = create_sqlite_engine(str(tmp_path / "q.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        svc = Service(settings)
+        svc.store = store
+        svc.ts = TimeSeriesDB(store)
+        try:
+            # a negative limit would silently drop the last row via rows[:-1]
+            reply = svc._query_handler({"metric": "m", "limit": -5})
+            assert reply["status"] == "error"
+            assert reply["error"]["code"] == "INVALID_QUERY"
+        finally:
+            store.close()
+
+
 class TestAdminErrors:
     async def test_admin_backup_failure(self, settings, monkeypatch):
         svc = Service(settings)

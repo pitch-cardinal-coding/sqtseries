@@ -55,14 +55,20 @@ its default ports. If you have not installed it yet, start with the
   <code>--query-port</code>, <code>--http-port</code>). Run them with
   <code>python3 examples/&lt;name&gt;.py</code>.
   <br><br>
+  <strong>The camera pipeline</strong> lives in its own subdirectory,
+  <code>examples/camera/</code>: <code>overlay_server.py</code> (simulated
+  camera-metrics WebSocket source that also serves a live dashboard page),
+  <code>overlay.html</code> (that dashboard — subscribes to the same-origin
+  metrics WebSocket and renders readings as they arrive),
+  <code>camera_feed.py</code> (pump a camera feed into sqtseries and answer
+  every question the data can answer), <code>sqtcam.sh</code>
+  (one-command runner: sqtseries + simulator + feed in a tmux session, for
+  overnight data collection), and <code>conn_validate.py</code> (validate the
+  live connection/subscription feed).
+  <br><br>
   <strong>Available scripts:</strong>
   <code>run_custom.py</code> (start/verify/stop your own instance with your
   own config, ports, and database),
-  <code>overlay_server.py</code> (simulated camera-metrics WebSocket source),
-  <code>camera_feed.py</code> (pump a camera feed into sqtseries and answer
-  every question the data can answer),
-  <code>sqtcam.sh</code> (one-command runner: sqtseries + simulator + feed
-  in a tmux session, for overnight data collection),
   <code>producer.py</code> (ZMQ ingestion),
   <code>ingest_http.py</code> (HTTP ingestion),
   <code>consumer.py</code> (ZMQ/HTTP query),
@@ -74,7 +80,9 @@ its default ports. If you have not installed it yet, start with the
   <code>stream_examples.py</code> (live subscription),
   <code>admin_examples.py</code> (all 9 admin commands),
   <code>stats_monitor.py</code> (live stats feed),
-  <code>maintenance_examples.py</code> (backup, vacuum, health loop).
+  <code>maintenance_examples.py</code> (backup, vacuum, health loop),
+  <code>tags_examples.py</code> (why tags exist, whole-metric vs per-tag
+  queries, cardinality).
   <br><br>
   <strong>The question catalog.</strong> Start with
   <code>question_examples.py</code>: it seeds deterministic sample data and
@@ -120,8 +128,8 @@ sqtseries --config /etc/sqtseries/config.toml install --system  # system unit
 <p>Most scripts accept <code>--host</code> (default <code>127.0.0.1</code>)
 and the port flag(s) listed below, so they work against any sqtseries
 instance — including one running on custom ports
-(<code>run_custom.py</code> and <code>overlay_server.py</code> are the
-exceptions: they manage their own ports). Unless stated otherwise, scripts
+(<code>run_custom.py</code> and <code>camera/overlay_server.py</code> are
+the exceptions: they manage their own ports). Unless stated otherwise, scripts
 connect to an already-running service and exit on their own; the ones
 marked <em>streaming</em> run until Ctrl+C.</p>
 <div class="table-wrap"><table>
@@ -188,27 +196,53 @@ marked <em>streaming</em> run until Ctrl+C.</p>
           --config … run</code>)</td>
       <td><code>--workdir</code> (default <code>sqt-custom-work</code>)</td>
       <td>— full lifecycle, then exits</td></tr>
-  <tr><td><code>overlay_server.py</code></td>
+  <tr><td><code>camera/overlay_server.py</code></td>
       <td>Simulated camera-metrics WebSocket source (people/vehicles,
-          battery, CPU) — feeds <code>camera_feed.py</code></td>
+          battery, CPU) — feeds <code>camera_feed.py</code> and serves the
+          live dashboard page</td>
       <td><code>--port</code> (default: a random free port),
           <code>TEST_*</code> env vars (host, port, push interval,
           camera ID)</td>
       <td>streaming — Ctrl+C</td></tr>
-  <tr><td><code>camera_feed.py</code></td>
+  <tr><td><code>camera/overlay.html</code></td>
+      <td>Live dashboard served by the simulator at <code>/</code> and
+          <code>/overlay.html</code> — subscribes to the same-origin
+          <code>/ws/metrics</code> WebSocket and renders each reading as it
+          arrives, with auto-reconnect; add
+          <code>?sqtseries=ws://…/ws/subscribe</code> to also stream what
+          the time-series database publishes</td>
+      <td><code>?sqtseries=</code> WS URL to sqtseries,
+          <code>&amp;metric=</code> topic prefix filter</td>
+      <td>— stays live while the tab is open</td></tr>
+  <tr><td><code>camera/camera_feed.py</code></td>
       <td>Pump a camera WebSocket feed into sqtseries and answer every
           question the stored data can answer</td>
       <td>pump: <code>--ws</code> URL, <code>--host</code>,
           <code>--http-port</code>; <code>--ask</code> (17 questions),
           <code>--hours</code> window, <code>--once</code></td>
       <td>pump: streaming — Ctrl+C; <code>--ask</code>: one pass</td></tr>
-  <tr><td><code>sqtcam.sh</code></td>
+  <tr><td><code>camera/sqtcam.sh</code></td>
       <td>One-command runner: starts sqtseries, the overlay simulator, and
           the camera feed in a three-window tmux session for long data
           collection</td>
       <td>— (uses <code>/tmp/sqtcam/conf.toml</code>; refuses to start a
           second session)</td>
       <td>— runs until <code>tmux kill-session -t sqtcam</code></td></tr>
+  <tr><td><code>camera/conn_validate.py</code></td>
+      <td>Validate the live connection/subscription feed of a running
+          sqtseries: joins/leaves WebSocket + ZMQ subscribers and asserts
+          exact counts, arrival/leaving times, and push latency</td>
+      <td><code>--http-port</code> 12505, <code>--stream-port</code> 12503,
+          <code>--clients</code> 3, <code>--zmq-subs</code> 2,
+          <code>--timeout</code> 5</td>
+      <td>— one pass (exits non-zero on any mismatch)</td></tr>
+  <tr><td><code>tags_examples.py</code></td>
+      <td>Walk through tags: why they exist, series identity, whole-metric vs
+          per-tag queries, validation, cardinality — with a live dataset</td>
+      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
+          <code>--http-port</code> 12505, <code>--db</code> PATH (needed for
+          the per-tag breakdown)</td>
+      <td>— one pass</td></tr>
 </table></div>
 <p>Note: <code>question_examples.py</code> and <code>query_examples.py</code>
 backfill historical data, so the service must be running with

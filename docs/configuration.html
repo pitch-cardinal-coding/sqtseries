@@ -122,12 +122,12 @@ default.</p>
 <pre><code># config.toml — a complete example with changed values
 [database]
 path = "~/.sqtseries/data/db.sqlite"   # db file location
-page_size = 8192                        # only honored when the file is created
-cache_size = -64000                     # -64000 pages ≈ 64 MiB
-mmap_size = 268435456                   # 256 MiB
-busy_timeout = 5000                     # ms to wait for the write lock
-journal_size_limit = 67108864           # 64 MiB cap on WAL growth
-threads = 4                             # parallel sort worker threads
+page_size = 8192                        # config-only (fixed 8192 in the engine)
+cache_size = -64000                     # config-only (fixed -64000 ≈ 64 MiB)
+mmap_size = 268435456                   # config-only (fixed 256 MiB)
+busy_timeout = 5000                     # config-only (fixed 5000 ms)
+journal_size_limit = 67108864           # config-only (fixed 64 MiB)
+threads = 4                             # config-only (fixed 4)
 batch_size = 2000                       # config-only; see note below
 flush_interval = 1.0                    # config-only; see note below
 
@@ -154,6 +154,7 @@ port = 12505
 host = "127.0.0.1"
 cors_origins = ["*"]
 rate_limit_per_minute = 600
+max_websocket_connections = 1000
 
 [logging]
 level = "INFO"            # DEBUG | INFO | WARNING | ERROR | CRITICAL
@@ -225,12 +226,12 @@ SQT_SERIES_CONFIG_FILE=~/prod.toml sqtseries run</code></pre>
 <div class="table-wrap"><table>
   <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
   <tr><td><code>path</code></td><td><code>~/.sqtseries/data/db.sqlite</code></td><td><code>SQT_SERIES_DATABASE__PATH</code></td><td>Database file location</td></tr>
-  <tr><td><code>page_size</code></td><td><code>8192</code></td><td><code>SQT_SERIES_DATABASE__PAGE_SIZE</code></td><td>Storage page size (fresh files only)</td></tr>
-  <tr><td><code>cache_size</code></td><td><code>-64000</code></td><td><code>SQT_SERIES_DATABASE__CACHE_SIZE</code></td><td>Page cache (≈64 MiB)</td></tr>
-  <tr><td><code>mmap_size</code></td><td><code>268435456</code></td><td><code>SQT_SERIES_DATABASE__MMAP_SIZE</code></td><td>Memory-mapped reads (256 MiB)</td></tr>
-  <tr><td><code>busy_timeout</code></td><td><code>5000</code></td><td><code>SQT_SERIES_DATABASE__BUSY_TIMEOUT</code></td><td>ms to wait on write-lock contention</td></tr>
-  <tr><td><code>journal_size_limit</code></td><td><code>67108864</code></td><td><code>SQT_SERIES_DATABASE__JOURNAL_SIZE_LIMIT</code></td><td>Cap WAL growth (64 MiB)</td></tr>
-  <tr><td><code>threads</code></td><td><code>4</code></td><td><code>SQT_SERIES_DATABASE__THREADS</code></td><td>Parallel sort threads</td></tr>
+  <tr><td><code>page_size</code></td><td><code>8192</code></td><td><code>SQT_SERIES_DATABASE__PAGE_SIZE</code></td><td>Config-only — the engine fixes 8192 on fresh files</td></tr>
+  <tr><td><code>cache_size</code></td><td><code>-64000</code></td><td><code>SQT_SERIES_DATABASE__CACHE_SIZE</code></td><td>Config-only — page cache is fixed at −64000 (≈64 MiB)</td></tr>
+  <tr><td><code>mmap_size</code></td><td><code>268435456</code></td><td><code>SQT_SERIES_DATABASE__MMAP_SIZE</code></td><td>Config-only — memory-mapped reads fixed at 256 MiB</td></tr>
+  <tr><td><code>busy_timeout</code></td><td><code>5000</code></td><td><code>SQT_SERIES_DATABASE__BUSY_TIMEOUT</code></td><td>Config-only — write-lock wait fixed at 5000 ms</td></tr>
+  <tr><td><code>journal_size_limit</code></td><td><code>67108864</code></td><td><code>SQT_SERIES_DATABASE__JOURNAL_SIZE_LIMIT</code></td><td>Config-only — WAL cap fixed at 64 MiB</td></tr>
+  <tr><td><code>threads</code></td><td><code>4</code></td><td><code>SQT_SERIES_DATABASE__THREADS</code></td><td>Config-only — parallel sort threads fixed at 4</td></tr>
   <tr><td><code>batch_size</code></td><td><code>2000</code></td><td><code>SQT_SERIES_DATABASE__BATCH_SIZE</code></td><td>Validated (1–8191), config-only</td></tr>
   <tr><td><code>flush_interval</code></td><td><code>1.0</code></td><td><code>SQT_SERIES_DATABASE__FLUSH_INTERVAL</code></td><td>Config-only (not consumed by the write path)</td></tr>
 </table></div>
@@ -279,6 +280,7 @@ SQT_SERIES_CONFIG_FILE=~/prod.toml sqtseries run</code></pre>
   <tr><td><code>host</code></td><td><code>127.0.0.1</code></td><td><code>SQT_SERIES_HTTP__HOST</code></td><td>Bind address</td></tr>
   <tr><td><code>cors_origins</code></td><td><code>["*"]</code></td><td><code>SQT_SERIES_HTTP__CORS_ORIGINS</code></td><td>Allowed CORS origins (JSON list)</td></tr>
   <tr><td><code>rate_limit_per_minute</code></td><td><code>600</code></td><td><code>SQT_SERIES_HTTP__RATE_LIMIT_PER_MINUTE</code></td><td>Requests per minute per client</td></tr>
+  <tr><td><code>max_websocket_connections</code></td><td><code>1000</code></td><td><code>SQT_SERIES_HTTP__MAX_WEBSOCKET_CONNECTIONS</code></td><td>Live WebSocket cap; new connections beyond it close with code 1013</td></tr>
 </table></div>
 
 <h4>logging</h4>
@@ -341,8 +343,9 @@ additionally accept <code>w</code> (weeks), e.g. <code>4w</code>.</p>
 mid-flight:</p>
 <ul>
   <li>Each of <code>ingestion</code>, <code>query</code>,
-      <code>streaming</code>, <code>admin</code>, <code>http</code> ports must
-      be 1–65535, and the five must be unique.</li>
+      <code>streaming</code>, <code>admin</code>, <code>http</code>, and
+      <code>stats</code> ports must be 1–65535, and the six must be
+      unique.</li>
   <li><code>ingestion.hwm</code> ≥ 1 and <code>ingestion.pending_max</code> ≥ 1.</li>
   <li><code>database.batch_size</code> must be 1–8191 (SQLite's safe variable
       limit).</li>
@@ -360,8 +363,8 @@ mid-flight:</p>
 <p>Only the <strong>ingest port</strong> is auto-detected. If
 <code>ports.auto_detect</code> is on (default), <code>run</code> scans
 <code>[port_range_start, port_range_end] + port_offset</code> and binds the
-first free port, skipping the query/streaming/admin/http ports along the way
-(the scan starts at <code>port_range_start</code>, so with defaults the
+first free port, skipping the query/streaming/admin/http/stats ports along
+the way (the scan starts at <code>port_range_start</code>, so with defaults the
 ingest port is usually 12500 — not the configured 12501). The other five
 ports — query, streaming, admin, stats, http — are <strong>fixed</strong>:
 if one of them is already bound at startup, the service fails to start with
@@ -376,9 +379,14 @@ written to <code>runtime.json</code> (next to the database) and shown by
 
 <h3>Notes on some settings</h3>
 <ul>
-  <li><code>database.batch_size</code> and <code>ingestion.pending_max</code>
-      are <em>validated but not consumed</em>; <code>database.flush_interval</code>
-      is neither validated nor consumed. The write path ingests one row per
+  <li>Every <code>[database]</code> key except <code>path</code> is
+      <em>config-only</em>: <code>batch_size</code> is validated (1–8191) but
+      not consumed, and <code>page_size</code>, <code>cache_size</code>,
+      <code>mmap_size</code>, <code>busy_timeout</code>,
+      <code>journal_size_limit</code>, <code>threads</code>, and
+      <code>flush_interval</code> are not consumed at all — the engine uses its
+      fixed values (see the PRAGMA tables below). <code>ingestion.pending_max</code>
+      is likewise validated but not consumed. The write path ingests one row per
       message in its own transaction, so these knobs have no effect today.
       They exist so a future write path can honor them.</li>
   <li><code>ingestion.max_message_size</code> (50 MiB) — frames larger than

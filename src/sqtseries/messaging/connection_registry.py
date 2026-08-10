@@ -2,7 +2,10 @@
 
 Tracks every active WebSocket connection and ZMQ SUB subscriber so the service
 can answer ``connections``, ``conncheck``, and ``subscribers`` queries at any
-time.
+time. Events carry arrival/leaving timestamps: WebSocket ``conn`` events include
+``connected_at`` and (on leave) ``left_at``; ZMQ ``sub`` events include
+``arrived_at`` / ``left_at`` plus ``first_seen`` (when a topic first became
+active).
 """
 
 import contextlib
@@ -25,6 +28,8 @@ class ConnectionRegistry:
         self._ws: dict[str, dict[str, Any]] = {}
         # topic -> subscriber_count
         self._zmq_subs: dict[str, int] = {}
+        # topic -> epoch seconds when its count first went 0 -> 1
+        self._zmq_first_seen: dict[str, float] = {}
         self._listeners: list[Callable[[str, dict[str, Any]], None]] = []
 
     def on_event(self, callback: Callable[[str, dict[str, Any]], None]) -> None:
@@ -33,6 +38,16 @@ class ConnectionRegistry:
         Event types: ``"conn"``, ``"sub"``.
         """
         self._listeners.append(callback)
+
+    def remove_listener(self, callback: Callable[[str, dict[str, Any]], None]) -> None:
+        """Remove a previously registered listener (idempotent).
+
+        Every ``on_event`` registration must be paired with a ``remove_listener``
+        when the subscriber stops, otherwise repeated start/stop cycles grow
+        ``_listeners`` (and keep dead subscriber objects alive) without bound.
+        """
+        with contextlib.suppress(ValueError):
+            self._listeners.remove(callback)
 
     def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
         for cb in self._listeners:
@@ -52,7 +67,11 @@ class ConnectionRegistry:
         self._emit("conn", payload)
 
     def unregister_ws(self, conn_id: str) -> None:
-        """Mark a WebSocket connection as gone."""
+        """Mark a WebSocket connection as gone.
+
+        The leave event carries the arrival time (``connected_at``) and the
+        leaving time (``left_at``) so consumers can show durations.
+        """
         entry = self._ws.pop(conn_id, None)
         if entry is None:
             return
@@ -62,26 +81,42 @@ class ConnectionRegistry:
             "topic": entry["topic"],
             "id": conn_id,
             "connected": False,
+            "connected_at": entry["connected_at"],
+            "left_at": time.time(),
         }
         self._emit("conn", payload)
 
     def register_zmq_sub(self, topic: str) -> None:
-        """Record a ZMQ SUB subscriber joining ``topic``."""
+        """Record a ZMQ SUB subscriber joining ``topic``.
+
+        Emits ``arrived_at`` on every count increase; ``first_seen`` is set
+        when a topic goes 0 -> 1 so snapshots can show when it became active.
+        """
         count = self._zmq_subs.get(topic, 0) + 1
         self._zmq_subs[topic] = count
+        now = time.time()
+        if count == 1:
+            self._zmq_first_seen[topic] = now
         payload = {
             "kind": "zmq",
             "topic": topic,
             "subscribers": count,
+            "arrived_at": now,
             "ttl": 30,
         }
         self._emit("sub", payload)
 
     def unregister_zmq_sub(self, topic: str) -> None:
-        """Record a ZMQ SUB subscriber leaving ``topic``."""
+        """Record a ZMQ SUB subscriber leaving ``topic``.
+
+        Emits ``left_at`` (leaving time) and ``first_seen`` (when the topic
+        first became active) so consumers can show durations.
+        """
         count = self._zmq_subs.get(topic, 0) - 1
+        first_seen = self._zmq_first_seen.get(topic)
         if count <= 0:
             self._zmq_subs.pop(topic, None)
+            self._zmq_first_seen.pop(topic, None)
             count = 0
         else:
             self._zmq_subs[topic] = count
@@ -89,6 +124,8 @@ class ConnectionRegistry:
             "kind": "zmq",
             "topic": topic,
             "subscribers": count,
+            "left_at": time.time(),
+            "first_seen": first_seen,
         }
         self._emit("sub", payload)
 
@@ -139,7 +176,11 @@ class ConnectionRegistry:
                 for cid, entry in self._ws.items()
             ],
             "subscriptions": [
-                {"topic": topic, "subscribers": count}
+                {
+                    "topic": topic,
+                    "subscribers": count,
+                    "first_seen": self._zmq_first_seen.get(topic),
+                }
                 for topic, count in sorted(self._zmq_subs.items())
             ],
         }

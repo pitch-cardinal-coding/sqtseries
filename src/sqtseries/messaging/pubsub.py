@@ -6,6 +6,7 @@ and updates the registry, making ZMQ SUB subscriber counts exact at all times.
 """
 
 import asyncio
+import contextlib
 import time
 
 import structlog
@@ -70,6 +71,10 @@ class PubSub:
         self._ctx = context
         self.socket: zmq.asyncio.Socket | None = None
         self.tracker = SubscriptionTracker(linger_seconds)
+        # Counts publish attempts, not deliveries: it increments for every
+        # publish() call even when libzmq drops the frame for a slow
+        # subscriber (per-subscriber HWM drop), so it never reflects
+        # per-subscriber receipt.
         self.published = 0
         self._registry = registry
         self._reader_task: asyncio.Task | None = None
@@ -79,6 +84,11 @@ class PubSub:
 
         ctx = self._ctx or AContext.instance()
         self.socket = ctx.socket(zmq.XPUB)
+        # Emit a subscription event for EVERY join/leave, not just topic-trie
+        # transitions. Without this, a second subscriber to an already-known
+        # topic generates no event (verified on libzmq 4.3.5: 2 subscribers on
+        # "cpu" reported as 1) so per-connection counts would be wrong.
+        self.socket.setsockopt(zmq.XPUB_VERBOSER, 1)
         # Unlimited inbound subscriptions; re-subscribe after disconnect
         self.socket.setsockopt(zmq.RCVHWM, 0)
         self.socket.immediate = 1
@@ -110,6 +120,10 @@ class PubSub:
             except asyncio.CancelledError:
                 return
             if not event:
+                # idle tick: sweep expired lingering topics here so _linger_until
+                # stays bounded even when no data is ever published (cleanup()
+                # would otherwise only run inside publish())
+                self.tracker.cleanup()
                 continue
             event_type, topic = event
             try:
@@ -147,6 +161,8 @@ class PubSub:
     async def stop(self) -> None:
         if self._reader_task is not None:
             self._reader_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._reader_task
             self._reader_task = None
         if self.socket is not None:
             self.socket.close(linger=0)

@@ -19,7 +19,6 @@ import contextlib
 import logging
 import os
 import random
-import signal
 import socket
 import sys
 import time
@@ -33,7 +32,6 @@ from fastapi.responses import FileResponse
 logger = logging.getLogger("overlay_server")
 
 OVERLAY_DIR = Path(__file__).resolve().parent
-DEFAULT_PORT = 30080
 
 CONFIG = {
     "host": os.environ.get("TEST_HOST", "0.0.0.0"),
@@ -147,6 +145,12 @@ manager = ConnectionManager()
 
 @app.get("/overlay.html")
 async def serve_overlay() -> FileResponse:
+    # CSP note (COMPLIANCE.md): overlay.html intentionally ships as a single
+    # self-contained file with inline CSS/JS — it is a trusted, developer-owned
+    # artifact for LAN/OBS browser sources (no user input, no third-party
+    # content), so an external-assets split would only add failure modes. The
+    # sqtseries HTTP gateway (the real API surface) does send strict security
+    # headers.
     return FileResponse(OVERLAY_DIR / "overlay.html")
 
 
@@ -214,8 +218,6 @@ def main(argv: list[str]) -> None:
     logger.info("OBS Browser Source URL: http://localhost:%d/overlay.html", port)
     logger.info("WebSocket: ws://localhost:%d/ws/metrics", port)
     logger.info("Press Ctrl-C to stop")
-
-    signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
     uvicorn.run(
         app,

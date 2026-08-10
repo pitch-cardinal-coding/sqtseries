@@ -82,6 +82,75 @@ class TestManagers:
         eng.dispose()
 
 
+class TestCleanupNoLingeringTasks:
+    async def _pending_task_names(self):
+        return {
+            t.get_name()
+            for t in asyncio.all_tasks(asyncio.get_running_loop())
+            if not t.done()
+        }
+
+    async def test_pubsub_stop_awaits_reader(self):
+        from conftest import free_port
+
+        from sqtseries.messaging.connection_registry import ConnectionRegistry
+        from sqtseries.messaging.pubsub import PubSub
+
+        ps = PubSub(f"tcp://127.0.0.1:{free_port()}", registry=ConnectionRegistry())
+        await ps.start()
+        assert "pubsub-xpub-reader" in await self._pending_task_names()
+        await ps.stop()
+        # the reader task must be gone, not merely scheduled for cancellation
+        assert "pubsub-xpub-reader" not in await self._pending_task_names()
+
+    async def test_stats_publisher_stop_awaits_and_drains(self):
+        from conftest import free_port
+
+        from sqtseries.messaging.connection_registry import ConnectionRegistry
+        from sqtseries.messaging.stats_publisher import StatsPublisher
+
+        reg = ConnectionRegistry()
+        pub = StatsPublisher(f"tcp://127.0.0.1:{free_port()}", registry=reg)
+        await pub.start()
+        assert "stats-publisher" in await self._pending_task_names()
+
+        # a slow in-flight event-forward task (socket send is fast, so make
+        # publish hang so the task is still pending when stop() runs)
+        async def slow_publish(event_type, payload):
+            await asyncio.sleep(0.2)
+
+        pub.publish = slow_publish  # type: ignore[method-assign]
+        pub._on_registry_event("conn", {"id": "x"})
+        await asyncio.sleep(0.01)
+        assert len(pub._publish_tasks) >= 1
+        await pub.stop()
+        assert "stats-publisher" not in await self._pending_task_names()
+        assert pub._publish_tasks == set()
+        assert reg._listeners == []
+
+    async def test_subscription_lingering_bounded_without_publishes(self):
+        """_linger_until must not grow forever when no data is ever published."""
+        from conftest import free_port
+
+        from sqtseries.messaging.pubsub import PubSub
+
+        ps = PubSub(f"tcp://127.0.0.1:{free_port()}", linger_seconds=1.0)
+        await ps.start()
+        tracker = ps.tracker
+        try:
+            # churn unique topics through the tracker (as a real SUB client would)
+            for i in range(5000):
+                topic = f"churn.{i:06d}"
+                tracker.subscribe(topic)
+                tracker.unsubscribe(topic)
+            assert len(tracker._linger_until) == 5000
+            # idle reader loop sweeps expired entries without any publish()
+            await asyncio.sleep(2.0)
+            assert len(tracker._linger_until) == 0
+        finally:
+            await ps.stop()
+
+
 class TestServiceCleanup:
     async def test_shutdown_drains_publish_tasks(self, settings):
         from sqtseries.service import Service
@@ -109,3 +178,19 @@ class TestServiceCleanup:
         await svc.shutdown()
         # second shutdown must not raise
         await svc.shutdown()
+
+    async def test_restart_no_registry_listener_growth(self, settings):
+        """Repeated start/shutdown must not accumulate registry listeners.
+
+        Regression: StatsPublisher registered a new listener on every start()
+        and never unhooked it on stop(), so N cycles left N dead listeners
+        (keeping N dead publisher objects alive) on the shared registry.
+        """
+        from sqtseries.service import Service
+
+        svc = Service(settings)
+        for _ in range(3):
+            await svc.start()
+            assert len(svc.connection_registry._listeners) == 1
+            await svc.shutdown()
+            assert len(svc.connection_registry._listeners) == 0

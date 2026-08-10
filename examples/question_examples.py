@@ -51,6 +51,13 @@ QUERY_PORT = 12502
 HTTP_PORT = 12505
 
 
+def _fmt(v, spec: str = ".2f") -> str:
+    """Format an aggregate result, or 'no data' when it came back empty."""
+    if v is None or (isinstance(v, float) and v != v):
+        return "no data"
+    return f"{v:{spec}}"
+
+
 def hour_ago_ns() -> int:
     """Epoch ns one hour before now (Client/ZMQ queries take nanoseconds)."""
     return time.time_ns() - 3600 * 10**9
@@ -93,9 +100,9 @@ def main():
     print("=== Seeding sample data (deterministic) ===")
     env.seed()
     print("  cpu.load     : every 5 min for 6 hours (72 points)")
-    print("  temp.celsius : every 60 min for 3 days (72 points)")
+    print("  temp.celsius : every 60 min for 1 day (24 points)")
     print("  latency.web  : every 30 min for 8 days (384 points)")
-    print("  visitors.web : every 15 min for 3 days (288 points)")
+    print("  visitors.web : every 30 min for 8 days (384 points)")
     time.sleep(0.5)
 
     print("\n=== 1. What was the average CPU load over the last hour? ===")
@@ -177,7 +184,7 @@ class ExampleEnv:
             val = 10.0 + (k % 100)
             self.send("latency.web", val, now_s - (8 * 48 - k) * 30 * 60)
 
-        # visitors.web: 288 points, every 30 min over 8 days, 100..400
+        # visitors.web: 384 points, every 30 min over 8 days, 100..180
         # per bucket, so daily and hourly sums tell a story.
         for k in range(8 * 48):
             val = float(100 + (k * 7) % 81)
@@ -191,7 +198,7 @@ def answer_avg_cpu_last_hour(env: ExampleEnv) -> None:
     avg = env.client.aggregate(
         "cpu.load", start=hour_ago_ns(), end=time.time_ns(), funcs=["avg"]
     )["avg"]
-    print(f"  ANSWER: avg_cpu_last_hour = {avg:.2f}")
+    print(f"  ANSWER: avg_cpu_last_hour = {_fmt(avg)}")
 
 
 def answer_peak_temp_yesterday(env: ExampleEnv) -> None:
@@ -201,14 +208,14 @@ def answer_peak_temp_yesterday(env: ExampleEnv) -> None:
         end=day_start_ns(),
         funcs=["max"],
     )["max"]
-    print(f"  ANSWER: peak_temp_yesterday = {peak:.2f}")
+    print(f"  ANSWER: peak_temp_yesterday = {_fmt(peak)}")
 
 
 def answer_p99_week(env: ExampleEnv) -> None:
     p99 = env.client.aggregate(
         "latency.web", start=week_ago_ns(), end=time.time_ns(), funcs=["p99"]
     )["p99"]
-    print(f"  ANSWER: p99_latency_week = {p99:.2f}")
+    print(f"  ANSWER: p99_latency_week = {_fmt(p99)}")
 
 
 def answer_count_today(env: ExampleEnv) -> None:
@@ -218,7 +225,7 @@ def answer_count_today(env: ExampleEnv) -> None:
         end=time.time_ns(),
         funcs=["count"],
     )["count"]
-    print(f"  ANSWER: count_today = {count:.0f}")
+    print(f"  ANSWER: count_today = {_fmt(count, '.0f')}")
 
 
 def extra_trend(env: ExampleEnv) -> None:
@@ -233,6 +240,9 @@ def extra_trend(env: ExampleEnv) -> None:
         end=now - 3600 * 10**9,
         funcs=["avg"],
     )["avg"]
+    if this is None or prev is None:
+        print("  ANSWER: trend = no data")
+        return
     direction = "rising" if this > prev else "falling"
     print(f"  ANSWER: trend = {direction}")
     print(f"  this hour: {this:.2f} , previous hour: {prev:.2f}")
@@ -285,12 +295,15 @@ def extra_busiest(env: ExampleEnv) -> None:
         aggregation="sum",
         interval="1h",
     )
-    hour_row = max(hours, key=lambda r: r["value"])
-    print(
-        "  ANSWER: busiest_hour = "
-        f"{time.strftime('%H:%M UTC %Y-%m-%d', time.gmtime(hour_row['timestamp']))} "
-        f"({hour_row['value']:.0f} visitors)"
-    )
+    if not hours:
+        print("  ANSWER: busiest_hour = no data")
+    else:
+        hour_row = max(hours, key=lambda r: r["value"])
+        print(
+            "  ANSWER: busiest_hour = "
+            f"{time.strftime('%H:%M UTC %Y-%m-%d', time.gmtime(hour_row['timestamp']))} "
+            f"({hour_row['value']:.0f} visitors)"
+        )
 
     days = env.client.query(
         "visitors.web",
@@ -299,12 +312,15 @@ def extra_busiest(env: ExampleEnv) -> None:
         aggregation="sum",
         interval="1d",
     )
-    day_row = max(days, key=lambda r: r["value"])
-    print(
-        "  ANSWER: busiest_day = "
-        f"{time.strftime('%Y-%m-%d', time.gmtime(day_row['timestamp']))} "
-        f"({day_row['value']:.0f} visitors)"
-    )
+    if not days:
+        print("  ANSWER: busiest_day = no data")
+    else:
+        day_row = max(days, key=lambda r: r["value"])
+        print(
+            "  ANSWER: busiest_day = "
+            f"{time.strftime('%Y-%m-%d', time.gmtime(day_row['timestamp']))} "
+            f"({day_row['value']:.0f} visitors)"
+        )
 
 
 def extra_visitors_sum(env: ExampleEnv) -> None:
@@ -312,7 +328,7 @@ def extra_visitors_sum(env: ExampleEnv) -> None:
     total = env.client.aggregate(
         "visitors.web", start=now - 86400 * 10**9, end=now, funcs=["sum"]
     )["sum"]
-    print(f"  ANSWER: visitors_last_24h = {total:.0f}")
+    print(f"  ANSWER: visitors_last_24h = {_fmt(total, '.0f')}")
 
 
 def extra_staleness(env: ExampleEnv) -> None:
@@ -338,7 +354,7 @@ def extra_staleness(env: ExampleEnv) -> None:
 def extra_alltime(env: ExampleEnv) -> None:
     """No window at all: the database-wide history."""
     stats = env.client.aggregate("cpu.load", funcs=["count", "min", "avg", "max"])
-    print("  ANSWER: alltime = " + " ".join(f"{k}={v:.2f}" for k, v in stats.items()))
+    print("  ANSWER: alltime = " + " ".join(f"{k}={_fmt(v)}" for k, v in stats.items()))
 
     # same multi-agg building block, over a rolling 3-day window
     stats = env.client.aggregate(
@@ -348,7 +364,8 @@ def extra_alltime(env: ExampleEnv) -> None:
         funcs=["min", "avg", "median", "p95", "p99", "max"],
     )
     print(
-        "  ANSWER: stats_3days = " + " ".join(f"{k}={v:.2f}" for k, v in stats.items())
+        "  ANSWER: stats_3days = "
+        + " ".join(f"{k}={_fmt(v)}" for k, v in stats.items())
     )
 
 

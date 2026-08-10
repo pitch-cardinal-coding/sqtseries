@@ -16,6 +16,3 @@ pydantic-settings==2.14.2
 
 # Logging
 structlog==26.1.0
-
-# Performance
-uvloop==0.22.1

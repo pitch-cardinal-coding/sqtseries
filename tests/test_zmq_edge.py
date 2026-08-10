@@ -1,4 +1,5 @@
-"""ZMQ behavior edge cases: PUB slow-joiner, REP alternation, tracker cleanup."""
+"""ZMQ behavior edge cases: PUB slow-joiner, REP alternation, tracker cleanup,
+published-counter semantics, and XPUB subscriber tracking (VERBOSER)."""
 
 import asyncio
 import time
@@ -127,4 +128,46 @@ class TestPubSubStats:
             await ps.publish("b", {"v": 2})
             assert ps.stats()["published"] == 2
         finally:
+            await ps.stop()
+
+
+class TestXpubSubscriberTracking:
+    """Registry counts must reflect every subscriber, even on shared topics.
+
+    A non-verbose XPUB only reports a topic once (first subscribe / last
+    unsubscribe); PubSub must set XPUB_VERBOSER so the registry sees every
+    join/leave (regression: 2 subscribers on "cpu" reported as 1).
+    """
+
+    async def test_shared_topic_counts_and_decrements(self, context):
+        from sqtseries.messaging import ConnectionRegistry
+
+        port = free_tcp_port()
+        reg = ConnectionRegistry()
+        ps = PubSub(f"tcp://127.0.0.1:{port}", registry=reg, context=context)
+        await ps.start()
+        subs = []
+        try:
+            for _ in range(2):
+                sub = context.socket(zmq.SUB)
+                sub.connect(f"tcp://127.0.0.1:{port}")
+                sub.setsockopt(zmq.SUBSCRIBE, b"cpu")
+                subs.append(sub)
+                await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
+            assert reg.zmq_sub_count == 2
+            assert reg.subscriber_count("cpu") == 2
+            assert reg.active_topics() == ["cpu"]
+
+            subs[0].close(linger=0)
+            await asyncio.sleep(0.2)
+            assert reg.zmq_sub_count == 1
+
+            subs[1].close(linger=0)
+            await asyncio.sleep(0.2)
+            assert reg.zmq_sub_count == 0
+            assert reg.active_topics() == []
+        finally:
+            for s in subs:
+                s.close(linger=0)
             await ps.stop()

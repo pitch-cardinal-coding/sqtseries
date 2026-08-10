@@ -138,11 +138,13 @@ failure with a 5-second backoff. Install with a config to keep your chosen
 ports: `sqtseries --config config.toml install` — the unit embeds
 `--config` so the service boots exactly the way you configured it.
 
-**Auto-detecting ingest port.** If the ingest port (12501) is busy (another
-instance, a leftover process), sqtseries picks the next free one in
-12500–12700. The other ports (query/stream/admin/http/stats) are fixed at
-their configured values. The chosen ports are written to a runtime file
-next to the database, so `sqtseries status` always shows the real ports.
+**Auto-detecting ingest port.** With `ports.auto_detect` on (the default),
+the ingest port is always picked as the first free port in 12500–12700 —
+usually 12500, not the configured 12501. The configured 12501 is only used
+when `auto_detect = false`. The other ports (query/stream/admin/http/stats)
+are fixed at their configured values. The chosen ports are written to a
+runtime file next to the database, so `sqtseries status` always shows the
+real ports.
 
 ## Quick reference
 
@@ -218,10 +220,10 @@ Full details on every admin command are in the [API reference](docs/api.html#adm
 |------|---------------|
 | [Quick Start](docs/quickstart.html) | End-to-end: install, send, query, subscribe, systemd |
 | [Configuration](docs/configuration.html) | Every setting, env vars, config file format, duration syntax |
-| [Ingestion](docs/ingestion.html) | Writing data via ZMQ, HTTP, and the Client; timestamps and the clock-skew guard |
-| [Queries](docs/queries.html) | Time ranges, aggregations, intervals, downsampling, gap filling |
+| [Ingestion](docs/ingestion.html) | Writing data via ZMQ, HTTP, and the Client; tags (dimensions — why and how); timestamps and the clock-skew guard |
+| [Queries](docs/queries.html) | Time ranges, aggregations, intervals, downsampling, gap filling, per-tag queries (embedded API) |
 | [Streaming](docs/streaming.html) | Live data via ZMQ SUB, WebSocket, and the Client |
-| [Camera](docs/camera.html) | Pump a camera metrics feed into sqtseries and answer 17 questions about it |
+| [Camera](docs/camera.html) | Pump a camera metrics feed into sqtseries, watch it on a live WebSocket dashboard, and answer 17 questions about it |
 | [Client Libraries](docs/clients.html) | Code samples for Python, Go, Rust, PHP, and Node.js |
 | [API Reference](docs/api.html) | Embedded Python API, Client, CLI, wire protocol, admin commands |
 | [Architecture](docs/architecture.html) | Engine layout, schema, write path, rollup design, error handling |

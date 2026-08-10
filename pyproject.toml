@@ -44,6 +44,7 @@ dev = [
     "black>=25",
     "isort>=6",
     "httpx2>=2.0",
+    "playwright>=1.48",
 ]
 bench = ["memory-profiler>=0.61"]
 
@@ -61,6 +62,9 @@ where = ["src"]
 line-length = 88
 target-version = "py314"
 
+[tool.black]
+target-version = ["py314"]  # keep in sync with ruff (sqtseries-research §11)
+
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RET", "PTH", "S", "RUF", "PERF"]
 ignore = ["E501", "S101", "SIM108"]
@@ -73,7 +77,8 @@ ignore = ["E501", "S101", "SIM108"]
 "scripts/benchmark.py" = ["S108"]  # /tmp is a CLI default path arg, not temp usage
 "scripts/stress.py" = ["S108"]  # /tmp is a CLI default path arg, not temp usage
 "examples/*" = ["S310", "S311", "S603", "PERF401", "RUF005", "PTH202"]  # Run scripts launch the sqtseries CLI by design (argv-derived, no untrusted input)
-"examples/overlay_server.py" = ["S104"]  # Overlay must be reachable by OBS browser sources on the LAN (0.0.0.0 by design)
+"examples/camera/*" = ["S310", "S311", "S603", "PERF401", "RUF005", "PTH202"]  # Camera scripts fetch a user-supplied URL and launch the CLI by design
+"examples/camera/overlay_server.py" = ["S104"]  # Overlay must be reachable by OBS browser sources on the LAN (0.0.0.0 by design)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

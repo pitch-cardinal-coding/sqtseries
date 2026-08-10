@@ -1,8 +1,9 @@
 """Send measurements into sqtseries from any language via raw ZMQ (no Client needed).
 
 This is the fastest write path. Each message is one JSON frame sent to the
-PUSH socket on port 12501. The server batches incoming frames into ``batch_size``
-transactions to keep throughput high.
+PUSH socket on port 12501. The server writes each frame in its own
+transaction (there is no batching queue on the service path — see
+docs/ingestion.html).
 
 Usage:
     python3 examples/producer.py --host 127.0.0.1 --port 12501 --rate 10

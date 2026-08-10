@@ -121,6 +121,18 @@ ws.onmessage = (e) => {
   console.log(msg);   // {metric, tags, value}
 };
 </code></pre>
+<p>For live connection/subscription monitoring, the gateway also exposes a
+push-only feed at <code>ws://127.0.0.1:12505/ws/connections</code>: it sends a
+<code>{"type":"snapshot",...}</code> on connect, then one frame per change —
+<code>{"type":"conn",...,"connected":true/false}</code> for WebSocket clients
+(with <code>connected_at</code>/<code>left_at</code> arrival and leaving times)
+and <code>{"type":"sub",...}</code> for ZMQ subscribers (with
+<code>arrived_at</code>/<code>left_at</code> and <code>first_seen</code>). The
+camera dashboard's "Connected clients" / "ZMQ subscribers" / "Activity" panels
+render this feed. New connections beyond
+<code>http.max_websocket_connections</code> close with code 1013; a
+subscriber that cannot accept a frame within 30s is closed with 1011; inbound
+frames over 16&nbsp;MiB close with 1009.</p>
 
 <h3>Stats events (port 12506)</h3>
 <p>Connection and subscription changes are emitted on a separate ZMQ PUB

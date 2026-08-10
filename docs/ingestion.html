@@ -89,6 +89,56 @@ service scans 12500–12700 and binds the <em>first free port</em> — usually
 </table></div>
 <p>Unknown extra fields are ignored.</p>
 
+<h3>Tags: why and how</h3>
+<p><code>tags</code> are the <em>dimensions</em> of a measurement — the key=value
+context that distinguishes one source of a metric from another. The same
+metric name with different tags is stored as a <em>separate series</em>, so you
+can ask per-source questions (which host is hot? which room is busiest?) as
+well as whole-metric ones.</p>
+<div class="table-wrap"><table>
+  <tr><th>Pattern</th><th>Series</th><th>Why it helps</th></tr>
+  <tr><td><code>{"host":"web1"}</code> vs <code>{"host":"web2"}</code></td>
+      <td>two series for <code>cpu.usage</code></td>
+      <td>per-machine CPU, per-machine peaks, one bad box among many</td></tr>
+  <tr><td><code>{"room":"lobby","floor":"1"}</code></td>
+      <td>one series per sensor location</td>
+      <td>per-room averages, hot/cold rooms, floor rollups</td></tr>
+  <tr><td><code>{"camera_id":"cam_001"}</code></td>
+      <td>one series per camera</td>
+      <td>per-camera traffic/battery/CPU breakdowns (see the camera demo)</td></tr>
+  <tr><td><code>{"env":"prod"}</code> / <code>{"env":"staging"}</code></td>
+      <td>one series per environment</td>
+      <td>compare environments, isolate a misbehaving deploy</td></tr>
+</table></div>
+<p>A measurement is identified by its <em>exact</em> tag set: <code>{"host":
+"web1", "env":"prod"}</code> is a different series from <code>{"host":"web1"}</code>.
+Tags must be a string&nbsp;→&nbsp;string object — numbers, booleans, nulls and
+nested values are rejected with <code>400 tags must be string-&gt;string
+object</code> (stringify values yourself, e.g. <code>"cpu": "3"</code>).
+Omitting tags is fine and produces an untagged series for that metric.</p>
+<p><strong>Watch cardinality.</strong> Every distinct tag set creates a new
+row in the <code>series</code> table and a new partition series. Keep the
+number of distinct combinations bounded — tag by <em>dimensions you'll slice
+by</em> (host, room, environment, instance role), never by high-cardinality
+unique identifiers (request IDs, session IDs, timestamps). If you put a value
+that is unique per measurement in a tag, every point becomes its own series and
+per-series queries degrade. Use <code>value</code> for the reading, tags for the
+dimensions.</p>
+<pre><code># good: a bounded dimension set
+c.write("cpu.usage", 0.72, {"host": "web1", "env": "prod"})
+c.write("cpu.usage", 0.65, {"host": "web2", "env": "prod"})
+
+# bad: unbounded cardinality — the request id is a new series every time
+c.write("latency", 42.0, {"request_id": "a1b2c3d4e5f6"})
+
+# wrong: a non-string tag value is rejected
+c.write("cpu.usage", 0.72, {"cpu_count": 8})   # 400 — use "cpu_count": "8"</code></pre>
+<p>Querying: the wire protocol aggregates a whole metric (all its series
+merged); for <em>per-tag</em> breakdowns, resolve the series you care about
+with the embedded API and query by <code>series_ids</code> — see
+<a href="queries.html#series-id">Querying by series_id</a> and the runnable
+<code>examples/tags_examples.py</code>.</p>
+
 <h3>ZeroMQ ingestion (PUSH)</h3>
 <p>Connect a PUSH socket to <code>tcp://127.0.0.1:12501</code>. Each message is
 exactly one measurement; sends are fire-and-forget — there is no reply, so a

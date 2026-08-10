@@ -7,7 +7,7 @@ all SUB sockets that match the topic prefix.
 Usage:
     python3 examples/stream_examples.py          # subscribe to all topics
     python3 examples/stream_examples.py cpu.     # subscribe to cpu.* only
-    python3 examples/stream_examples.py --ws     # use Python Client (WebSocket)
+    python3 examples/stream_examples.py --ws     # use WebSocket
 """
 
 import argparse

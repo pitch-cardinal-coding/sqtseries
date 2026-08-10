@@ -62,11 +62,12 @@ engine and the PubSub bus; there is no ZMQ hop for HTTP traffic.</p>
 put together. Regular users do not need it.</p>
 
 <h3>Ports and protocols</h3>
-<p>Ports are fixed by default (12501–12506, configurable in
+<p>Ports default to 12501–12506 (configurable in
 <a href="configuration.html">Configuration</a>). The only port that is
-auto-detected is the ingest port (<code>[ports] auto_detect = true</code> scans
-12500–12700 for a free port); the six protocol ports always use their
-configured values.</p>
+auto-detected is the ingest port: with <code>[ports] auto_detect = true</code>
+(the default) it is the first free port in 12500–12700 — usually 12500, not the
+configured 12501 — while the other five ports (query/stream/admin/http/stats)
+always use their configured values.</p>
 <div class="table-wrap"><table>
   <tr><th>Protocol</th><th>Port</th><th>Data</th><th>HWM</th></tr>
   <tr><td>PUSH → PULL</td><td>12501</td><td>Ingestion (one measurement per frame, JSON)</td><td>10,000</td></tr>
@@ -224,11 +225,11 @@ leaves no aggregate trace. Space is <em>reusable</em> incrementally
   <tr><td>MaintenanceManager</td><td>1h</td><td><code>ANALYZE</code> planner statistics</td></tr>
   <tr><td>CheckpointManager</td><td>60s</td><td>TRUNCATE WAL past 64 MB; warn on readers blocking checkpoints</td></tr>
 </table></div>
-<p>Rollup, retention, maintenance, and backup run in worker threads; the WAL checkpoint runs on the event loop
-(<code>asyncio.to_thread</code>) so the event loop stays responsive; the
-CheckpointManager issues its short <code>wal_checkpoint</code> PRAGMA
-directly from the loop. Rollup and retention start with an immediate first
-pass instead of waiting out the interval.</p>
+<p>Rollup, retention, maintenance, and backup run in worker threads
+(<code>asyncio.to_thread</code>); the CheckpointManager issues its short
+<code>wal_checkpoint</code> PRAGMA directly from the event loop. Rollup and
+retention start with an immediate first pass instead of waiting out the
+interval.</p>
 
 <h3>SQLite pragmas</h3>
 <div class="table-wrap"><table>

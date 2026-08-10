@@ -129,6 +129,54 @@ class TestClient:
         # no error
         client.close()
 
+    async def test_write_then_close_flushes(self, running_service):
+        """A measurement written right before close() must still be delivered.
+
+        close(linger=0) would discard it (regression: write-then-close
+        delivered 0 of 1 messages); the write socket keeps a flush linger.
+        """
+        svc, s = running_service
+        c = Client(ports={"write": s.ingestion.port})
+        try:
+            c.write("flush.test", 0.42)
+            c.close()
+        finally:
+            c.close()
+        # let the PUSH frame drain through the service's ingest socket
+        await asyncio.sleep(0.3)
+        for _ in range(100):
+            await svc.ingress.run_once(block=False)
+            await asyncio.sleep(0.005)
+        assert svc.ingress.recv_count >= 1
+
+    async def test_query_timeout_recovers(self, monkeypatch):
+        """After a recv timeout the REQ socket must not stay EFSM-broken.
+
+        A timed-out recv leaves REQ awaiting a reply; the next send on the same
+        socket raises EFSM. The client must drop the socket and recreate it so
+        subsequent calls raise ClientError, not a raw zmq ZMQError.
+        """
+        import socket as _socket
+
+        from sqtseries.client import Client, ClientError
+
+        s = _socket.socket()
+        s.bind(("127.0.0.1", 0))
+        dead_port = s.getsockname()[1]
+        s.close()
+        monkeypatch.setattr("sqtseries.client.RECV_TIMEOUT_MS", 200)
+
+        c = Client(host="127.0.0.1", ports={"query": dead_port, "admin": dead_port})
+        try:
+            for _ in range(2):
+                with pytest.raises(ClientError):
+                    await asyncio.to_thread(c.query, "anything")
+            # admin path uses a separate REQ socket; same recovery required
+            with pytest.raises(ClientError):
+                await asyncio.to_thread(c.admin, "ping")
+        finally:
+            c.close()
+
 
 class TestAdmin:
     async def test_admin_ping(self, client):

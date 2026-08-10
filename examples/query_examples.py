@@ -2,7 +2,8 @@
 
 This script runs through all query capabilities the database supports:
 raw reads, every aggregation function (avg to p99), downsampling with
-intervals, whole-window multi-aggregation, and gap filling.
+intervals, whole-window multi-aggregation, and a note on gap filling
+(embedded API only, no wire parameter).
 
 It seeds the database with sample data first so every example returns
 real results. Run it against a running sqtseries service:

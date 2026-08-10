@@ -59,7 +59,8 @@ class QueryBroker:
         self.socket.bind(self.endpoint)
         log.info("query broker listening", endpoint=self.endpoint)
 
-    async def run_once(self, block: bool = True) -> None:
+    async def run_once(self, block: bool = True) -> bool:
+        """Handle one request; return True if one was handled (used by the pump)."""
         if self.socket is None:
             raise RuntimeError("broker not started")
         try:
@@ -68,13 +69,14 @@ class QueryBroker:
                     flags=0 if block else zmq.NOBLOCK
                 )
                 await self._handle_router(frames)
-                return
+                return True
             raw = await self.socket.recv(flags=0 if block else zmq.NOBLOCK)
         except zmq.Again:
-            return
+            return False
         except zmq.ZMQError:
-            return
+            return False
         await self._handle(raw)
+        return True
 
     async def _handle(self, raw: bytes) -> None:
         try:

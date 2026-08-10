@@ -2,7 +2,6 @@
 
 import time
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 
 from ..engine.store import StorageEngine
 from ..partition.rollup import HOUR_NS, query_rollup_partial, rollup_watermark
@@ -21,17 +20,6 @@ ROLLUP_FUNCS = frozenset({"avg", "sum", "min", "max", "count"})
 
 class QueryError(Exception):
     """Base error for query failures."""
-
-
-@dataclass
-class QueryOptions:
-    """Optional query parameters."""
-
-    aggregation: str | AggregationFunction | None = None
-    interval: str | None = None
-    limit: int | None = None
-    order: str = "asc"
-    fill_gaps_ns: int | None = None
 
 
 class TimeSeriesDB:

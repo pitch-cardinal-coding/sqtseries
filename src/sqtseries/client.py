@@ -18,6 +18,10 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORTS = {"write": 12501, "query": 12502, "subscribe": 12503, "admin": 12504}
 # Query/admin replies fail with ClientError instead of hanging
 RECV_TIMEOUT_MS = 30_000
+# The write PUSH socket flushes queued measurements for this long on close.
+# Zero would drop a measurement written immediately before exit (verified:
+# write-then-close delivered 0 of 1 messages). Matches examples/producer.py.
+WRITE_LINGER_MS = 2000
 
 
 class Client:
@@ -101,6 +105,10 @@ class Client:
         try:
             reply = orjson.loads(sock.recv())
         except zmq.Again:
+            # REQ enforces strict send/recv alternation: a timed-out recv
+            # leaves the socket awaiting a reply, so the next send would raise
+            # EFSM and permanently break it. Drop it; the next call recreates.
+            self._reset_sock("_query_sock")
             raise ClientError("query timed out (no reply within 30s)") from None
         if reply.get("status") == "error":
             err = reply.get("error", {})
@@ -131,6 +139,7 @@ class Client:
         try:
             reply = orjson.loads(sock.recv())
         except zmq.Again:
+            self._reset_sock("_query_sock")
             raise ClientError("aggregate timed out (no reply within 30s)") from None
         if reply.get("status") == "error":
             err = reply.get("error", {})
@@ -146,6 +155,7 @@ class Client:
         try:
             reply = orjson.loads(sock.recv())
         except zmq.Again:
+            self._reset_sock("_admin_sock")
             raise ClientError("admin command timed out (no reply within 30s)") from None
         if reply.get("status") == "error":
             err = reply.get("error", {})
@@ -186,7 +196,7 @@ class Client:
         if self._write_sock is None:
             sock = self._ctx.socket(zmq.PUSH)
             sock.setsockopt(zmq.SNDHWM, 10000)
-            sock.setsockopt(zmq.LINGER, 500)
+            sock.setsockopt(zmq.LINGER, WRITE_LINGER_MS)
             sock.connect(f"tcp://{self.host}:{self.ports['write']}")
             self._write_sock = sock
         return self._write_sock
@@ -217,17 +227,28 @@ class Client:
             self._admin_sock = sock
         return self._admin_sock
 
+    def _reset_sock(self, attr: str) -> None:
+        """Close a broken socket so the next call recreates it.
+
+        Only REQ sockets need this (their strict send/recv alternation leaves
+        them unusable after a recv timeout); it is harmless for the others.
+        """
+        sock = getattr(self, attr, None)
+        if sock is not None:
+            sock.close(linger=0)
+            setattr(self, attr, None)
+
     def close(self) -> None:
         """Close all sockets and the context (idempotent)."""
-        for sock in (
-            self._write_sock,
-            self._query_sock,
-            self._sub_sock,
-            self._admin_sock,
-        ):
+        # The write socket keeps a flush linger so measurements queued but not
+        # yet delivered are still sent; everything else can close immediately.
+        if self._write_sock is not None:
+            self._write_sock.close(linger=WRITE_LINGER_MS)
+            self._write_sock = None
+        for sock in (self._query_sock, self._sub_sock, self._admin_sock):
             if sock is not None:
                 sock.close(linger=0)
-        self._write_sock = self._query_sock = self._sub_sock = self._admin_sock = None
+        self._query_sock = self._sub_sock = self._admin_sock = None
         self._ctx.term()
 
     def __enter__(self) -> Client:

@@ -69,6 +69,16 @@ class TestValidation:
         errs = validate_settings(Settings(maintenance={"analyze_interval": "x"}))
         assert any("maintenance" in e for e in errs)
 
+    def test_stats_port_collision_reported(self):
+        # stats.port is bound at startup; it must be uniqueness-checked like
+        # the other five ports
+        errs = validate_settings(Settings(query={"port": 12502}, stats={"port": 12502}))
+        assert any("must be unique" in e for e in errs)
+
+    def test_stats_port_range_reported(self):
+        errs = validate_settings(Settings(stats={"port": 0}))
+        assert any("stats" in e for e in errs)
+
 
 def test_db_path_expanded(sample_toml):
     s = Settings(database={"path": "~/data/x.sqlite"})

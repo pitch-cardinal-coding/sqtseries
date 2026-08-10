@@ -75,6 +75,9 @@ class HttpSettings(BaseModel):
     host: str = "127.0.0.1"
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     rate_limit_per_minute: int = 600
+    # Safety valve: new WebSocket connections beyond this are closed with
+    # code 1013 ("try again later") so a flood can't exhaust memory.
+    max_websocket_connections: int = 1000
 
 
 class LoggingSettings(BaseModel):
@@ -316,6 +319,7 @@ def validate_settings(settings: Settings) -> list[str]:
         ("streaming.port", settings.streaming.port),
         ("admin.port", settings.admin.port),
         ("http.port", settings.http.port),
+        ("stats.port", settings.stats.port),
     ):
         if not (1 <= port <= 65535):
             errors.append(f"{name} must be 1-65535, got {port}")
@@ -326,6 +330,7 @@ def validate_settings(settings: Settings) -> list[str]:
         settings.streaming.port,
         settings.admin.port,
         settings.http.port,
+        settings.stats.port,
     ]
     if len(set(ports)) != len(ports):
         errors.append(f"ports must be unique, got {ports}")
@@ -339,6 +344,11 @@ def validate_settings(settings: Settings) -> list[str]:
     if settings.database.batch_size < 1:
         errors.append(
             f"database.batch_size must be >= 1, got {settings.database.batch_size}"
+        )
+    if settings.http.max_websocket_connections < 1:
+        errors.append(
+            "http.max_websocket_connections must be >= 1, got "
+            f"{settings.http.max_websocket_connections}"
         )
     if settings.database.batch_size > 8191:
         errors.append(

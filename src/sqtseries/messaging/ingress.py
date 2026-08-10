@@ -1,6 +1,8 @@
-"""Ingress pipeline: ZMQ PULL -> validate -> write queue -> SQLite.
+"""Ingress pipeline: ZMQ PULL -> validate -> sink (SQLite write).
 
-Republish valid measurements to the PUB/SUB bus for live subscribers.
+There is no app-level write queue: each validated frame is passed straight to
+the ``sink`` (``service._sink`` does a single-row insert) and republished to
+the PUB/SUB bus for live subscribers.
 """
 
 from collections.abc import Callable
@@ -22,7 +24,7 @@ TOPIC_PREFIX = b""
 
 
 class Ingress:
-    """Receive, validate, and enqueue measurements from a PULL socket."""
+    """Receive, validate, and dispatch measurements from a PULL socket."""
 
     def __init__(
         self,
@@ -36,7 +38,8 @@ class Ingress:
         Args:
             endpoint: ``tcp://127.0.0.1:12501`` (or ipc://).
             sink: callable receiving (metric, tags, value, timestamp_ns) rows.
-                  Defaults to a local queue consumed by ``drain``.
+                  Called synchronously per frame; None skips persistence
+                  (validation and republish still happen).
             on_publish: callback(bytes_metric, dict) for live subscribers.
         """
         self.endpoint = endpoint
@@ -61,8 +64,8 @@ class Ingress:
         self.socket.bind(self.endpoint)
         log.info("ingress listening", endpoint=self.endpoint)
 
-    async def run_once(self, block: bool = True) -> None:
-        """Receive and handle a single message; used by worker loops."""
+    async def run_once(self, block: bool = True) -> bool:
+        """Receive and handle a single message; return True if one was handled."""
         if self.socket is None:
             raise RuntimeError("ingress not started")
         try:
@@ -72,12 +75,13 @@ class Ingress:
                 else await self.socket.recv(flags=zmq.NOBLOCK)
             )
         except zmq.Again:
-            return
+            return False
         except zmq.ZMQError as exc:
             self.error_count += 1
             log.warning("ingress recv error: %s", exc)
-            return
+            return False
         self._handle(raw)
+        return True
 
     async def drain(self) -> None:
         """Drain ALL pending messages in a tight loop (for shutdown/tests)."""
@@ -103,11 +107,14 @@ class Ingress:
                 msg,
                 reject_client_timestamp_skew_s=self.settings.reject_client_timestamp_skew_s,
             )
-        except ProtocolError:
+            metric, tags, value, ts_ns = ingest.to_rows()
+        except ProtocolError, OverflowError:
+            # Malformed payloads count as invalid. OverflowError guards the
+            # (skew-guard-disabled) huge-float timestamp path where
+            # ``to_rows`` can't fit ``ts * 1e9`` into an int.
             self.invalid_count += 1
             return
 
-        metric, tags, value, ts_ns = ingest.to_rows()
         self.recv_count += 1
         if self.sink is not None:
             self.sink(metric, tags, value, ts_ns)

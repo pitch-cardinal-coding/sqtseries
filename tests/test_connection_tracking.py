@@ -114,6 +114,89 @@ class TestConnectionRegistry:
         assert isinstance(cid, str)
         assert len(cid) == 12
 
+    def test_ws_churn_no_accumulation(self):
+        """Repeated connect/disconnect must never grow the registry."""
+        reg = ConnectionRegistry()
+        for i in range(5000):
+            reg.register_ws(f"c{i}", "peer", "t")
+            reg.unregister_ws(f"c{i}")
+        assert reg.ws_count == 0
+        assert reg.list_connections() == []
+
+    def test_remove_listener_idempotent(self):
+        events = []
+
+        def collector(etype, payload):
+            events.append(etype)
+
+        reg = ConnectionRegistry()
+        reg.on_event(collector)
+        reg.remove_listener(collector)
+        # removing a non-registered listener must not raise
+        reg.remove_listener(collector)
+        reg.register_ws("x", "peer", "t")
+        assert events == []
+
+    def test_event_timestamps(self):
+        """Events carry arrival and leaving times: ws conn events have
+        connected_at + left_at (left_at >= connected_at); zmq sub events have
+        arrived_at + left_at + first_seen (left_at >= first_seen)."""
+        events: list[tuple[str, dict]] = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda etype, payload: events.append((etype, payload)))
+
+        reg.register_ws("c1", "peer", "t")
+        reg.register_zmq_sub("cpu.")
+        assert len(events) == 2
+        _, conn = events[0]
+        _, sub = events[1]
+        assert isinstance(conn["connected_at"], float)
+        assert isinstance(sub["arrived_at"], float)
+
+        import time as _t
+
+        _t.sleep(0.01)
+        reg.unregister_ws("c1")
+        reg.unregister_zmq_sub("cpu.")
+        _, conn_leave = events[2]
+        _, sub_leave = events[3]
+        assert conn_leave["connected"] is False
+        assert isinstance(conn_leave["connected_at"], float)
+        assert isinstance(conn_leave["left_at"], float)
+        assert conn_leave["left_at"] >= conn_leave["connected_at"]
+        assert sub_leave["subscribers"] == 0
+        assert isinstance(sub_leave["left_at"], float)
+        assert isinstance(sub_leave["first_seen"], float)
+        assert sub_leave["left_at"] >= sub_leave["first_seen"]
+
+    def test_unregister_unknown_emits_nothing(self):
+        """Leaving for an id/topic that is not present emits no event and
+        converges to zero (never negative)."""
+        events: list[tuple[str, dict]] = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda etype, payload: events.append((etype, payload)))
+
+        reg.unregister_ws("ghost")  # unknown ws id -> no event
+        reg.unregister_zmq_sub("cpu.")  # unknown topic -> still an event, count 0
+        assert len(events) == 1
+        assert events[0][0] == "sub"
+        assert events[0][1]["subscribers"] == 0
+        assert reg.ws_count == 0 and reg.zmq_sub_count == 0
+
+    def test_zmq_first_seen_round_trip(self):
+        """first_seen is set on 0->1, cleared on 1->0, and re-set on a later join."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu.")
+        first = reg._zmq_first_seen["cpu."]
+        reg.register_zmq_sub("cpu.")  # 2nd subscriber: first_seen unchanged
+        assert reg._zmq_first_seen["cpu."] == first
+        reg.unregister_zmq_sub("cpu.")
+        reg.unregister_zmq_sub("cpu.")
+        assert "cpu." not in reg._zmq_first_seen
+        reg.register_zmq_sub("cpu.")  # rejoin: fresh first_seen
+        assert reg._zmq_first_seen["cpu."] >= first
+        assert reg.snapshot()["subscriptions"][0]["first_seen"] is not None
+
 
 class TestStatsPublisher:
     async def test_start_stop(self):
@@ -179,6 +262,23 @@ class TestStatsPublisher:
         await pub.start()
         await pub.stop()
         reg.register_ws("ghost", "peer", "topic")
+
+    async def test_stop_unhooks_registry_listener(self):
+        """Repeated start/stop must not accumulate registry listeners.
+
+        Regression: each start() registered a fresh listener on the shared
+        registry and stop() never removed it, so N cycles left N dead
+        listeners (and N dead publisher objects) behind.
+        """
+        from conftest import free_port
+
+        reg = ConnectionRegistry()
+        for _ in range(5):
+            pub = StatsPublisher(f"tcp://127.0.0.1:{free_port()}", registry=reg)
+            await pub.start()
+            assert len(reg._listeners) == 1
+            await pub.stop()
+            assert len(reg._listeners) == 0
 
 
 class TestPubSubXpub:

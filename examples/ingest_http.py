@@ -25,7 +25,12 @@ def main():
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=HTTP_PORT)
-    parser.add_argument("--rate", type=float, default=2, help="messages per second")
+    parser.add_argument(
+        "--rate",
+        type=float,
+        default=2,
+        help="messages per second (0 = as fast as possible)",
+    )
     parser.add_argument(
         "--batch", type=int, default=20, help="send N points per HTTP request"
     )
@@ -41,7 +46,7 @@ def main():
     sent = 0
 
     print(f"HTTP ingestion to {write_url} ({args.batch} points/batch)")
-    interval = 1.0 / args.rate
+    interval = 1.0 / args.rate if args.rate > 0 else 0.0
 
     while args.count == 0 or sent < args.count:
         batch = []

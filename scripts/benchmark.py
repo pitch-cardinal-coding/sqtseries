@@ -1,8 +1,9 @@
 """Performance benchmark: SQLite insert throughput + query latency.
 
-Measures the raw engine and the rollup fast path. Data is written per-second
-across ``--series`` series, ending on a completed hour boundary (two hours in
-the past) so that every measurement is rollable.
+Measures the raw engine and the rollup fast path. Data is written at evenly
+spaced intervals over ``--span-hours`` hours across ``--series`` series, ending
+on a completed hour boundary (two hours in the past) so that every measurement
+is rollable.
 
 Usage:
     python3 scripts/benchmark.py --db /tmp/bench.sqlite --rows 200000

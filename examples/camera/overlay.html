@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Camera Analytics — Live</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2128;
+    --border: #2d333b;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #2ea44f;
+    --info: #1f6feb;
+    --warn: #d29922;
+    --danger: #f85149;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html { min-height: 100%; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 500px at 70% -10%, rgba(31, 111, 235, 0.12), transparent),
+      var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 24px;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  h1 { font-size: 22px; margin: 0; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+  }
+  .badge.state-connecting .dot { background: var(--warn); }
+  .badge.state-connected .dot { background: var(--accent); }
+  .badge.state-connected { color: var(--accent); border-color: var(--accent); }
+  .badge.state-reconnecting .dot { background: var(--warn); }
+  .badge.state-error .dot { background: var(--danger); }
+  .badge.state-error { color: var(--danger); border-color: var(--danger); }
+  .badge .pulse {
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+
+  .error-banner {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    background: rgba(248, 81, 73, 0.08);
+    color: #ffb3ae;
+  }
+  .error-banner[hidden] { display: none; }
+  .error-banner .label { font-weight: 700; color: var(--danger); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card h2 {
+    margin: 0 0 12px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .metric { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(45, 51, 59, 0.5); }
+  .metric:last-child { border-bottom: none; }
+  .metric .k { color: var(--muted); font-size: 13px; }
+  .metric .v { font-family: var(--mono); font-size: 14px; }
+  .hero { text-align: center; padding: 10px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+  .hero .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .hero .value { font-family: var(--mono); font-size: 40px; font-weight: 700; line-height: 1.1; }
+  .hero .unit { font-size: 18px; color: var(--muted); }
+
+  .db-card { grid-column: 1 / -1; }
+  .db-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .db-empty { color: var(--muted); font-size: 13px; margin: 4px 0; }
+  .db-empty code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .db-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .db-table th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 4px 12px 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .db-table td {
+    padding: 4px 12px 4px 0;
+    border-bottom: 1px solid rgba(45, 51, 59, 0.5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+  }
+  .db-table tr:last-child td { border-bottom: none; }
+  .db-card h3 {
+    margin: 18px 0 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .activity {
+    max-height: 180px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .act-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  details.raw {
+    margin-top: 20px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  details.raw summary {
+    cursor: pointer;
+    padding: 10px 14px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  details.raw pre {
+    margin: 0;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #c9d1d9;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  footer {
+    margin-top: 20px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  footer .mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Camera Analytics</h1>
+  <span class="sub" id="camera-id">camera: …</span>
+  <span class="spacer"></span>
+  <span class="badge" id="conn-state"><span class="dot"></span><span id="conn-state-text">connecting</span></span>
+  <span class="badge">updated <span id="last-updated">—</span></span>
+</header>
+
+<div class="error-banner" id="error-banner" hidden>
+  <span class="label">Feed error</span>
+  <span id="error-text"></span>
+</div>
+
+<div class="grid">
+
+  <section class="card" aria-labelledby="traffic-title">
+    <h2 id="traffic-title">People</h2>
+    <div class="hero">
+      <div class="label">visible now</div>
+      <div class="value" id="people-current"><span id="people-current-n">—</span></div>
+    </div>
+    <div class="metric"><span class="k">Detected total</span><span class="v" id="people-total">—</span></div>
+    <div class="metric"><span class="k">Per minute</span><span class="v" id="people-min">—</span></div>
+  </section>
+
+  <section class="card" aria-labelledby="cars-title">
+    <h2 id="cars-title">Vehicles</h2>
+    <div class="hero">
+      <div class="label">visible now</div>
+      <div class="value" id="cars-current"><span id="cars-current-n">—</span></div>
+    </div>
+    <div class="metric"><span class="k">Detected total</span><span class="v" id="cars-total">—</span></div>
+    <div class="metric"><span class="k">Per minute</span><span class="v" id="cars-min">—</span></div>
+  </section>
+
+  <section class="card" aria-labelledby="battery-title">
+    <h2 id="battery-title">Battery</h2>
+    <div class="hero">
+      <div class="label">charge</div>
+      <div class="value" id="battery-pct"><span id="battery-pct-n">—</span><span class="unit">%</span></div>
+    </div>
+    <div class="metric"><span class="k">Temperature</span><span class="v" id="battery-temp">—</span></div>
+    <div class="metric"><span class="k">Health</span><span class="v" id="battery-health">—</span></div>
+  </section>
+
+  <section class="card" aria-labelledby="cpu-title">
+    <h2 id="cpu-title">CPU</h2>
+    <div class="hero">
+      <div class="label">usage</div>
+      <div class="value" id="cpu-usage"><span id="cpu-usage-n">—</span><span class="unit">%</span></div>
+    </div>
+    <div class="metric"><span class="k">Temperature</span><span class="v" id="cpu-temp">—</span></div>
+    <div class="metric"><span class="k">Last reading</span><span class="v" id="cpu-age">—</span></div>
+  </section>
+
+  <section class="card" aria-labelledby="overlay-title">
+    <h2 id="overlay-title">Detection overlay</h2>
+    <div class="hero">
+      <div class="label">status</div>
+      <div class="value" id="overlay-status">—</div>
+    </div>
+    <div class="metric"><span class="k">Stream</span><span class="v" id="overlay-stream">—</span></div>
+    <div class="metric"><span class="k">Footer</span><span class="v" id="overlay-footer">—</span></div>
+  </section>
+
+  <section class="card db-card" aria-labelledby="db-title">
+    <h2 id="db-title">Time-series DB</h2>
+    <div class="db-head">
+      <span class="badge" id="db-conn-state"><span class="dot"></span><span id="db-conn-state-text">idle</span></span>
+      <span class="badge">frames <span id="db-frames">0</span></span>
+      <span class="badge">clients <span id="db-clients">0</span></span>
+    </div>
+    <p class="db-empty" id="db-empty">not configured — open with
+      <code>?sqtseries=ws://&lt;host&gt;:&lt;port&gt;/ws/subscribe</code> to
+      also watch what the time-series database publishes</p>
+    <table class="db-table" id="db-table" hidden>
+      <thead><tr><th>metric</th><th>value</th><th>tags</th><th>age</th></tr></thead>
+      <tbody id="db-body"></tbody>
+    </table>
+    <h3>Connected clients</h3>
+    <p class="db-empty" id="clients-empty" hidden>no clients connected</p>
+    <table class="db-table" id="clients-table" hidden>
+      <thead><tr><th>kind</th><th>peer</th><th>topic</th><th>arrived</th><th>connected</th></tr></thead>
+      <tbody id="clients-body"></tbody>
+    </table>
+    <h3>ZMQ subscribers</h3>
+    <p class="db-empty" id="subs-empty" hidden>no ZMQ subscribers</p>
+    <table class="db-table" id="subs-table" hidden>
+      <thead><tr><th>topic</th><th>subscribers</th><th>since</th></tr></thead>
+      <tbody id="subs-body"></tbody>
+    </table>
+    <h3>Activity</h3>
+    <div class="activity" id="activity"><p class="db-empty">no activity yet</p></div>
+  </section>
+
+</div>
+
+<details class="raw">
+  <summary>Last message (raw JSON)</summary>
+  <pre id="last-message">no message yet</pre>
+</details>
+
+<footer>
+  live from <span class="mono" id="ws-url">…</span>
+  <span id="db-footer" hidden> · db: <span class="mono" id="db-ws-url">…</span></span>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var WS_PATH = "/ws/metrics";
+  var wsUrl = (location.protocol === "https:" ? "wss" : "ws") +
+              "://" + location.host + WS_PATH;
+
+  // Optional sqtseries subscription: ?sqtseries=<ws URL to /ws/subscribe>
+  // plus an optional ?metric=<topic prefix> filter (default "*").
+  var params = new URLSearchParams(location.search);
+  var dbMetric = params.get("metric") || "*";
+  var dbUrl = params.get("sqtseries");
+  if (dbUrl && !/[?&]metric=/.test(dbUrl)) {
+    dbUrl += (dbUrl.indexOf("?") === -1 ? "?" : "&") +
+             "metric=" + encodeURIComponent(dbMetric);
+  }
+
+  // Live connection/subscription feed on the same sqtseries instance: derive
+  // ws(s)://host:port/ws/connections from the ?sqtseries= WebSocket URL.
+  var dbConnWsUrl = null;
+  if (dbUrl) {
+    var dbUrlMatch = dbUrl.match(/^(wss?):\/\/([^/]+)/);
+    if (dbUrlMatch) {
+      dbConnWsUrl = (dbUrlMatch[1] === "wss" ? "wss" : "ws") +
+                    "://" + dbUrlMatch[2] + "/ws/connections";
+    }
+  }
+
+  var els = {
+    connStateText: $("conn-state-text"),
+    connState: $("conn-state"),
+    cameraId: $("camera-id"),
+    lastUpdated: $("last-updated"),
+    errorBanner: $("error-banner"),
+    errorText: $("error-text"),
+    peopleCurrent: $("people-current-n"),
+    peopleTotal: $("people-total"),
+    peopleMin: $("people-min"),
+    carsCurrent: $("cars-current-n"),
+    carsTotal: $("cars-total"),
+    carsMin: $("cars-min"),
+    batteryPct: $("battery-pct-n"),
+    batteryTemp: $("battery-temp"),
+    batteryHealth: $("battery-health"),
+    cpuUsage: $("cpu-usage-n"),
+    cpuTemp: $("cpu-temp"),
+    cpuAge: $("cpu-age"),
+    overlayStatus: $("overlay-status"),
+    overlayStream: $("overlay-stream"),
+    overlayFooter: $("overlay-footer"),
+    lastMessage: $("last-message"),
+    wsUrl: $("ws-url"),
+    dbConnState: $("db-conn-state"),
+    dbConnStateText: $("db-conn-state-text"),
+    dbFrames: $("db-frames"),
+    dbEmpty: $("db-empty"),
+    dbTable: $("db-table"),
+    dbBody: $("db-body"),
+    dbFooter: $("db-footer"),
+    dbWsUrl: $("db-ws-url"),
+    dbClients: $("db-clients"),
+    clientsEmpty: $("clients-empty"),
+    clientsTable: $("clients-table"),
+    clientsBody: $("clients-body"),
+    subsEmpty: $("subs-empty"),
+    subsTable: $("subs-table"),
+    subsBody: $("subs-body"),
+    activity: $("activity")
+  };
+
+  var socket = null;
+  var reconnectDelayMs = 1000;
+  var reconnectTimer = null;
+  var lastTs = null;
+  var ageTimer = null;
+
+  var dbSocket = null;
+  var dbReconnectDelayMs = 1000;
+  var dbReconnectTimer = null;
+  var dbFramesCount = 0;
+  var dbEntries = new Map();
+  var dbAgeTimer = null;
+
+  var connSocket = null;
+  var connReconnectDelayMs = 1000;
+  var connReconnectTimer = null;
+  var dbConns = new Map();
+  var dbSubs = new Map();
+  function setState(text, stateClass) {
+    els.connStateText.textContent = text;
+    els.connState.className = "badge state-" + (stateClass || text.toLowerCase().replace(/\s+/g, "-"));
+    if (stateClass === "connecting") {
+      els.connStateText.parentElement.querySelector(".dot").classList.add("pulse");
+    } else {
+      var dot = els.connStateText.parentElement.querySelector(".dot");
+      if (dot) dot.classList.remove("pulse");
+    }
+  }
+
+  function setText(el, text) {
+    if (el.textContent === text) return;
+    el.textContent = text;
+  }
+
+  function fmtInt(v) {
+    if (v === undefined || v === null || isNaN(v)) return "—";
+    return Math.round(Number(v)).toLocaleString("en-US");
+  }
+
+  function fmt1(v, unit) {
+    if (v === undefined || v === null || isNaN(v)) return "—";
+    return Number(v).toFixed(1) + (unit || "");
+  }
+
+  function showError(message) {
+    els.errorBanner.hidden = false;
+    els.errorText.textContent = message;
+  }
+
+  function hideError() {
+    els.errorBanner.hidden = true;
+  }
+
+  function render(msg) {
+    var now = new Date();
+    var stamp = msg.generated_at || now.toISOString();
+    setText(els.cameraId, "camera: " + (msg.camera_id || "unknown"));
+
+    setText(els.peopleCurrent, fmtInt(msg.current_visible_people));
+    setText(els.peopleTotal, fmtInt(msg.total_detected_people));
+    setText(els.peopleMin, fmtInt(msg.people_last_minute));
+    setText(els.carsCurrent, fmtInt(msg.current_visible_cars));
+    setText(els.carsTotal, fmtInt(msg.total_detected_vehicles));
+    setText(els.carsMin, fmtInt(msg.cars_last_minute));
+
+    var sys = msg.system_metrics || {};
+    setText(els.batteryPct, fmt1(sys.batteryPercent));
+    setText(els.batteryTemp, fmt1(sys.batteryTemperature, " °C"));
+    setText(els.batteryHealth, typeof sys.batteryHealth === "string" ? sys.batteryHealth : "—");
+    setText(els.cpuUsage, fmt1(sys.cpuUsagePercent));
+    setText(els.cpuTemp, fmt1(sys.cpuTemperature, " °C"));
+    lastTs = sys.timestamp || msg.generated_at || null;
+    refreshAge();
+
+    setText(els.overlayStatus, msg.detection_overlay_enabled ? "ON" : "OFF");
+    setText(els.overlayStream, msg.detection_overlay_stream_url || "—");
+    setText(els.overlayFooter, msg.stats_footer_text || "—");
+    setText(els.lastMessage, JSON.stringify(msg, null, 2));
+
+    var t = new Date(stamp);
+    setText(els.lastUpdated, isValidDate(t) ? t.toLocaleTimeString() : "—");
+  }
+
+  function isValidDate(d) { return !isNaN(d.getTime()); }
+
+  function refreshAge() {
+    if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
+    var update = function () {
+      if (!lastTs) { setText(els.cpuAge, "—"); return; }
+      var ts = new Date(lastTs);
+      if (!isValidDate(ts)) { setText(els.cpuAge, "—"); return; }
+      var secs = Math.max(0, Math.floor((Date.now() - ts.getTime()) / 1000));
+      setText(els.cpuAge, secs + "s ago");
+    };
+    update();
+    ageTimer = setInterval(update, 1000);
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(function () {
+      reconnectTimer = null;
+      connect();
+    }, reconnectDelayMs);
+    reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
+  }
+
+  function connect() {
+    setState("connecting", "connecting");
+    try {
+      socket = new WebSocket(wsUrl);
+    } catch (err) {
+      scheduleReconnect();
+      return;
+    }
+
+    socket.onopen = function () {
+      reconnectDelayMs = 1000;
+      hideError();
+      setState("connected", "connected");
+    };
+
+    socket.onmessage = function (event) {
+      var msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (err) {
+        return;
+      }
+      if (msg && typeof msg === "object" && msg.status === "error") {
+        showError(msg.message || "simulated analytics unavailable");
+        return;
+      }
+      hideError();
+      render(msg);
+    };
+
+    socket.onclose = function () {
+      setState("reconnecting", "reconnecting");
+      scheduleReconnect();
+    };
+
+    socket.onerror = function () {
+      /* onclose follows and schedules the reconnect */
+    };
+  }
+
+  function setDbState(text, stateClass) {
+    els.dbConnStateText.textContent = text;
+    els.dbConnState.className = "badge state-" + (stateClass || text.toLowerCase().replace(/\s+/g, "-"));
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function fmtNum(v) {
+    if (v === undefined || v === null || isNaN(v)) return "—";
+    var n = Number(v);
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  }
+
+  function fmtDbTags(tags) {
+    if (!tags || typeof tags !== "object") return "—";
+    var parts = [];
+    Object.keys(tags).forEach(function (k) { parts.push(k + "=" + tags[k]); });
+    return parts.length ? parts.join(" ") : "—";
+  }
+
+  function ageSuffix(ts) {
+    return Math.max(0, Math.floor((Date.now() - ts) / 1000)) + "s";
+  }
+
+  function renderDbTable() {
+    var rows = [];
+    dbEntries.forEach(function (entry) {
+      rows.push(
+        "<tr><td>" + esc(entry.metric) + "</td>" +
+        "<td>" + esc(fmtNum(entry.value)) + "</td>" +
+        "<td>" + esc(fmtDbTags(entry.tags)) + "</td>" +
+        "<td>" + ageSuffix(entry.ts) + " ago</td></tr>"
+      );
+    });
+    els.dbBody.innerHTML = rows.join("");
+    els.dbEmpty.hidden = rows.length > 0;
+    els.dbTable.hidden = rows.length === 0;
+  }
+
+  function recordDb(msg) {
+    var tags = msg.tags || {};
+    var key = (msg.metric || "?") + "|" + (tags.camera_id || "");
+    dbEntries.delete(key);
+    dbEntries.set(key, {
+      metric: msg.metric || "?",
+      value: msg.value,
+      tags: tags,
+      ts: Date.now()
+    });
+    if (dbEntries.size > 15) {
+      dbEntries.delete(dbEntries.keys().next().value);
+    }
+    dbFramesCount += 1;
+    setText(els.dbFrames, String(dbFramesCount));
+    renderDbTable();
+  }
+
+  function dbScheduleReconnect() {
+    if (dbReconnectTimer) return;
+    dbReconnectTimer = setTimeout(function () {
+      dbReconnectTimer = null;
+      connectDb();
+    }, dbReconnectDelayMs);
+    dbReconnectDelayMs = Math.min(dbReconnectDelayMs * 2, 10000);
+  }
+
+  function connectDb() {
+    setDbState("connecting", "connecting");
+    try {
+      dbSocket = new WebSocket(dbUrl);
+    } catch (err) {
+      dbScheduleReconnect();
+      return;
+    }
+
+    dbSocket.onopen = function () {
+      dbReconnectDelayMs = 1000;
+      setDbState("connected", "connected");
+    };
+
+    dbSocket.onmessage = function (event) {
+      var msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (err) {
+        return;
+      }
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "ping") return;  // sqtseries keepalive
+      if (msg.status === "error") {
+        setDbState("feed error", "error");
+        return;
+      }
+      setDbState("connected", "connected");
+      recordDb(msg);
+    };
+
+    dbSocket.onclose = function () {
+      setDbState("reconnecting", "reconnecting");
+      dbScheduleReconnect();
+    };
+
+    dbSocket.onerror = function () {
+      /* onclose follows and schedules the reconnect */
+    };
+  }
+
+  function fmtConnAge(connectedAt) {
+    if (typeof connectedAt !== "number") return "—";
+    var secs = Math.max(0, Math.floor(Date.now() / 1000 - connectedAt));
+    if (secs < 60) return secs + "s";
+    return Math.floor(secs / 60) + "m";
+  }
+
+  function fmtClock(ts) {
+    if (typeof ts !== "number") return "—";
+    var d = new Date(ts * 1000);
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+           " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
+
+  function fmtTopic(t) {
+    if (t === "") return "all";
+    return t || "?";
+  }
+
+  function logActivity(line, ts) {
+    var div = document.createElement("div");
+    div.className = "act-line";
+    div.textContent = (typeof ts === "number" ? "[" + fmtClock(ts) + "] " : "") + line;
+    els.activity.appendChild(div);
+    while (els.activity.children.length > 60) {
+      els.activity.removeChild(els.activity.firstChild);
+    }
+    els.activity.scrollTop = els.activity.scrollHeight;
+  }
+
+  function renderClients() {
+    setText(els.dbClients, String(dbConns.size));
+    var connRows = [];
+    var conns = [];
+    dbConns.forEach(function (c) { conns.push(c); });
+    conns.sort(function (a, b) { return (a.connected_at || 0) - (b.connected_at || 0); });
+    conns.slice(0, 20).forEach(function (c) {
+      connRows.push(
+        "<tr><td>" + esc(c.kind || "?") + "</td>" +
+        "<td>" + esc(c.peer || "—") + "</td>" +
+        "<td>" + esc(c.topic || "—") + "</td>" +
+        "<td>" + fmtClock(c.connected_at) + "</td>" +
+        "<td>" + fmtConnAge(c.connected_at) + "</td></tr>"
+      );
+    });
+    els.clientsBody.innerHTML = connRows.join("");
+    els.clientsTable.hidden = connRows.length === 0;
+    els.clientsEmpty.hidden = connRows.length > 0;
+
+    var subRows = [];
+    var topics = [];
+    dbSubs.forEach(function (info, topic) { topics.push([topic, info]); });
+    topics.sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
+    topics.forEach(function (pair) {
+      subRows.push(
+        "<tr><td>" + esc(pair[0]) + "</td>" +
+        "<td>" + esc(String(pair[1].count)) + "</td>" +
+        "<td>" + fmtClock(pair[1].first_seen) + "</td></tr>"
+      );
+    });
+    els.subsBody.innerHTML = subRows.join("");
+    els.subsTable.hidden = subRows.length === 0;
+    els.subsEmpty.hidden = subRows.length > 0;
+  }
+
+  function applyConnEvent(msg) {
+    if (msg.connected === false) {
+      dbConns.delete(msg.id);
+      var line = "ws " + (msg.peer || "?") + " left " + (msg.topic || "?");
+      if (typeof msg.left_at === "number" && typeof msg.connected_at === "number") {
+        line += " (after " + Math.max(0, Math.round(msg.left_at - msg.connected_at)) + "s)";
+      }
+      logActivity(line, msg.left_at);
+    } else if (msg.id) {
+      dbConns.set(msg.id, {
+        kind: msg.kind,
+        peer: msg.peer,
+        topic: msg.topic,
+        connected_at: msg.connected_at
+      });
+      logActivity("ws " + (msg.peer || "?") + " joined " + (msg.topic || "?"), msg.connected_at);
+    }
+  }
+
+  function applySubEvent(msg) {
+    var cur = dbSubs.get(msg.topic);
+    var prevCount = cur ? cur.count : 0;
+    if (msg.subscribers > 0) {
+      dbSubs.set(msg.topic, {
+        count: msg.subscribers,
+        first_seen: (typeof msg.first_seen === "number")
+          ? msg.first_seen
+          : (cur && typeof cur.first_seen === "number" ? cur.first_seen : msg.arrived_at)
+      });
+    } else {
+      dbSubs.delete(msg.topic);
+    }
+    if (msg.subscribers > prevCount) {
+      logActivity("zmq subscriber joined " + fmtTopic(msg.topic), msg.arrived_at);
+    } else if (msg.subscribers < prevCount) {
+      var line = "zmq subscriber left " + fmtTopic(msg.topic);
+      if (typeof msg.left_at === "number" && typeof msg.first_seen === "number") {
+        line += " (after " + Math.max(0, Math.round(msg.left_at - msg.first_seen)) + "s)";
+      }
+      logActivity(line, msg.left_at);
+    }
+  }
+
+  function connScheduleReconnect() {
+    if (connReconnectTimer) return;
+    connReconnectTimer = setTimeout(function () {
+      connReconnectTimer = null;
+      connectConnWs();
+    }, connReconnectDelayMs);
+    connReconnectDelayMs = Math.min(connReconnectDelayMs * 2, 10000);
+  }
+
+  function connectConnWs() {
+    try {
+      connSocket = new WebSocket(dbConnWsUrl);
+    } catch (err) {
+      connScheduleReconnect();
+      return;
+    }
+    connSocket.onopen = function () {
+      connReconnectDelayMs = 1000;
+    };
+    connSocket.onmessage = function (event) {
+      var msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (err) {
+        return;
+      }
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "snapshot") {
+        dbConns.clear();
+        (msg.connections || []).forEach(function (c) {
+          if (c && c.id) dbConns.set(c.id, c);
+        });
+        dbSubs.clear();
+        (msg.subscriptions || []).forEach(function (s) {
+          if (s && s.topic !== undefined) {
+            dbSubs.set(s.topic, {
+              count: s.subscribers || 0,
+              first_seen: s.first_seen
+            });
+          }
+        });
+      } else if (msg.type === "conn") {
+        applyConnEvent(msg);
+      } else if (msg.type === "sub") {
+        applySubEvent(msg);
+      }
+      renderClients();
+    };
+    connSocket.onclose = function () {
+      connScheduleReconnect();
+    };
+    connSocket.onerror = function () {
+      /* onclose follows and schedules the reconnect */
+    };
+  }
+
+  if (dbUrl) {
+    els.dbFooter.hidden = false;
+    setText(els.dbWsUrl, dbUrl);
+    setText(els.dbEmpty, "connected — waiting for the first published reading…");
+    dbAgeTimer = setInterval(function () {
+      if (dbEntries.size) renderDbTable();
+      if (dbConns.size || dbSubs.size) renderClients();
+    }, 1000);
+    connectDb();
+  }
+  if (dbConnWsUrl) {
+    setText(els.dbClients, "—");
+    connectConnWs();
+  }
+
+  setText(els.wsUrl, wsUrl);
+  connect();
+})();
+</script>
+</body>
+</html>

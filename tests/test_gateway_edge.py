@@ -63,6 +63,74 @@ class TestWriteValidation:
         )
         assert r.status_code == 400
 
+    def test_huge_integer_value_400(self, client):
+        # stdlib JSON accepts integers beyond 2^63, but the value can't be
+        # stored as a float — must be a 400, never a 500 (OverflowError)
+        r = client.post("/api/v1/write", json={"metric": "a", "value": 10**400})
+        assert r.status_code == 400
+
+    def test_huge_integer_value_in_batch_400(self, client):
+        r = client.post(
+            "/api/v1/write",
+            json=[{"metric": "a", "value": 1.0}, {"metric": "a", "value": 10**400}],
+        )
+        assert r.status_code == 400
+        # nothing persisted (batch rejected as a whole)
+        r = client.get("/api/v1/stats")
+        assert r.json()["series"] == 0
+
+    def test_huge_integer_timestamp_400(self, client):
+        # a timestamp beyond float range must be a 400, never a 500
+        # (float(10**400) used to raise OverflowError before validation)
+        r = client.post(
+            "/api/v1/write", json={"metric": "a", "value": 1.0, "timestamp": 10**400}
+        )
+        assert r.status_code == 400
+
+    def test_float_huge_integer_timestamp_400(self, client):
+        # fits in a float but overflows the signed 64-bit ns storage bound
+        r = client.post(
+            "/api/v1/write", json={"metric": "a", "value": 1.0, "timestamp": 10**100}
+        )
+        assert r.status_code == 400
+
+    def test_negative_huge_integer_timestamp_400(self, client):
+        r = client.post(
+            "/api/v1/write", json={"metric": "a", "value": 1.0, "timestamp": -(10**400)}
+        )
+        assert r.status_code == 400
+
+    def test_int64_boundary_timestamp_rejected_400(self, client):
+        # 2**63 seconds is far beyond the int64-ns storage range
+        r = client.post(
+            "/api/v1/write", json={"metric": "a", "value": 1.0, "timestamp": 2**63}
+        )
+        assert r.status_code == 400
+
+    def test_huge_integer_timestamp_in_batch_400(self, client):
+        r = client.post(
+            "/api/v1/write",
+            json=[
+                {"metric": "a", "value": 1.0},
+                {"metric": "a", "value": 1.0, "timestamp": 10**400},
+            ],
+        )
+        assert r.status_code == 400
+        # nothing persisted (batch rejected as a whole)
+        r = client.get("/api/v1/stats")
+        assert r.json()["series"] == 0
+
+    def test_batch_no_timestamps_single_transaction(self, client):
+        """Timestamp-less batch rows must not collide on the PK."""
+        r = client.post(
+            "/api/v1/write",
+            json=[{"metric": "a", "value": 1.0}, {"metric": "a", "value": 2.0}],
+        )
+        assert r.status_code == 200
+        assert r.json()["written"] == 2
+        r = client.get("/api/v1/read", params={"metric": "a", "aggregation": "count"})
+        assert r.json()["data"][0]["value"] == 2
+
 
 class TestReadValidation:
     def test_bad_aggregation_400(self, client):

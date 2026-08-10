@@ -119,13 +119,14 @@ stores each number as a flat measurement tagged with the camera ID, and
 then answers the questions that matter: busiest hour, footfall trend,
 battery drain rate and time-to-empty, CPU/thermal profile, feed uptime,
 and more.</p>
-<p>The repo ships a self-contained demo: <code>overlay_server.py</code>
-simulates the camera feed on a random port, <code>camera_feed.py</code>
-pumps it into sqtseries over plain HTTP (no sqtseries installed needed —
-just <code>websockets</code>), and <code>camera_feed.py --ask</code>
-answers 17 questions from the stored data. One command —
-<code>examples/sqtcam.sh</code> — starts sqtseries, the simulator, and
-the feed in a tmux session so you can leave it collecting data overnight.
+<p>The repo ships a self-contained demo: <code>camera/overlay_server.py</code>
+simulates the camera feed on a random port and serves a live dashboard page,
+<code>camera/camera_feed.py</code> pumps it into sqtseries over plain HTTP
+(no sqtseries installed needed — just <code>websockets</code>), and
+<code>camera/camera_feed.py --ask</code> answers 17 questions from the
+stored data. One command — <code>examples/camera/sqtcam.sh</code> — starts
+sqtseries, the simulator, and the feed in a tmux session so you can leave it
+collecting data overnight.
 See <a href="camera.html">Camera analytics</a> for the full
 walkthrough.</p>
 
@@ -144,7 +145,7 @@ walkthrough.</p>
 <p>All sockets are local only (bound to 127.0.0.1). Of the six, only the
 ingest port is auto-detected: <code>run</code> scans the port range (default
 12500–12700, plus <code>ports.port_offset</code>) for the first free port,
-skipping the query/streaming/admin/http ports it is told to avoid
+skipping the query/streaming/admin/http/stats ports it is told to avoid
 (<code>ports.auto_detect</code>). The other five ports are fixed — if one of
 them is already bound, startup fails so you can fix the conflict. The active
 ports are shown by <code>sqtseries ports</code> and stored in
