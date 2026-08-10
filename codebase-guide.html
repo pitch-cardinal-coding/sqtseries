@@ -1,0 +1,2327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sqtseries — Complete Codebase Guide</title>
+<style>
+/* ============ Print/PDF-focused stylesheet (self-contained) ============ */
+@page { size: A4; margin: 15mm 13mm 16mm 13mm; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+  font-size: 9.6pt; line-height: 1.42; color: #1c2733; margin: 0;
+}
+h1, h2, h3, h4, h5 { font-weight: 600; color: #0d2b45; line-height: 1.25; margin: 1.1em 0 0.45em; }
+h1 { font-size: 19pt; border-bottom: 2px solid #0969da; padding-bottom: 6px; }
+h2 { font-size: 14.5pt; border-bottom: 1px solid #9fb6c9; padding-bottom: 4px; }
+h3 { font-size: 12pt; }
+h4 { font-size: 10.5pt; }
+h5 { font-size: 9.8pt; margin: 0.9em 0 0.25em; color: #17456e; }
+p { margin: 0.45em 0; }
+ul, ol { margin: 0.35em 0 0.5em; padding-left: 1.5em; }
+li { margin: 0.18em 0; }
+
+code {
+  font-family: "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace;
+  font-size: 8.4pt; background: #eef1f5; border: 1px solid #dde3ea; border-radius: 3px;
+  padding: 0 3px; color: #16324f;
+}
+pre {
+  font-family: "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace;
+  font-size: 8.1pt; line-height: 1.38; background: #f4f6f9; border: 1px solid #d8dee5;
+  border-left: 4px solid #0969da; border-radius: 4px; padding: 7px 10px;
+  white-space: pre-wrap; word-wrap: break-word; margin: 0.5em 0; page-break-inside: avoid;
+}
+pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 8.8pt; }
+th { text-align: left; background: #e8eef4; border: 1px solid #c3cedb; padding: 4px 7px; font-weight: 600; }
+td { border: 1px solid #c3cedb; padding: 3.5px 7px; vertical-align: top; }
+tr { page-break-inside: avoid; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid #c3cedb; margin: 1.2em 0; }
+.small { font-size: 8.2pt; color: #5a6b7c; }
+.muted { color: #5a6b7c; }
+
+/* ---------- structure ---------- */
+.part { page-break-before: always; }
+.cover { page-break-after: always; text-align: center; padding-top: 12mm; }
+.cover h1 { font-size: 26pt; border: none; margin-bottom: 4px; }
+.cover .subtitle { font-size: 13pt; color: #44586c; margin-bottom: 18px; }
+.cover .badge-row { margin: 14px 0; }
+.cover .badge {
+  display: inline-block; border: 1px solid #9fb6c9; border-radius: 999px;
+  background: #eef4fa; padding: 3px 12px; margin: 3px; font-size: 9pt; color: #1c3c5c;
+}
+.cover .mono { font-family: Consolas, Menlo, monospace; font-size: 9pt; background: #eef1f5; border: 1px solid #dde3ea; border-radius: 3px; padding: 1px 5px; }
+
+/* ---------- file sections ---------- */
+.file { margin: 0 0 1.4em; }
+.file-head {
+  margin-top: 1.3em;
+  border: 1px solid #b9cbdc; border-left: 5px solid #0969da; border-radius: 5px;
+  background: #eef4fa; padding: 5px 10px; page-break-inside: avoid;
+}
+.file-head .path { font-family: Consolas, Menlo, monospace; font-size: 10.5pt; font-weight: 700; color: #0d2b45; }
+.file-head .meta { font-size: 8pt; color: #58697b; }
+.file-head .purpose { font-size: 9pt; color: #2c3e52; margin-top: 1px; }
+
+.sym { margin: 0.55em 0 0.75em; page-break-inside: avoid; }
+.sym .sig {
+  font-family: "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  font-size: 8.6pt; background: #f4f8fc; border: 1px solid #c9d8e8; border-radius: 3px;
+  padding: 3px 8px; display: inline-block; margin: 0.25em 0; color: #0b3d6e; word-break: break-all;
+}
+.sym .kind { font-size: 7.6pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #0969da; }
+.sym .desc { margin: 0.25em 0 0.3em; }
+.const { margin: 0.3em 0 0.6em; page-break-inside: avoid; }
+.const .sig { font-family: Consolas, Menlo, monospace; font-size: 8.6pt; background: #f6f3ec; border: 1px solid #ddd2b8; border-radius: 3px; padding: 2px 6px; color: #6b4d0a; }
+.note { border-left: 3px solid #d29922; background: #fdf9ec; padding: 4px 9px; margin: 0.5em 0; border-radius: 0 4px 4px 0; page-break-inside: avoid; }
+.tip { border-left: 3px solid #1a7f37; background: #effaf1; padding: 4px 9px; margin: 0.5em 0; border-radius: 0 4px 4px 0; page-break-inside: avoid; }
+.warn { border-left: 3px solid #cf222e; background: #fff2f3; padding: 4px 9px; margin: 0.5em 0; border-radius: 0 4px 4px 0; page-break-inside: avoid; }
+
+/* ---------- TOC ---------- */
+.toc { column-count: 2; column-gap: 26px; font-size: 8.8pt; }
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0.12em 0; }
+.toc li.l1 { font-weight: 700; margin-top: 0.5em; color: #0d2b45; }
+.toc li.l2 { padding-left: 1em; font-weight: 500; }
+
+.diagram { font-size: 7.6pt; line-height: 1.25; }
+</style>
+</head>
+<body>
+
+<!-- ================================================================ -->
+<!-- COVER                                                             -->
+<!-- ================================================================ -->
+<div class="cover">
+  <h1>sqtseries</h1>
+  <p class="subtitle">Complete Codebase Guide — every file, class, function, constant and example explained</p>
+  <p class="mono">/home/iam/devcode/PiCCL/sqtseries</p>
+  <div class="badge-row">
+    <span class="badge">version 0.1.0</span>
+    <span class="badge">Python &ge; 3.14 + SQLite + ZeroMQ + FastAPI</span>
+    <span class="badge">~19k lines: 6.1k source &middot; 4.2k examples &middot; 8.5k tests</span>
+  </div>
+  <p class="small">Generated 2026-08-10 &middot; self-contained HTML, printable to PDF<br>
+  <code>google-chrome --headless=new --disable-gpu --no-sandbox --print-to-pdf=codebase-guide.pdf codebase-guide.html</code></p>
+</div>
+
+<!-- ================================================================ -->
+<!-- TOC                                                               -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="toc">Table of Contents</h1>
+<div class="toc">
+<ul>
+  <li class="l1"><a href="#overview">1. Project Overview</a></li>
+  <li class="l1"><a href="#architecture">2. Architecture at a Glance</a></li>
+  <li class="l1"><a href="#concepts">3. Core Concepts</a></li>
+  <li class="l1"><a href="#root-files">4. Root Files</a></li>
+  <li class="l2"><a href="#pyproject">4.1 pyproject.toml</a></li>
+  <li class="l2"><a href="#requirements">4.2 requirements.txt</a></li>
+  <li class="l2"><a href="#readme">4.3 README.md</a></li>
+  <li class="l2"><a href="#gitignore">4.4 .gitignore</a></li>
+  <li class="l1"><a href="#pkg-top">5. Package sqtseries (top level)</a></li>
+  <li class="l2"><a href="#f-init">5.1 __init__.py</a></li>
+  <li class="l2"><a href="#f-main">5.2 __main__.py</a></li>
+  <li class="l2"><a href="#f-client">5.3 client.py — Client, ClientError</a></li>
+  <li class="l2"><a href="#f-cli">5.4 cli.py — CLI commands</a></li>
+  <li class="l2"><a href="#f-config">5.5 config.py — Settings model</a></li>
+  <li class="l2"><a href="#f-health">5.6 health.py</a></li>
+  <li class="l2"><a href="#f-logging">5.7 logging.py</a></li>
+  <li class="l2"><a href="#f-ports">5.8 ports.py — PortAllocator</a></li>
+  <li class="l2"><a href="#f-recovery">5.9 recovery.py</a></li>
+  <li class="l2"><a href="#f-runtime">5.10 runtime.py — RuntimeState</a></li>
+  <li class="l2"><a href="#f-service">5.11 service.py — Service</a></li>
+  <li class="l2"><a href="#f-systemd">5.12 systemd.py</a></li>
+  <li class="l1"><a href="#pkg-engine">6. Package sqtseries.engine</a></li>
+  <li class="l2"><a href="#e-init">6.1 engine/__init__.py</a></li>
+  <li class="l2"><a href="#e-db">6.2 engine/db.py — Database, Connection, Result</a></li>
+  <li class="l2"><a href="#e-store">6.3 engine/store.py — StorageEngine</a></li>
+  <li class="l2"><a href="#e-schema">6.4 engine/schema.py</a></li>
+  <li class="l2"><a href="#e-pragmas">6.5 engine/pragmas.py</a></li>
+  <li class="l2"><a href="#e-migrations">6.6 engine/migrations.py</a></li>
+  <li class="l2"><a href="#e-checkpoint">6.7 engine/checkpoint.py — CheckpointManager</a></li>
+  <li class="l2"><a href="#e-backup">6.8 engine/backup.py — BackupManager</a></li>
+  <li class="l2"><a href="#e-maintenance">6.9 engine/maintenance.py — MaintenanceManager</a></li>
+  <li class="l1"><a href="#pkg-partition">7. Package sqtseries.partition</a></li>
+  <li class="l2"><a href="#p-init">7.1 partition/__init__.py</a></li>
+  <li class="l2"><a href="#p-manager">7.2 partition/manager.py — PartitionManager</a></li>
+  <li class="l2"><a href="#p-retention">7.3 partition/retention.py — RetentionPolicy/Manager</a></li>
+  <li class="l2"><a href="#p-rollup">7.4 partition/rollup.py — rollup functions + RollupManager</a></li>
+  <li class="l1"><a href="#pkg-query">8. Package sqtseries.query</a></li>
+  <li class="l2"><a href="#q-init">8.1 query/__init__.py</a></li>
+  <li class="l2"><a href="#q-agg">8.2 query/agg.py — aggregations, downsampling, gap fill</a></li>
+  <li class="l2"><a href="#q-builder">8.3 query/builder.py — TimeSeriesDB</a></li>
+  <li class="l1"><a href="#pkg-messaging">9. Package sqtseries.messaging</a></li>
+  <li class="l2"><a href="#m-init">9.1 messaging/__init__.py</a></li>
+  <li class="l2"><a href="#m-protocol">9.2 messaging/protocol.py</a></li>
+  <li class="l2"><a href="#m-context">9.3 messaging/context.py</a></li>
+  <li class="l2"><a href="#m-ingress">9.4 messaging/ingress.py — Ingress</a></li>
+  <li class="l2"><a href="#m-broker">9.5 messaging/broker.py — QueryBroker</a></li>
+  <li class="l2"><a href="#m-admin">9.6 messaging/admin.py — AdminBroker</a></li>
+  <li class="l2"><a href="#m-pubsub">9.7 messaging/pubsub.py — PubSub, SubscriptionTracker</a></li>
+  <li class="l2"><a href="#m-registry">9.8 messaging/connection_registry.py — ConnectionRegistry</a></li>
+  <li class="l2"><a href="#m-stats">9.9 messaging/stats_publisher.py — StatsPublisher</a></li>
+  <li class="l2"><a href="#m-worker">9.10 messaging/worker.py — WorkerPool</a></li>
+  <li class="l1"><a href="#pkg-gateway">10. Package sqtseries.gateway</a></li>
+  <li class="l2"><a href="#g-init">10.1 gateway/__init__.py</a></li>
+  <li class="l2"><a href="#g-app">10.2 gateway/app.py — create_app</a></li>
+  <li class="l2"><a href="#g-routes">10.3 gateway/routes.py — REST endpoints</a></li>
+  <li class="l2"><a href="#g-ratelimit">10.4 gateway/ratelimit.py — RateLimitMiddleware</a></li>
+  <li class="l2"><a href="#g-websocket">10.5 gateway/websocket.py — subscribe_and_forward</a></li>
+  <li class="l1"><a href="#pkg-examples">11. Examples</a></li>
+  <li class="l2"><a href="#x-producer">11.1 producer.py</a></li>
+  <li class="l2"><a href="#x-consumer">11.2 consumer.py</a></li>
+  <li class="l2"><a href="#x-stats-monitor">11.3 stats_monitor.py</a></li>
+  <li class="l2"><a href="#x-ingest-http">11.4 ingest_http.py</a></li>
+  <li class="l2"><a href="#x-admin">11.5 admin_examples.py</a></li>
+  <li class="l2"><a href="#x-stream">11.6 stream_examples.py</a></li>
+  <li class="l2"><a href="#x-tags">11.7 tags_examples.py</a></li>
+  <li class="l2"><a href="#x-run-custom">11.8 run_custom.py</a></li>
+  <li class="l2"><a href="#x-maintenance">11.9 maintenance_examples.py</a></li>
+  <li class="l2"><a href="#x-query">11.10 query_examples.py</a></li>
+  <li class="l2"><a href="#x-questions">11.11 question_examples.py</a></li>
+  <li class="l2"><a href="#x-questions-adv">11.12 question_examples_advanced.py</a></li>
+  <li class="l1"><a href="#camera-stack">12. Camera Analytics Stack (examples/camera)</a></li>
+  <li class="l2"><a href="#x-overlay-server">12.1 overlay_server.py</a></li>
+  <li class="l2"><a href="#x-camera-feed">12.2 camera_feed.py</a></li>
+  <li class="l2"><a href="#x-overlay-html">12.3 overlay.html</a></li>
+  <li class="l2"><a href="#x-conn-validate">12.4 conn_validate.py</a></li>
+  <li class="l2"><a href="#x-sqtcam-sh">12.5 sqtcam.sh</a></li>
+  <li class="l1"><a href="#scripts">13. scripts/benchmark.py</a></li>
+  <li class="l1"><a href="#tests">14. Tests (54 files + conftest.py)</a></li>
+  <li class="l2"><a href="#t-conftest">14.1 conftest.py</a></li>
+  <li class="l2"><a href="#t-groups">14.2 Test files by area</a></li>
+  <li class="l1"><a href="#docs-dir">15. docs/ Directory</a></li>
+  <li class="l1"><a href="#protocol">16. Wire Protocol Reference</a></li>
+  <li class="l1"><a href="#flows">17. End-to-End Data Flows</a></li>
+  <li class="l1"><a href="#glossary">18. Glossary</a></li>
+</ul>
+</div>
+</div>
+<!-- ================================================================ -->
+<!-- 1. OVERVIEW                                                        -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="overview">1. Project Overview</h1>
+
+<p><strong>sqtseries</strong> is a local, single-file time-series database. You feed it
+measurements — <code>metric</code> + <code>value</code> + optional string <code>tags</code> — and later ask
+questions like "average CPU over the last hour" or "99th percentile response time this
+week". Everything lives in one SQLite file (<code>~/.sqtseries/data/db.sqlite</code> by default),
+so you can copy, back up, or inspect it like any file.</p>
+
+<p>Two transports expose the same JSON wire format:</p>
+<ul>
+  <li><strong>ZeroMQ</strong> — PUSH ingest (12501), REP queries (12502), XPUB streaming (12503),
+      REP admin (12504), PUB stats events (12506). High throughput, any language with a ZMQ binding.</li>
+  <li><strong>HTTP</strong> — FastAPI REST + WebSocket on 12505. Works from curl, browsers, and any language.</li>
+</ul>
+
+<p>Performance comes from two storage tricks: monthly <em>partitions</em>
+(<code>measurements_YYYY_MM</code> WITHOUT ROWID tables) and <em>hourly rollups</em> (a background task
+pre-aggregates completed hours into <code>rollup_hourly</code> so wide queries read a few rows instead
+of millions). A query fast path merges rollup rows with the raw edges of the window — exact
+same answer, about 9&times; faster.</p>
+
+<h3>Project layout</h3>
+<table>
+<tr><th>Location</th><th>Contents</th><th>Lines</th></tr>
+<tr><td><code>src/sqtseries/</code></td><td>43 Python source files across 6 packages</td><td>~6,100</td></tr>
+<tr><td><code>examples/</code></td><td>12 standalone runnable scripts + camera stack</td><td>~4,200</td></tr>
+<tr><td><code>scripts/</code></td><td>1 reproducible benchmark</td><td>182</td></tr>
+<tr><td><code>tests/</code></td><td>54 test modules + conftest.py (unit, integration, property, fuzz, stress, Playwright)</td><td>~8,500</td></tr>
+<tr><td><code>docs/</code></td><td>Hand-written HTML documentation site (not generated)</td><td>—</td></tr>
+</table>
+
+<h3>Runtime dependencies</h3>
+<table>
+<tr><th>Package</th><th>Role</th></tr>
+<tr><td><code>orjson</code></td><td>Fast JSON (de)serialization for the wire protocols and tag encoding</td></tr>
+<tr><td><code>pyzmq</code></td><td>ZeroMQ message bus: PUSH / REP / XPUB / PUB sockets</td></tr>
+<tr><td><code>fastapi</code> + <code>uvicorn</code></td><td>HTTP REST + WebSocket gateway</td></tr>
+<tr><td><code>httpx</code></td><td>HTTP client (tests, conn_validate.py)</td></tr>
+<tr><td><code>click</code></td><td>CLI framework</td></tr>
+<tr><td><code>pydantic</code> / <code>pydantic-settings</code></td><td>Configuration model + env/file loading</td></tr>
+<tr><td><code>structlog</code></td><td>Structured logging (JSON or console)</td></tr>
+</table>
+<p class="small">Dev extras: pytest + pytest-asyncio/timeout/cov, hypothesis (property tests),
+ruff/black/isort, playwright (dashboard page tests), memory-profiler (bench).</p>
+</div>
+
+<!-- ================================================================ -->
+<!-- 2. ARCHITECTURE                                                    -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="architecture">2. Architecture at a Glance</h1>
+
+<p>Everything runs in <em>one process</em>: the event loop drives the ZMQ sockets and the HTTP
+gateway reads the same in-memory engine objects (<code>StorageEngine</code>, <code>TimeSeriesDB</code>, <code>PubSub</code>).
+There is no service-to-service hop.</p>
+
+<pre class="diagram">
+            ┌──────────────────────────────────────────────────────────┐
+            │                       sqtseries process                   │
+  PUSH 12501►│  Ingress (PULL) ─► _sink ─► StorageEngine ─► SQLite (WAL)│
+  (write)    │      │                     └──► measurements_YYYY_MM     │
+            │      └─► on_publish ─► PubSub (XPUB 12503) ─► SUB clients│
+  REQ 12502►│  QueryBroker (REP) ─► TimeSeriesDB ─► store               │
+  (query)    │                          │ (rollup fast path + raw edges)│
+  REQ 12504►│  AdminBroker (REP) ─► health / stats / backup / vacuum    │
+  (admin)    │                          │                               │
+  HTTP 12505►│  FastAPI gateway ───► store / tsdb / pubsub / registry   │
+  REST + WS │       ├── /ws/subscribe ◄── PubSub (live measurements)    │
+            │       └── /ws/connections ◄── ConnectionRegistry          │
+  PUB 12506◄│  StatsPublisher (PUB) ◄── ConnectionRegistry (conn/sub)   │
+  (events)   └──────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+   db.sqlite (WAL) + runtime.json + backups/ — one directory
+   ┌─────────────────────────────────────────────────────────┐
+   │ series               (metric, tags JSON) → series_id    │
+   │ measurements_YYYY_MM WITHOUT ROWID, PK(series_id, ts_ns)│
+   │ rollup_hourly        (count, sum, min, max per hour)    │
+   │ rollup_meta          (last_hour watermark)              │
+   │ schema_version       (migrations)                       │
+   └─────────────────────────────────────────────────────────┘
+</pre>
+
+<h3>Package responsibilities</h3>
+<table>
+<tr><th>Package</th><th>Responsibility</th></tr>
+<tr><td><code>sqtseries</code> (top)</td><td>Public API (<code>Client</code>), CLI, config, service orchestration, health/logging/ports/runtime/systemd</td></tr>
+<tr><td><code>sqtseries.engine</code></td><td>Raw sqlite3 layer: schema, partition DDL, PRAGMAs, migrations, checkpoints, backups, maintenance</td></tr>
+<tr><td><code>sqtseries.partition</code></td><td>Partition lifecycle: monthly tables, retention drops, hourly rollup aggregation</td></tr>
+<tr><td><code>sqtseries.query</code></td><td>Query facade: aggregation functions, downsampling, gap filling, rollup fast path</td></tr>
+<tr><td><code>sqtseries.messaging</code></td><td>ZeroMQ layer: protocol validation, ingest, query/admin brokers, pub/sub, connection registry, stats, worker pool</td></tr>
+<tr><td><code>sqtseries.gateway</code></td><td>FastAPI REST + WebSocket gateway: routes, rate limiting, WS streaming, security headers</td></tr>
+</table>
+
+<h3>Background tasks (started by <code>Service._start</code>)</h3>
+<table>
+<tr><th>Manager</th><th>Schedule</th><th>What it does</th></tr>
+<tr><td><code>CheckpointManager</code></td><td>every 60 s</td><td>TRUNCATE-checkpoints the WAL when it exceeds 64 MB; tracks readers blocking checkpoints</td></tr>
+<tr><td><code>RollupManager</code></td><td>every 5 min (<code>rollup.interval</code>)</td><td>Aggregates freshly-completed hours into <code>rollup_hourly</code>; honors the clock-skew guard</td></tr>
+<tr><td><code>MaintenanceManager</code></td><td>hourly</td><td>Re-runs <code>ANALYZE</code> to refresh query-planner statistics</td></tr>
+<tr><td><code>RetentionManager</code></td><td>hourly (<code>retention.check_interval</code>)</td><td>Drops monthly partitions older than the TTL (default 30 d), and their rollup rows</td></tr>
+<tr><td><code>BackupManager</code></td><td>every 24 h, first pass on boot</td><td>Writes a consistent <code>VACUUM INTO</code> snapshot to <code>backup.path</code></td></tr>
+<tr><td><code>StatsPublisher</code></td><td>every 10 s + on events</td><td>Publishes <code>conn</code> / <code>sub</code> / <code>report</code> events on port 12506</td></tr>
+</table>
+
+<h3>Fixed ports (all bound to 127.0.0.1)</h3>
+<table>
+<tr><th>Port</th><th>ZMQ socket</th><th>Purpose</th><th>Config key</th></tr>
+<tr><td>12501</td><td>PULL</td><td>Ingest measurements</td><td><code>ingestion.port</code> <span class="small">(auto-detected from 12500–12700 by default!)</span></td></tr>
+<tr><td>12502</td><td>REP</td><td>Run queries</td><td><code>query.port</code></td></tr>
+<tr><td>12503</td><td>XPUB</td><td>Live streaming + subscriber tracking</td><td><code>streaming.port</code></td></tr>
+<tr><td>12504</td><td>REP</td><td>Admin commands</td><td><code>admin.port</code></td></tr>
+<tr><td>12505</td><td>—</td><td>HTTP REST + WebSocket</td><td><code>http.port</code></td></tr>
+<tr><td>12506</td><td>PUB</td><td>Connection/subscription events</td><td><code>stats.port</code></td></tr>
+</table>
+<p class="note"><strong>Ingest auto-detection:</strong> with <code>ports.auto_detect = true</code> (the default) the
+ingest port is the first free port in <code>[12500+offset, 12700+offset]</code> that is not one of the fixed
+ports — so it is usually <strong>12500</strong>, not the configured 12501. The active ports are written to
+<code>runtime.json</code> next to the database; <code>sqtseries ports</code> / <code>sqtseries status</code> read them back.</p>
+</div>
+<!-- ================================================================ -->
+<!-- 3. CORE CONCEPTS                                                  -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="concepts">3. Core Concepts</h1>
+
+<h3>3.1 Measurement &rarr; series &rarr; partition</h3>
+<ul>
+  <li>A <strong>measurement</strong> is one number: <code>metric</code> (string), <code>value</code> (finite number),
+      optional <code>tags</code> (string&rarr;string map), optional <code>timestamp</code> (epoch <em>seconds</em>;
+      server time when omitted).</li>
+  <li>Internally storage uses nanosecond epoch integers (<code>timestamp_ns</code>); the wire protocol
+      sends seconds, ZMQ queries take nanosecond bounds, and HTTP uses seconds.</li>
+  <li>A <strong>series</strong> is the unique pair <code>(metric, tags)</code>. It gets an integer
+      <code>series_id</code> from the <code>series</code> table (unique index on <code>(metric, tags)</code>).
+      Writing the same <code>(metric, tags)</code> again appends to the same series; different tag sets
+      are different series.</li>
+  <li>Measurements are stored in <strong>monthly partitions</strong> named <code>measurements_YYYY_MM</code>,
+      created lazily on first write. Partitions are <code>WITHOUT ROWID</code> tables with the clustered
+      primary key <code>(series_id, timestamp_ns)</code> plus a secondary index on <code>timestamp_ns</code>
+      (cross-series time ranges and retention).</li>
+</ul>
+
+<h3>3.2 Tags: dimensions, not IDs</h3>
+<p>Tags are dimensions you slice by: <code>{"host": "web1", "env": "prod"}</code>. Every distinct tag
+set creates a new series, so <strong>never tag high-cardinality values</strong> (request IDs, session IDs,
+timestamps) — they multiply series and slow per-series queries. Tag values must be strings;
+non-string values are rejected (HTTP 400 / <code>ProtocolError</code>). Wire queries over a metric merge
+<em>all</em> of its tag sets; per-series breakdowns need the embedded Python API
+(<code>StorageEngine.series_ids_for_metric</code> + <code>get_series_meta</code>).</p>
+
+<h3>3.3 Hourly rollup</h3>
+<ul>
+  <li>A background task rolls <em>completed</em> hours into <code>rollup_hourly</code>
+      (<code>series_id, hour_start_ns, count, sum, min, max</code>; <code>avg = sum/count</code>).</li>
+  <li>Only hours that ended at least <code>reject_client_timestamp_skew_s</code> ago are rolled, so a
+      "late" write (a client clock within the skew window) can never land in a rolled hour —
+      kept in-order by the clock-skew guard on ingest.</li>
+  <li>A <code>last_hour</code> watermark in <code>rollup_meta</code> records how far the rollup advanced;
+      each run scans only the data since the previous run, and <code>INSERT OR REPLACE</code> keeps
+      re-runs idempotent.</li>
+  <li>The current (in-progress) hour is always read live from the raw partitions, so results are
+      never stale.</li>
+</ul>
+
+<h3>3.4 Query fast path</h3>
+<p><code>TimeSeriesDB.query</code> decides whether a query can be answered from the rollup
+(<code>_rollup_eligible</code>): the aggregation must be expressible from count/sum/min/max
+(<code>avg, sum, min, max, count</code>), the interval must be a whole-hour multiple (or None), the
+window must contain at least one fully-inside rolled hour, and the tail must not extend past the
+watermark. The eligible window is split into three disjoint sources — raw left edge hour, rollup
+middle hours, raw right tail — merged per bucket, so nothing is counted twice. <code>median</code>,
+<code>p95</code>, <code>p99</code>, <code>first</code>, <code>last</code> always take the raw path.</p>
+
+<h3>3.5 Retention</h3>
+<p>Retention drops <em>whole monthly partitions</em> whose <em>last day</em> falls before
+<code>now &minus; ttl</code> (fast <code>DROP TABLE</code>), and deletes those hours from <code>rollup_hourly</code>
+so deleted data leaves no aggregate trace. TTL syntax: <code>30d</code>, <code>12h</code>, <code>4w</code>, <code>90s</code>, <code>45m</code>.</p>
+
+<h3>3.6 Crash safety</h3>
+<ul>
+  <li>SQLite WAL journal: every write is a single atomic transaction (<code>BEGIN IMMEDIATE</code>).</li>
+  <li>Startup: <code>PRAGMA quick_check</code>, then <code>recover_wal</code> (re-assert WAL mode + a
+      PASSIVE checkpoint). A failed integrity check logs the problems; <code>strict</code> mode raises.</li>
+  <li>Shutdown: <code>PRAGMA optimize</code>, then a TRUNCATE checkpoint so the next start is fast.</li>
+  <li>Backups use <code>VACUUM INTO</code> — a consistent snapshot even while writes are in flight.</li>
+</ul>
+
+<h3>3.7 Configuration precedence</h3>
+<p>Defaults &lt; config file (TOML/YAML/JSON, <code>SQT_SERIES_CONFIG_FILE</code> or <code>--config</code>)
+&lt; environment variables (<code>SQT_SERIES_&lt;SECTION&gt;__&lt;KEY&gt;</code>, e.g.
+<code>SQT_SERIES_DATABASE__PATH</code>). Env always wins over file values — the loader computes the set
+of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p>
+</div>
+
+<!-- ================================================================ -->
+<!-- 4. ROOT FILES                                                      -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="root-files">4. Root Files</h1>
+
+<div class="file" id="pyproject">
+  <div class="file-head"><span class="path">pyproject.toml</span><span class="meta">packaging + tool config</span></div>
+  <ul>
+    <li><strong>Build:</strong> setuptools &ge; 69; package discovery under <code>src/</code>.</li>
+    <li><strong>Metadata:</strong> name <code>sqtseries</code>, version <code>0.1.0</code>, MIT license,
+        requires-python &ge; 3.14, alpha status.</li>
+    <li><strong>[project.scripts]</strong>: <code>sqtseries = "sqtseries.cli:main"</code> — the console entry point.</li>
+    <li><strong>[tool.ruff] / [tool.black]</strong>: line-length 88, target py314. Lint selection includes
+        E/F/W/I (pycodestyle/flake8), UP (pyupgrade), B (bugbear), C4, SIM, RET, PTH, S (bandit), RUF, PERF.
+        Per-file ignores: <code>tests/*</code> (S101/S105/S106/S110/S603), <code>examples/*</code>
+        (S310/S311/S603/PERF401/RUF005/PTH202 — they launch the CLI by design),
+        <code>overlay_server.py</code> (S104 — LAN accessibility by design),
+        <code>systemd.py</code> (S603/S607 — systemctl via PATH), <code>benchmark.py</code>/<code>stress.py</code> (S108).
+        test_backup/test_concurrency ignore S608 (server-derived table names).</li>
+    <li><strong>[tool.pytest.ini_options]</strong>: testpaths <code>tests</code>, <code>asyncio_mode = "auto"</code>
+        (async tests run without markers), 60 s global timeout.</li>
+    <li><strong>[project.optional-dependencies]</strong>: <code>dev</code> (pytest stack, ruff/black/isort,
+        httpx2, playwright) and <code>bench</code> (memory-profiler).</li>
+  </ul>
+</div>
+
+<div class="file" id="requirements">
+  <div class="file-head"><span class="path">requirements.txt</span><span class="meta">pinned core deps</span></div>
+  <p>Pinned versions of the runtime dependencies (orjson 3.11.9, pyzmq 27.1.0, fastapi 0.141.1,
+  uvicorn 0.52.1, httpx 0.28.1, click 8.4.2, pydantic 2.13.4, pydantic-settings 2.14.2,
+  structlog 26.1.0) for reproducible installs without the optional dev/bench groups.</p>
+</div>
+
+<div class="file" id="readme">
+  <div class="file-head"><span class="path">README.md</span><span class="meta">project front page</span></div>
+  <p>Positioning, use cases, quick start (3 lines of Python or 2 curl commands), design highlights
+  (single-file storage, hourly summaries, two transports, live connection tracking, crash safety,
+  hardened systemd, ingest port auto-detection), the port table, CLI command list, admin command
+  list, and links to the docs site. Two behavioral claims worth knowing:
+  <code>run</code> refuses to start over a database another live instance serves, and <code>stop</code>
+  refuses to touch an instance whose database differs from the resolved one.</p>
+</div>
+
+<div class="file" id="gitignore">
+  <div class="file-head"><span class="path">.gitignore</span><span class="meta">ignore rules</span></div>
+  <p>Excludes Python artifacts (<code>__pycache__</code>, <code>.pyc</code>, venvs), build output,
+  <code>.pytest_cache</code>, coverage data, and local work directories such as
+  <code>sqt-custom-work/</code> and <code>/tmp</code>-style scratch (as produced by <code>run_custom.py</code>).</p>
+</div>
+</div>
+<!-- ================================================================ -->
+<!-- 5. TOP-LEVEL PACKAGE                                              -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="pkg-top">5. Package sqtseries (top level)</h1>
+
+<div class="file" id="f-init">
+  <div class="file-head"><span class="path">src/sqtseries/__init__.py</span><span class="meta">5 lines</span></div>
+  <p>Public entry point. Re-exports the client types and the version:</p>
+  <div class="const"><span class="sig">__version__ = "0.1.0"</span></div>
+  <div class="const"><span class="sig">__all__ = ["Client", "ClientError", "__version__"]</span></div>
+  <p><code>from sqtseries import Client</code> is the documented usage.</p>
+</div>
+
+<div class="file" id="f-main">
+  <div class="file-head"><span class="path">src/sqtseries/__main__.py</span><span class="meta">4 lines</span></div>
+  <p>Enables <code>python3 -m sqtseries ...</code> — identical to the <code>sqtseries</code> console script.
+  Just imports <code>main</code> from <code>cli</code> and runs it under <code>__main__</code>.</p>
+</div>
+
+<div class="file" id="f-client">
+  <div class="file-head"><span class="path">src/sqtseries/client.py</span><span class="meta">262 lines</span></div>
+  <p>High-level Python client for a <em>running</em> service. Wraps the ZeroMQ transports: PUSH
+  (write, 12501), REQ (query, 12502), SUB (subscribe, 12503), REQ (admin, 12504). Uses the same
+  JSON wire format as the HTTP gateway.</p>
+
+  <h4>Module constants</h4>
+  <div class="const"><span class="sig">DEFAULT_HOST = "127.0.0.1"</span></div>
+  <div class="const"><span class="sig">DEFAULT_PORTS = {"write": 12501, "query": 12502, "subscribe": 12503, "admin": 12504}</span></div>
+  <div class="const"><span class="sig">RECV_TIMEOUT_MS = 30_000</span> — query/admin replies time out to <code>ClientError</code> instead of hanging.</div>
+  <div class="const"><span class="sig">WRITE_LINGER_MS = 2000</span> — the write PUSH socket flushes queued measurements for 2 s on close;
+  zero would drop a measurement written immediately before exit.</div>
+
+  <h4>Class <code>Client</code></h4>
+  <p>Usage: <code>Client()</code>, <code>client.write("cpu.usage", 0.72, {"host": "web1"})</code>,
+  <code>client.query("cpu.usage", start=..., end=...)</code> (nanoseconds), iterate
+  <code>client.subscribe("cpu.")</code>. Supports the context manager protocol.</p>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">__init__(self, host="127.0.0.1", ports: dict | None = None)</span>
+  <p class="desc">Stores host/port map (merging over <code>DEFAULT_PORTS</code>) and lazily opens sockets via the
+  <code>_get_*_sock</code> helpers. All four sockets are created on demand from one <code>zmq.Context()</code>.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">write(metric, value, tags=None, timestamp=None) -> None</span>
+  <p class="desc">Send one measurement (PUSH, fire-and-forget). Optional <code>timestamp</code> is epoch seconds.
+  Serialized with orjson.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">write_many(points: list[dict]) -> None</span>
+  <p class="desc">Send multiple raw point dicts, one frame each (a convenience loop, not a server-side batch).</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">query(metric, start=None, end=None, *, aggregation=None, interval=None, limit=None, order="asc") -> list[dict]</span>
+  <p class="desc">Run a query and return <code>[{timestamp, value}, ...]</code> with timestamps in <em>seconds</em> (the
+  server converts ns &rarr; s). <code>start</code>/<code>end</code> are epoch <em>nanoseconds</em>. On a recv
+  timeout it replaces the broken REQ socket (REQ enforces strict send/recv alternation — a
+  timed-out recv leaves the socket unusable, so <code>_reset_sock</code> closes it and the next call
+  recreates it) and raises <code>ClientError("query timed out...")</code>.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">aggregate(metric, start=None, end=None, *, funcs=None) -> dict[str, float]</span>
+  <p class="desc">Compute one or more aggregations over a window; returns <code>{func: value}</code>. Sends
+  <code>{"type": "query", "metric": ..., "aggregations": "avg,min,..."}</code>.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">admin(cmd, **kwargs) -> dict</span>
+  <p class="desc">Send an admin command to port 12504: <code>ping / health / stats / optimize / backup /
+  vacuum / connections / conncheck / subscribers</code>. Extra kwargs become part of the request,
+  e.g. <code>admin("conncheck", ids=["abc"])</code>. Error replies raise <code>ClientError</code>.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">subscribe(topic="*", timeout=0.5) -> Iterator[dict | None]</span>
+  <p class="desc">Yield live measurement dicts matching <code>topic</code> (SUB socket). Polls with a timeout and
+  yields <code>None</code> as a heartbeat when idle, so callers can break out of the loop cleanly.
+  Frames are <code>[topic, payload]</code>; yields the parsed payload. The poll-then-
+  <code>recv_multipart(NOBLOCK)</code> pattern is per pyzmq docs (avoids blocking recv vs context close).</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_get_write_sock/_get_query_sock/_get_sub_sock/_get_admin_sock() -> zmq.Socket</span>
+  <p class="desc">Lazy socket factories. Write: PUSH, SNDHWM 10000, LINGER 2000. Query/Admin: REQ,
+  LINGER 500, RCVTIMEO 30 s. Subscribe: SUB, LINGER 0.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_reset_sock(attr)</span>
+  <p class="desc">Close a broken socket so the next call recreates it. Only REQ sockets strictly need this
+  (strict alternation after a recv timeout); harmless for the others.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">close()</span>
+  <p class="desc">Close all sockets and terminate the context (idempotent). The write socket keeps its
+  flush linger so queued-but-undelivered measurements are still sent.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">__enter__ / __exit__</span>
+  <p class="desc">Context-manager support; exit calls <code>close()</code>.</p></div>
+
+  <h4>Class <code>ClientError(Exception)</code></h4>
+  <p>Raised when the service returns an error reply, or a query/admin call times out.</p>
+</div>
+
+<div class="file" id="f-cli">
+  <div class="file-head"><span class="path">src/sqtseries/cli.py</span><span class="meta">344 lines</span></div>
+  <p>The command-line interface (click). The <code>sqtseries</code> console script points here.
+  Global flags <code>--config PATH</code> and <code>--db PATH</code> must come <em>before</em> the subcommand.</p>
+
+  <h4>Helper functions</h4>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_load(config_file, db_path=None) -> Settings</span>
+  <p class="desc">Load <code>Settings</code>, apply the <code>--db</code> override, run <code>validate_settings</code>, and
+  raise <code>click.ClickException</code> listing the errors on failure.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_runtime_path(settings) -> str</span>
+  <p class="desc"><code>runtime.json</code> lives next to the database file.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_load_runtime(config_file, db_path=None) -> dict | None</span>
+  <p class="desc">Read the runtime file if present (None when absent/corrupt).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_pid_is_sqtseries(pid) -> bool</span>
+  <p class="desc">Whether <code>/proc/&lt;pid&gt;/cmdline</code> mentions "sqtseries" — used to detect stale runtime
+  files from other programs.</p></div>
+
+  <h4>Command group <code>main</code></h4>
+  <p>Click group with <code>--version</code>, global <code>--config</code>/<code>--db</code> options stored on the context object.</p>
+
+  <h4>Commands</h4>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">run</span>
+  <p class="desc">Start the service in the foreground. Guards: refuses to start when the runtime file says
+  another live sqtseries process already serves the same database (or a different one is being
+  served — a conflict). Prints a note if other <code>*.sqlite</code> files sit in the same directory.
+  Configures logging, builds <code>Service(settings)</code>, and runs
+  <code>start &rarr; run &rarr; shutdown</code> under <code>asyncio.run</code>, suppressing KeyboardInterrupt
+  (clean SIGINT shutdown path).</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">stop</span>
+  <p class="desc">Send SIGTERM to the pid in runtime.json (validated: must be a live sqtseries process, and
+  the runtime's <code>db_path</code> must match what this invocation resolves — refuses to stop the wrong
+  instance). Then waits up to 10 s for the runtime file to disappear (clean shutdown removes it
+  last) or the pid to vanish, so a restart script cannot race a still-dying process.</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">status</span>
+  <p class="desc">Show running/not-running, version, database path, and every active port from
+  runtime.json; warns when the config resolves to a different database than the running instance.</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">ports</span>
+  <p class="desc">Show active ports from runtime.json, or the configured ports when not running.</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">health</span>
+  <p class="desc">Open the database read-only and run <code>quick_check</code>; exit code 0 = ok, 1 = degraded.</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">stats</span>
+  <p class="desc">Open the database and print metric and series counts (<code>StorageEngine.list_metrics</code>,
+  <code>series_count</code>).</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">vacuum</span>
+  <p class="desc">Full <code>VACUUM</code> — requires the service to be stopped (VACUUM can't run inside a
+  transaction / under active connections).</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">optimize</span>
+  <p class="desc"><code>PRAGMA optimize</code> — refresh query-planner statistics.</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">backup</span>
+  <p class="desc"><code>backup_database(engine, settings.backup.path)</code> — consistent VACUUM INTO snapshot;
+  prints the written path.</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">install [--system]</span>
+  <p class="desc">Install the systemd unit (user-level by default; <code>--system</code> needs root). Embeds the
+  current interpreter and <code>--config</code> if one was passed, plus db path and backup path.</p></div>
+  <div class="sym"><span class="kind">command</span><br><span class="sig">uninstall [--system]</span>
+  <p class="desc">Disable and remove the systemd unit.</p></div>
+</div>
+<div class="file" id="f-config">
+  <div class="file-head"><span class="path">src/sqtseries/config.py</span><span class="meta">410 lines</span></div>
+  <p>Configuration model. Supports TOML / YAML / JSON files and environment variables
+  (<code>SQT_SERIES_*</code>); env wins over file values. All settings are pydantic models.</p>
+
+  <h4>Module constants</h4>
+  <div class="const"><span class="sig">PORT_RANGE_START = 12500</span> / <span class="sig">PORT_RANGE_END = 12700</span></div>
+
+  <h4>Settings models (each is a <code>BaseModel</code>)</h4>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">DatabaseSettings</span>
+  <p class="desc">SQLite storage: <code>path</code> (<code>~/.sqtseries/data/db.sqlite</code>), <code>page_size</code> 8192,
+  <code>cache_size</code> -64000, <code>mmap_size</code> 256 MiB, <code>busy_timeout</code> 5000,
+  <code>journal_size_limit</code> 64 MiB, <code>threads</code> 4, <code>batch_size</code> 2000,
+  <code>flush_interval</code> 1.0.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">IngestionSettings</span>
+  <p class="desc"><code>port</code> 12501, <code>hwm</code> 10000, <code>pending_max</code> 100,
+  <code>max_message_size</code> 50 MiB, <code>reject_client_timestamp_skew_s</code> 300.0.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">QuerySettings</span>
+  <p class="desc"><code>port</code> 12502, <code>timeout_s</code> 30.0 (also used for the HTTP gateway cap).</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">StreamingSettings</span>
+  <p class="desc"><code>port</code> 12503, <code>linger_seconds</code> 30.0 (topic linger after the last unsubscribe).</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">StatsSettings</span>
+  <p class="desc"><code>enabled</code> True, <code>port</code> 12506.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">AdminSettings</span>
+  <p class="desc"><code>port</code> 12504.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">HttpSettings</span>
+  <p class="desc"><code>port</code> 12505, <code>host</code> 127.0.0.1, <code>cors_origins</code> ["*"],
+  <code>rate_limit_per_minute</code> 600, <code>max_websocket_connections</code> 1000 (excess closes with 1013).</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">LoggingSettings</span>
+  <p class="desc"><code>level</code> INFO, <code>format</code> "console" or "json", <code>file</code> optional path (10 MB rotating, 5 backups).</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">RetentionSettings</span>
+  <p class="desc"><code>enabled</code> True, <code>default_ttl</code> "30d", <code>check_interval</code> "1h",
+  <code>partition_interval</code> "month" (only "month" supported).</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">RollupSettings</span>
+  <p class="desc"><code>enabled</code> True, <code>interval</code> "5m" (how often completed hours are rolled).</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">MaintenanceSettings</span>
+  <p class="desc"><code>enabled</code> True, <code>analyze_interval</code> "1h".</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">BackupSettings</span>
+  <p class="desc"><code>enabled</code> True, <code>interval</code> "24h", <code>path</code> "~/.sqtseries/backups/".</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">PortsSettings</span>
+  <p class="desc"><code>port_range_start</code>/<code>port_range_end</code> 12500–12700, <code>auto_detect</code> True,
+  <code>port_offset</code> 0.</p></div>
+
+  <div class="sym"><span class="kind">class</span><br><span class="sig">Settings(BaseSettings)</span>
+  <p class="desc">Top-level settings. Env prefix <code>SQT_SERIES_</code>, nested delimiter <code>__</code>,
+  <code>env_ignore_empty=True</code> (VAR= means "unset"), case-insensitive. Holds every section above plus
+  <code>config_file</code>. Key methods:
+  <ul>
+    <li><span class="sig">load(config_file=None) -> Settings</span> — precedence: defaults &lt; file &lt; env
+        &lt; init kwargs. Implementation detail: pydantic-settings gives init kwargs priority over env,
+        so the loader instantiates twice — first with env applied, then re-instantiates with only the
+        file leaf paths that the environment did <em>not</em> set.</li>
+    <li><span class="sig">db_path_expanded() -> str</span> — database path with <code>~</code> expanded.</li>
+  </ul></p></div>
+
+  <h4>Module functions</h4>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_enviro_leaf_paths() -> set[tuple[str, ...]]</span>
+  <p class="desc">Scans <code>os.environ</code> for <code>SQT_SERIES_*</code> keys, converts
+  <code>SQT_SERIES_DATABASE__BATCH_SIZE</code> &rarr; <code>("database", "batch_size")</code>, normalizes case,
+  excludes the root <code>CONFIG_FILE</code> key.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_iter_leaf_paths(mapping, prefix=())</span>
+  <p class="desc">Yield <code>(path, value)</code> for every leaf of a nested mapping (recursive).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_set_path(target, path, value)</span>
+  <p class="desc">Set <code>target[path] = value</code>, creating intermediate dicts.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_read_config_file(path) -> dict</span>
+  <p class="desc">TOML (<code>tomllib</code>), YAML (requires pyyaml, else a clear ValueError), or JSON
+  (orjson); any other suffix raises. JSON/YAML must be a top-level mapping.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">validate_settings(settings) -> list[str]</span>
+  <p class="desc">Returns a list of configuration errors (empty when valid): ports in 1–65535 and unique,
+  hwm/pending_max/batch_size &ge; 1, batch_size &le; 8191 (SQLITE_MAX_VARIABLE_NUMBER safety),
+  max_websocket_connections &ge; 1, and duration strings parse correctly
+  (<code>rollup.interval</code>, <code>maintenance.analyze_interval</code>, <code>retention</code> TTLs,
+  <code>backup.interval</code>) — each validated only when its feature is enabled.</p></div>
+</div>
+
+<div class="file" id="f-health">
+  <div class="file-head"><span class="path">src/sqtseries/health.py</span><span class="meta">31 lines</span></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">collect_health(db, *, started_at, version="0.1.0") -> dict</span>
+  <p class="desc">Assemble the health payload: <code>status</code> ("ok" or "degraded"), <code>version</code>,
+  <code>uptime</code> (seconds since <code>started_at</code>), <code>database</code> (bool
+  <code>quick_check == "ok"</code>; any exception &rarr; False). Used by the admin <code>health</code> command
+  and <code>Service.health()</code>.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">is_ready(db) -> bool</span>
+  <p class="desc">Boolean quick check for the HTTP <code>/api/v1/health</code> endpoint.</p></div>
+</div>
+
+<div class="file" id="f-logging">
+  <div class="file-head"><span class="path">src/sqtseries/logging.py</span><span class="meta">78 lines</span></div>
+  <p>Structured logging via structlog over stdlib logging: JSON output for production, pretty
+  console for development, optional rotating file output.</p>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_json_serializer(obj, **_) -> str</span>
+  <p class="desc">orjson-backed serializer for the JSON renderer.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">configure_logging(settings: LoggingSettings) -> BoundLogger</span>
+  <p class="desc">Builds the processor chain: contextvars merge &rarr; add_log_level &rarr; ISO UTC timestamps
+  &rarr; StackInfoRenderer &rarr; format_exc_info (plain strings so both renderers can display
+  tracebacks) &rarr; JSONRenderer or ConsoleRenderer (colors when stderr is a tty). Configures the
+  stdlib root logger, adds a 10 MB / 5-backup RotatingFileHandler when <code>settings.file</code> is set
+  (skips if a handler for that file already exists — avoids duplicates on repeated calls), then
+  calls <code>structlog.configure</code> and returns <code>structlog.get_logger("sqtseries")</code>.</p></div>
+</div>
+
+<div class="file" id="f-ports">
+  <div class="file-head"><span class="path">src/sqtseries/ports.py</span><span class="meta">71 lines</span></div>
+  <p>Port allocation within a range (12500–12700 default), used for ingest auto-detection.
+  Finds a free port by binding a socket and closing it — race-tolerant.</p>
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">PortInUseError</span><p class="desc">Requested fixed port unavailable.</p></div>
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">PortExhaustedError</span><p class="desc">No free port in the range.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">PortAllocator (dataclass)</span>
+  <p class="desc">Fields: <code>start</code> 12500, <code>end</code> 12700, <code>offset</code> 0,
+  <code>reserved</code> set (ports bound to other fixed services), private <code>_used</code> set.
+  <ul>
+    <li><span class="sig">from_settings(settings: PortsSettings) -> PortAllocator</span> — classmethod build.</li>
+    <li><span class="sig">alloc(*, auto_detect=True) -> int</span> — with auto_detect False returns <code>start+offset</code>
+        if available; otherwise scans upward for the first port not in <code>_used</code>/<code>reserved</code>
+        that binds successfully. Raises <code>PortInUseError</code>/<code>PortExhaustedError</code>.</li>
+    <li><span class="sig">release(port)</span> — forget a port (back to the pool).</li>
+    <li><span class="sig">_is_available(port) -> bool</span> — static: tries <code>bind(("127.0.0.1", port))</code>.</li>
+  </ul></p></div>
+</div>
+<div class="file" id="f-recovery">
+  <div class="file-head"><span class="path">src/sqtseries/recovery.py</span><span class="meta">41 lines</span></div>
+  <p>WAL recovery and corruption detection at startup.</p>
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">CorruptionError</span>
+  <p class="desc">Raised when the database fails integrity checks in strict mode.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">check_integrity_on_startup(db, *, strict=False) -> int</span>
+  <p class="desc">Runs <code>PRAGMA quick_check</code>. Clean &rarr; 0. Otherwise logs the problem count, runs the
+  full <code>PRAGMA integrity_check</code> logging every line, and raises <code>CorruptionError</code> when
+  <code>strict=True</code>; returns the number of problems otherwise.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">recover_wal(db)</span>
+  <p class="desc">Ensures WAL journal mode is active (switches if the file was last used in another mode)
+  and runs a PASSIVE checkpoint to compact the log at startup.</p></div>
+</div>
+
+<div class="file" id="f-runtime">
+  <div class="file-head"><span class="path">src/sqtseries/runtime.py</span><span class="meta">56 lines</span></div>
+  <p>Runtime state file: PID, ports, start time, database path. Written after startup, removed on
+  shutdown. Clients (<code>sqtseries status</code>, <code>ports</code>, <code>stop</code>, <code>run</code> conflict
+  detection) use it to discover the active ports.</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">RuntimeState</span>
+  <p class="desc"><code>__init__(path)</code> stores the path.
+  <ul>
+    <li><span class="sig">write(*, pid, ports, db_path, version="0.1.0")</span> — writes
+        <code>{pid, ports, db_path, version, started_at}</code> atomically (tmp file + <code>replace</code>).</li>
+    <li><span class="sig">read() -> dict | None</span> — orjson parse; malformed/missing &rarr; None.</li>
+    <li><span class="sig">remove()</span> — delete the file, suppressing OSError.</li>
+    <li><span class="sig">exists</span> — property; whether the file exists.</li>
+  </ul></p></div>
+</div>
+
+<div class="file" id="f-service">
+  <div class="file-head"><span class="path">src/sqtseries/service.py</span><span class="meta">566 lines — the orchestrator</span></div>
+  <p>Service manager: startup sequence, main event loop, graceful shutdown. Wires every component
+  together: engine &rarr; managers &rarr; sockets &rarr; HTTP gateway.</p>
+
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">ServiceError</span>
+  <p class="desc">Raised for invalid configuration at construction.</p></div>
+
+  <div class="sym"><span class="kind">class</span><br><span class="sig">Service</span>
+  <p class="desc">Holds <code>settings</code>, <code>started_at</code>, and one attribute per component:
+  <code>engine</code>, <code>store</code>, <code>ts</code>, <code>ingress</code>, <code>broker</code>,
+  <code>admin_broker</code>, <code>pool</code>, <code>checkpoint_manager</code>, <code>rollup_manager</code>,
+  <code>maintenance_manager</code>, <code>retention_manager</code>, <code>backup_manager</code>, <code>pubsub</code>,
+  <code>stats_publisher</code>, <code>http_server</code>/<code>http_task</code>, <code>_publish_tasks</code> set,
+  <code>runtime</code> (RuntimeState), <code>_runtime_owned</code> flag, <code>connection_registry</code>.</p></div>
+
+  <div class="sym"><span class="kind">method</span><br><span class="sig">async start()</span>
+  <p class="desc">Calls <code>_start()</code>; on any failure runs <code>shutdown()</code> to clean up whatever
+  started, then re-raises.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">async _start()</span>
+  <p class="desc">The boot sequence, in order:
+  <ol>
+    <li>Open the engine (<code>create_sqlite_engine</code>), run migrations, check integrity (non-strict),
+        recover WAL.</li>
+    <li>Build <code>StorageEngine</code> + <code>TimeSeriesDB</code>.</li>
+    <li>Start each enabled background manager (checkpoint, rollup with the skew window, maintenance,
+        retention, backup).</li>
+    <li>Start <code>PubSub</code> (XPUB) wired to the connection registry.</li>
+    <li>Allocate the ingest port via <code>PortAllocator</code> — with auto_detect, it must avoid the five
+        fixed ports (stats included), then start <code>Ingress</code> with <code>_sink</code> and
+        <code>_on_publish</code> callbacks.</li>
+    <li>Start the query broker (REP) and admin broker (REP, no handler timeout — admin ops such as
+        backup/vacuum may run long).</li>
+    <li>Start the <code>WorkerPool</code> (size 1) whose step pumps all three ZMQ sockets with
+        <code>block=False</code> and reports whether any had work (the worker then sleeps 0 vs 10 ms —
+        avoids GIL starvation of CPU-bound threads).</li>
+    <li>Start the stats publisher (if enabled), then the HTTP gateway.</li>
+    <li>Run <code>ANALYZE</code> once (only after every socket bound, so failed boots in a restart loop
+        don't hammer planner stats).</li>
+    <li>Write runtime.json with the real ports; set <code>_runtime_owned = True</code>.</li>
+  </ol></p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">async _start_http_gateway()</span>
+  <p class="desc">Builds the FastAPI app via <code>create_app</code>, runs uvicorn's <code>Server.serve()</code> as an
+  asyncio task sharing the loop, and waits up to 5 s for <code>started</code>. uvicorn is configured with
+  <code>log_config=None</code>/<code>access_log=False</code> (structlog owns logging),
+  <code>timeout_graceful_shutdown=5</code>, <code>ws_max_size=16 MiB</code>,
+  <code>ws_ping_interval=20</code>, <code>ws_ping_timeout=20</code>. Note: uvicorn 0.52 installs its own
+  signal handlers, but <code>Service.run()</code>'s <code>add_signal_handler</code> replaces them, so
+  <code>should_exit</code> is only ever set in <code>shutdown()</code>. Bind failure surfaces a clean
+  RuntimeError.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_sink(metric, tags, value, ts_ns)</span>
+  <p class="desc">Persist one ingested measurement immediately via <code>store.insert_many</code>. There is no
+  app-level write queue: SQLite serializes writers itself (single-writer + BEGIN IMMEDIATE +
+  busy_timeout), so a queue would only add latency.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_on_publish(topic, payload)</span>
+  <p class="desc">Fire an asyncio task per measurement to republish to live subscribers; tasks are tracked
+  in <code>_publish_tasks</code> and drained on shutdown.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_query_handler(query) -> dict</span>
+  <p class="desc">Servers the query REP socket: validates <code>limit</code>, dispatches the
+  <code>aggregations</code> (comma-separated) form to <code>ts.aggregate</code>, otherwise to
+  <code>ts.query</code>, converts ns &rarr; seconds timestamps, and maps value/type errors to
+  <code>INVALID_QUERY</code>.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_admin_handler(query) -> dict</span>
+  <p class="desc">Serves admin commands: <code>ping</code>, <code>health</code>, <code>stats</code>,
+  <code>optimize</code>, <code>backup</code>, <code>vacuum</code> (VACUUM_BUSY error shape when it fails
+  while running — recommends <code>sqtseries vacuum</code> stopped), <code>connections</code>,
+  <code>conncheck</code>, <code>subscribers</code>. Unknown commands raise <code>ProtocolError</code> &rarr;
+  INVALID_REQUEST reply.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_admin_stats() -> dict</span>
+  <p class="desc">Assembles live counters from every component: ingested/invalid/ingest_errors,
+  queries, admin_requests, wal_bytes/checkpoint_busy_runs/checkpoints, analyze_runs,
+  retention_runs/partitions_dropped, backup_runs/backups_created/last_backup, published/subscribers,
+  series/metrics, uptime_s.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_admin_connections / _admin_conncheck(ids) / _admin_subscribers</span>
+  <p class="desc">Delegates to the ConnectionRegistry: active WebSocket list; which of the given IDs are
+  present; per-topic ZMQ subscriber counts.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">health() -> dict</span>
+  <p class="desc">Wraps <code>collect_health(self.engine, started_at=...)</code>.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">async run()</span>
+  <p class="desc">Waits for SIGINT/SIGTERM using an asyncio.Event (not <code>loop.stop()</code> — stopping the
+  loop mid-run makes <code>asyncio.run</code> raise, which systemd's <code>Restart=on-failure</code> would
+  treat as a crash). Falls back to <code>signal.signal</code> when <code>add_signal_handler</code> is
+  unavailable (non-main thread).</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">async shutdown()</span>
+  <p class="desc">Graceful shutdown, in dependency order: stop background managers, the worker pool, the
+  three ZMQ sockets, ask uvicorn to exit (<code>should_exit = True</code>), drain in-flight publishes
+  <em>before</em> stopping pubsub, stop pubsub and stats publisher, close the store, run
+  <code>optimize</code> + TRUNCATE checkpoint on the engine, dispose it, and remove runtime.json
+  <em>only if this instance wrote it</em> (a failed second start must not delete a healthy instance's
+  state).</p></div>
+</div>
+
+<div class="file" id="f-systemd">
+  <div class="file-head"><span class="path">src/sqtseries/systemd.py</span><span class="meta">101 lines</span></div>
+  <p>systemd unit management (user or system service).</p>
+  <div class="const"><span class="sig">UNIT_NAME = "sqtseries.service"</span></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">unit_template_contents(python, db_path, backup_path=None, config_file=None) -> str</span>
+  <p class="desc">Renders the unit file. <code>ExecStart</code> is
+  <code>&lt;python&gt; -m sqtseries [--config &lt;path&gt;] run</code> (shlex-joined). Hardening:
+  <code>NoNewPrivileges=true</code>, <code>ProtectSystem=strict</code>, <code>ProtectHome=read-only</code>,
+  and <code>ReadWritePaths</code> limited to the db directory (+ backup path). Environment sets
+  <code>SQT_SERIES_DATABASE__PATH</code> and <code>SQT_SERIES_LOGGING__LEVEL=INFO</code>.
+  <code>Restart=on-failure</code>, <code>RestartSec=5</code>, StartLimitBurst=3.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_unit_path(system) -> Path</span>
+  <p class="desc"><code>/etc/systemd/system</code> vs <code>~/.config/systemd/user</code>.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_systemctl(args)</span>
+  <p class="desc">Best-effort <code>systemctl</code> invocation (captures output, ignores failure — testable).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">install_systemd_unit(python=None, system=False, db_path=None, backup_path=None, config_file=None) -> Path</span>
+  <p class="desc">Writes the unit file and runs <code>daemon-reload</code> + <code>enable --now</code>
+  (<code>--user</code> prefix when not system). Returns the unit path.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">uninstall_systemd_unit(*, system=False) -> Path</span>
+  <p class="desc"><code>disable --now</code> then unlink the unit file.</p></div>
+</div>
+</div>
+<!-- ================================================================ -->
+<!-- 6. ENGINE PACKAGE                                                 -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="pkg-engine">6. Package sqtseries.engine</h1>
+<p>The raw sqlite3 storage layer: schema, partitions, PRAGMAs, migrations, checkpoints, backups,
+maintenance. Why raw sqlite3 (per the module docs): benchmark-validated 2026-08-07 — roughly
+6.7&times; faster point lookups and 1.2&times; bulk inserts than alternatives on the exact hot paths;
+aiosqlite rejected (sequential thread hops).</p>
+
+<div class="file" id="e-init">
+  <div class="file-head"><span class="path">src/sqtseries/engine/__init__.py</span><span class="meta">40 lines</span></div>
+  <p>Re-exports the public engine API: <code>BackupExistsError</code>, <code>BackupManager</code>,
+  <code>CheckpointManager</code>, <code>Connection</code>, <code>Database</code>, <code>MaintenanceManager</code>,
+  <code>SeriesNotFoundError</code>, <code>StorageEngine</code>, <code>backup_database</code>, <code>backup_latest</code>,
+  <code>create_sqlite_engine</code>, <code>get_schema_version</code>, <code>incremental_vacuum</code>,
+  <code>initialize_schema</code>, <code>integrity_check</code>, <code>quick_check</code>, <code>run_analyze_once</code>,
+  <code>run_migrations</code>, <code>run_optimize</code>, <code>upgrade</code>, <code>wal_checkpoint</code>.</p>
+</div>
+
+<div class="file" id="e-db">
+  <div class="file-head"><span class="path">src/sqtseries/engine/db.py</span><span class="meta">248 lines</span></div>
+  <p>The raw sqlite3 layer. Reader/writer split: <code>connect()</code> gives a read-only connection that
+  never checkpoints the WAL; <code>begin()</code> gives a writer transaction using
+  <code>BEGIN IMMEDIATE</code> (takes the write lock up front — under WAL a deferred read&rarr;write
+  upgrade returns SQLITE_BUSY immediately, which busy_timeout cannot retry).</p>
+
+  <h4>Module constants</h4>
+  <div class="const"><span class="sig">CONNECTION_PRAGMAS</span> — applied to every new connection: journal_mode WAL,
+  synchronous NORMAL, cache_size -64000, mmap_size 256 MiB, busy_timeout 5000, temp_store MEMORY,
+  foreign_keys ON, locking_mode NORMAL, journal_size_limit 64 MiB, threads 4, analysis_limit 400.</div>
+  <div class="const"><span class="sig">READER_AUTOCHECKPOINT = 0</span> / <span class="sig">WRITER_AUTOCHECKPOINT = 10000</span> —
+  readers never trigger checkpoints (prevents reader-writer contention); the writer checkpoints
+  every ~80 MB at 8192-byte pages (10&times; fewer fsync spikes than the default 1000 pages).</div>
+
+  <h4>Class <code>Result</code></h4>
+  <p class="muted">Thin wrapper over sqlite3.Cursor. <code>__slots__</code> for memory. Methods:
+  <code>fetchall()</code>, <code>fetchone()</code>, <code>first()</code>, <code>scalar()</code> (first column of first
+  row), properties <code>lastrowid</code> / <code>rowcount</code>, <code>__getitem__(idx)</code> (fetchone +
+  IndexError), <code>__iter__</code> (iterates rows).</p>
+
+  <h4>Class <code>Connection</code></h4>
+  <p class="muted">Wraps a raw connection; context manager commits on clean exit and always closes.
+  <code>execute(sql, params)</code> / <code>exec_driver_sql</code> / <code>executescript</code> /
+  <code>executemany</code> all return a <code>Result</code>; <code>dbapi_connection</code> property exposes
+  the raw object; <code>commit()</code>/<code>rollback()</code>/<code>close()</code> delegate. Cursors are closed
+  on sqlite3.Error before re-raising.</p>
+
+  <h4>Class <code>Database</code></h4>
+  <div class="sym"><span class="kind">contextmanager</span><br><span class="sig">connect(apply_pragmas=True) -> Connection</span>
+  <p class="desc">Fresh READER connection (autocheckpoint 0, transaction=False).</p></div>
+  <div class="sym"><span class="kind">contextmanager</span><br><span class="sig">begin() -> Connection</span>
+  <p class="desc">WRITER transaction: <code>BEGIN IMMEDIATE</code>, commits on clean exit, rolls back on any
+  exception, closes in finally.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">dispose()</span>
+  <p class="desc">No persistent handles (connections are per-use), so a no-op kept for API compatibility.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">get_table_names() -> list[str]</span>
+  <p class="desc">Table names from sqlite_master, sorted.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">execute(sql, params=None) -> Result</span>
+  <p class="desc">Executes inside a committed writer transaction — writes and DDL persist (the old
+  reader-based implementation silently rolled back writes on close).</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">scalar(sql, params=None)</span>
+  <p class="desc">Run and return the first column of the first row.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_open(apply_pragmas=True, autocheckpoint=0)</span>
+  <p class="desc">Opens <code>sqlite3.connect(check_same_thread=False)</code>, applies foreign_keys + each
+  CONNECTION_PRAGMA + wal_autocheckpoint.</p></div>
+
+  <div class="sym"><span class="kind">function</span><br><span class="sig">create_sqlite_engine(path, settings=None) -> Database</span>
+  <p class="desc">Create a Database. On a <em>fresh file</em>, applies the one-time file-level PRAGMAs
+  (<code>page_size = 8192</code>, <code>auto_vacuum = INCREMENTAL</code>) <em>before</em> WAL — per sqlite.org,
+  auto_vacuum/page_size can only change outside WAL mode, so the bootstrap connection skips WAL.</p></div>
+</div>
+
+<div class="file" id="e-store">
+  <div class="file-head"><span class="path">src/sqtseries/engine/store.py</span><span class="meta">378 lines</span></div>
+  <p>Storage engine: series registry + partitioned measurement storage, with bounded LRU caches.</p>
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">SeriesNotFoundError(KeyError)</span>
+  <p class="desc">Raised when a metric+tags combination does not exist (resolve with create_if_missing=False,
+  or metadata lookup for an unknown series_id).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">initialize_schema(db, settings=None)</span>
+  <p class="desc">Create <code>series</code> DDL + indexes, then create the current month's partition and its
+  index if missing. Idempotent — safe to call repeatedly.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">_LRUCache</span>
+  <p class="desc">Bounded OrderedDict LRU (<code>get</code>/<code>put</code>/<code>clear</code>; evicts the least-recently-used
+  when over <code>maxsize</code>, default 100 000) to cap memory in long runs.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">StorageEngine</span>
+  <p class="desc">Fields: <code>db</code>, <code>_series_cache</code> ((metric, tags_json) &rarr; series_id),
+  <code>_id_cache</code> (series_id &rarr; (metric, tags_json)), <code>_parts_cache</code> with a 2 s TTL.
+  Key methods:
+  <ul>
+    <li><span class="sig">resolve_series(conn, metric, tags=None, *, create_if_missing=True) -> int</span> —
+        resolves via the UNIQUE(metric, tags) index (verified SEARCH plan); inserts the series row
+        when missing and allowed; raises SeriesNotFoundError otherwise; caches both directions.</li>
+    <li><span class="sig">get_series_meta(sid) -> (metric, tags_json)</span> — cached reverse lookup.</li>
+    <li><span class="sig">series_ids_for_metric(metric) -> list[int]</span> — ordered by series_id.</li>
+    <li><span class="sig">series_count() / list_metrics()</span> — COUNT(*) and distinct sorted metrics.</li>
+    <li><span class="sig">insert_many(rows, *, auto_create_partition=True) -> int</span> — one transaction:
+        resolve every series, validate every partition name, create missing partitions + indexes,
+        then executemany per partition. Returns the number inserted. A failure rolls everything
+        back (no orphan series rows). Nanosecond timestamps.</li>
+    <li><span class="sig">query_time_range(metric=None, series_ids=None, start_ns=None, end_ns=None, *, limit=None, order="asc") -> Iterator[(ts_ns, value)]</span> —
+        streamed per-partition reads. series_id filters use the clustered PK; global limit/order
+        across partitions (partitions iterated newest-first for desc). A partition dropped
+        concurrently (retention) is skipped rather than raising "no such table".</li>
+    <li><span class="sig">first_sample_ts(series_ids, start_ns, end_ns) -> int | None</span> — oldest sample in
+        range; used by the rollup path's whole-window anchor.</li>
+    <li><span class="sig">_partitions_for_range / _all_partitions / invalidate_partitions</span> — partition
+        discovery with a 2-second cache; invalidation called after create/drop.</li>
+    <li><span class="sig">close()</span> — clear caches.</li>
+  </ul></p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_tags_to_json(tags) -> str | None</span>
+  <p class="desc">orjson with OPT_SORT_KEYS (&rarr; stable UNIQUE(metric, tags) identity matching
+  <code>json.dumps(sort_keys=True)</code>).</p></div>
+</div>
+
+<div class="file" id="e-schema">
+  <div class="file-head"><span class="path">src/sqtseries/engine/schema.py</span><span class="meta">64 lines</span></div>
+  <p>Schema DDL and partition-name helpers. Schema (EXPLAIN QUERY PLAN-verified):
+  <code>series</code> (metric + JSON tags &rarr; integer series_id, CHECK json_valid(tags),
+  UNIQUE(metric, tags)); <code>measurements_YYYY_MM</code> — WITHOUT ROWID, PK (series_id, timestamp_ns),
+  secondary index on timestamp_ns.</p>
+  <div class="const"><span class="sig">MEASUREMENTS_TABLE_RE = ^measurements_\d{4}_\d{2}$</span></div>
+  <div class="const"><span class="sig">SERIES_DDL</span> — CREATE TABLE series + unique index.</div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">measurements_ddl(year, month) -> str</span>
+  <p class="desc">CREATE TABLE IF NOT EXISTS for a monthly partition (WITHOUT ROWID + PK).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">measurements_index_ddl(year, month) -> str</span>
+  <p class="desc">CREATE INDEX IF NOT EXISTS <code>ix_measurements_Y_M_ts</code> on (timestamp_ns).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">partition_name(year, month) -> str</span><p class="desc">"measurements_YYYY_MM".</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">month_partition_key(ts_ns) -> str</span>
+  <p class="desc">Integer-only math (float division loses precision beyond 2^53 ns and could round the
+  last nanoseconds of a month into the next — verified: 2025-12-31 23:59:59.999999999 &rarr; Jan).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">parse_partition_name(name) -> (year, month)</span>
+  <p class="desc">Validates against the regex and splits; raises ValueError for anything else. Used to
+  sanitize names before SQL interpolation.</p></div>
+</div>
+
+<div class="file" id="e-pragmas">
+  <div class="file-head"><span class="path">src/sqtseries/engine/pragmas.py</span><span class="meta">47 lines</span></div>
+  <p>PRAGMA helpers. Two classes: one-time file PRAGMAs (page_size, auto_vacuum — fresh file only,
+  before WAL) and per-connection PRAGMAs (WAL etc., applied on every connect).</p>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">run_optimize(db)</span><p class="desc">PRAGMA optimize — planner statistics (shutdown/periodic).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">wal_checkpoint(db, mode="PASSIVE") -> str</span>
+  <p class="desc">Validates mode is PASSIVE/FULL/RESTART/TRUNCATE; returns "busy,log,checkpointed".</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">quick_check(db) -> str / integrity_check(db) -> list[str]</span>
+  <p class="desc">Quick vs full integrity check.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">incremental_vacuum(db, pages=100)</span><p class="desc">PRAGMA incremental_vacuum.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">run_analyze_once(db)</span><p class="desc">ANALYZE (startup/periodic).</p></div>
+</div>
+
+<div class="file" id="e-migrations">
+  <div class="file-head"><span class="path">src/sqtseries/engine/migrations.py</span><span class="meta">70 lines</span></div>
+  <p>Lightweight schema migration runner. SQLite ALTER is limited (table rebuild needed for most
+  changes), so migrations are just DDL scripts tracked in a <code>schema_version</code> table, applied
+  idempotently at startup. New migrations append to <code>MIGRATIONS</code>.</p>
+  <div class="const"><span class="sig">MIGRATIONS = [(1, SERIES_DDL)]</span></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">get_schema_version(db) -> int</span>
+  <p class="desc">Ensures the version table exists; returns MAX(version) or 0.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">upgrade(db, target=None) -> int</span>
+  <p class="desc">Applies pending migrations (each in its own BEGIN IMMEDIATE transaction with an
+  applied_at stamp); returns the new version.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">ensure_current_partition(db)</span>
+  <p class="desc">Create the current-month partition + index if missing.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">run_migrations(db) -> int</span>
+  <p class="desc">Upgrade to latest, then ensure the current partition; returns the version.</p></div>
+</div>
+<div class="file" id="e-checkpoint">
+  <div class="file-head"><span class="path">src/sqtseries/engine/checkpoint.py</span><span class="meta">128 lines</span></div>
+  <p>Background WAL checkpoint manager — prevents WAL indefinite growth and detects long-running
+  readers that block checkpoints (a reader holding a read lock prevents TRUNCATE from freeing
+  disk; <code>PRAGMA wal_checkpoint</code> reports a nonzero <code>busy</code> count).</p>
+  <div class="const"><span class="sig">_BUSY_WARN_RUNS = 3</span> — warn after 3 consecutive blocked attempts.</div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">CheckpointManager</span>
+  <p class="desc">Construction: <code>(db, *, interval=60.0, max_wal_bytes=67108864)</code>. Stats fields:
+  <code>wal_bytes</code>, <code>last_busy</code>, <code>last_result</code> (busy, log, done),
+  <code>busy_runs</code>, <code>checkpoints</code>.
+  <ul>
+    <li><span class="sig">async start()</span> — spawns the loop task.</li>
+    <li><span class="sig">async _run()</span> — sleep interval, then <code>_checkpoint_if_needed</code>.</li>
+    <li><span class="sig">async _checkpoint_if_needed()</span> — stat <code>db-path-wal</code>; if &ge;
+        max_wal_bytes run a TRUNCATE checkpoint (frees disk; PASSIVE does not), record the result,
+        and track consecutive busy runs (log a warning at the threshold, info when unblocked).</li>
+    <li><span class="sig">stats()</span> — dict for the admin surface.</li>
+    <li><span class="sig">async stop()</span> — cancel the task, suppressing CancelledError.</li>
+  </ul></p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_parse_result(result) -> (busy, log, done)</span>
+  <p class="desc">Parse the "busy,log,checkpointed" string; (0,0,0) on malformed input.</p></div>
+</div>
+
+<div class="file" id="e-backup">
+  <div class="file-head"><span class="path">src/sqtseries/engine/backup.py</span><span class="meta">127 lines</span></div>
+  <p>Backups via <code>VACUUM INTO</code> — a consistent point-in-time snapshot. Caveats
+  (sqlite.org/lang_vacuum.html): the destination must not exist; cannot run inside a transaction;
+  works with any auto_vacuum mode.</p>
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">BackupExistsError(FileExistsError)</span>
+  <p class="desc">Backup destination already exists.</p></div>
+  <div class="const"><span class="sig">_PREFIX_RE = ^[A-Za-z0-9_.-]+$</span> — keeps the prefix safe for filenames and SQL interpolation.</div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">backup_database(db, backup_dir, prefix="sqtseries") -> str</span>
+  <p class="desc">Validates the prefix, creates the dir, and runs
+  <code>VACUUM INTO '&lt;dir&gt;/&lt;prefix&gt;-YYYYmmdd-HHMMSS.db'</code> on an autocommit connection.
+  Returns the path; raises BackupExistsError when the same-second name exists.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">backup_latest(db, backup_dir, prefix) -> str | None</span>
+  <p class="desc">Newest matching <code>prefix-*.db</code> file, or None.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_is_fresh(path, interval) -> bool</span>
+  <p class="desc">True when the backup's mtime is younger than <code>interval</code> seconds.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">BackupManager</span>
+  <p class="desc">Background task taking a snapshot every <code>interval</code> seconds (default 24 h) in a
+  worker thread (event loop stays responsive on large DBs). First pass runs immediately on boot,
+  so a fresh install gets a backup without stalling startup. A same-second retry
+  (<code>BackupExistsError</code>) is counted as a pass and skipped. Fields: <code>runs</code>,
+  <code>backups_created</code>, <code>last_backup</code>. API: <code>async start()</code>,
+  <code>async run_once()</code>, <code>async stop()</code>.</p></div>
+</div>
+
+<div class="file" id="e-maintenance">
+  <div class="file-head"><span class="path">src/sqtseries/engine/maintenance.py</span><span class="meta">55 lines</span></div>
+  <p>Periodic <code>ANALYZE</code> so the SQLite query planner's statistics don't go stale as data changes.</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">MaintenanceManager</span>
+  <p class="desc"><code>(db, *, interval=3600.0)</code>. Fields <code>last_analyze</code>, <code>runs</code>.
+  <code>async start()</code> spawns the loop; <code>async run_once()</code> runs ANALYZE in a thread;
+  the loop sleeps a full interval first (startup already ran <code>run_analyze_once</code>);
+  <code>async stop()</code> cancels.</p></div>
+</div>
+
+<!-- ================================================================ -->
+<!-- 7. PARTITION PACKAGE                                             -->
+<!-- ================================================================ -->
+<h1 id="pkg-partition">7. Package sqtseries.partition</h1>
+<p>Retention &amp; partitions: automatic data lifecycle management.</p>
+
+<div class="file" id="p-init">
+  <div class="file-head"><span class="path">src/sqtseries/partition/__init__.py</span><span class="meta">25 lines</span></div>
+  <p>Exports <code>PartitionManager</code>, <code>RetentionManager</code>, <code>RetentionPolicy</code>,
+  <code>parse_ttl</code>, <code>completed_hour_ns</code>, <code>ensure_rollup_table</code>,
+  <code>rollup_new_hours</code>, <code>rollup_partition</code>, <code>rollup_watermark</code>.</p>
+</div>
+
+<div class="file" id="p-manager">
+  <div class="file-head"><span class="path">src/sqtseries/partition/manager.py</span><span class="meta">69 lines</span></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_safe_partition(name)</span>
+  <p class="desc">Validates a name against <code>^measurements_\d{4}_\d{2}$</code> before SQL interpolation.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">PartitionManager</span>
+  <p class="desc"><code>(db, on_change=None)</code> — <code>on_change</code> fired after create/drop (used to
+  invalidate the store's partition cache). Methods:
+  <ul>
+    <li><span class="sig">list_partitions() -> list[str]</span> — sorted <code>measurements_%</code> tables.</li>
+    <li><span class="sig">ensure_partition(year, month) -> str</span> — create table + index if missing
+        (thread-safe via a DDL lock); fires on_change.</li>
+    <li><span class="sig">drop_partition(year, month)</span> — DROP TABLE IF EXISTS inside a writer
+        transaction; fires on_change.</li>
+    <li><span class="sig">current_partition(now_ns=None) -> str</span> — partition active at the given time.</li>
+  </ul></p></div>
+</div>
+
+<div class="file" id="p-retention">
+  <div class="file-head"><span class="path">src/sqtseries/partition/retention.py</span><span class="meta">180 lines</span></div>
+  <p>Retention drops entire monthly partitions (fast DROP TABLE) when the <em>last day</em> of a
+  partition falls before the retention horizon. Dropped partitions also have their hours removed
+  from the rollup — deleted data leaves no aggregate trace.</p>
+  <div class="const"><span class="sig">TTL_PATTERN = ^(\d+)([smhdw])$</span>; <span class="sig">UNITS</span> — s/m/h/d/w &rarr; timedelta.</div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">parse_ttl(ttl) -> timedelta</span>
+  <p class="desc">Parse "30d", "12h", "4w" etc.; ValueError with a helpful message otherwise.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">RetentionPolicy</span>
+  <p class="desc"><code>(engine, ttl[, manager])</code>. Methods:
+  <ul>
+    <li><span class="sig">partitions_to_retain(now=None) -> set[str]</span> — keep partitions whose last
+        day &ge; <code>now - ttl</code>.</li>
+    <li><span class="sig">run(now=None) -> list[str]</span> — drop expired partitions (and their rollup rows);
+        returns the dropped names.</li>
+    <li><span class="sig">_drop_rollup_rows(year, month)</span> — DELETE from rollup_hourly for that month if the
+        table exists.</li>
+  </ul></p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">RetentionManager</span>
+  <p class="desc">Background task: <code>(engine, store, *, ttl, interval)</code>. First pass runs immediately
+  (in a thread) so expired partitions are cleaned on boot. Uses a PartitionManager whose
+  on_change invalidates the store's cache. Fields <code>runs</code>, <code>dropped_total</code>. API:
+  <code>async start()</code>, <code>async run_once()</code>, <code>async stop()</code>.</p></div>
+  <p class="muted">Module helpers: <code>_parse_partition_name</code>, <code>_last_day_of_month</code>,
+  <code>_month_end_dt</code>, <code>_month_start_ns</code>, <code>_month_end_ns</code> (UTC calendar math).</p>
+</div>
+
+<div class="file" id="p-rollup">
+  <div class="file-head"><span class="path">src/sqtseries/partition/rollup.py</span><span class="meta">280 lines</span></div>
+  <p>Rollup pre-aggregation: store per-series per-hour (count, sum, min, max) in
+  <code>rollup_hourly</code>; average is derived as sum/count. Only <em>completed</em> hours are rolled;
+  the current hour is always served from raw partitions. The <code>last_hour</code> watermark in
+  <code>rollup_meta</code> records progress; <code>INSERT OR REPLACE</code> keeps re-runs idempotent.
+  Documented assumption: in-order ingestion for completed hours — a write backfilled into an
+  already-rolled past hour is not picked up until a rebuild with <code>replace=True</code>.</p>
+  <h4>Constants</h4>
+  <div class="const"><span class="sig">HOUR_NS = 3_600_000_000_000</span></div>
+  <div class="const"><span class="sig">ROLLUP_TABLE = "rollup_hourly"</span> / <span class="sig">ROLLUP_META = "rollup_meta"</span> / <span class="sig">META_LAST_HOUR = "last_hour"</span></div>
+  <div class="const"><span class="sig">_PARTITION_RE</span> — partition-name validator for SQL interpolation.</div>
+
+  <h4>Functions</h4>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">completed_hour_ns(now_ns=None) -> int</span>
+  <p class="desc">Start of the current in-progress hour (floor to HOUR_NS).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">ensure_rollup_table(db)</span>
+  <p class="desc">CREATE TABLE IF NOT EXISTS rollup_hourly (WITHOUT ROWID, PK series_id+hour_start_ns)
+  and rollup_meta (k/v).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">rollup_watermark(db) -> int</span>
+  <p class="desc">Next hour to roll (all earlier hours are rolled); 0 when none.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">rollup_partition(db, partition, *, replace=False, cutoff_ns=None) -> int</span>
+  <p class="desc">Aggregate a partition's completed hours in <code>[watermark, cutoff)</code> into the rollup
+  with one GROUP BY series_id, hour query; <code>INSERT OR REPLACE</code>. With
+  <code>replace=True</code> the whole month is rebuilt (rollup rows cleared first) for backfill
+  recovery. Returns rows written. The global watermark is advanced by <code>rollup_new_hours</code>.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">rollup_new_hours(db, now_ns=None, *, skew_s=0.0) -> int</span>
+  <p class="desc">Roll every partition's newly-completed hours and advance the watermark. Only hours that
+  ended at least <code>skew_s</code> before "now" are rolled — this keeps the fast path exact under the
+  client clock-skew guard (a write arriving up to <code>skew_s</code> late can never land in a rolled
+  hour). Idempotent and interruption-safe. Returns rows written.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">query_rollup_partial(db, series_ids, start_ns, end_ns, *, bucket_ns) -> list[(bucket, count, sum, min, max)]</span>
+  <p class="desc">Partial aggregates from the rollup for the query fast path. <code>bucket_ns</code> None &rarr;
+  one whole-window row (bucket None); otherwise one row per epoch-aligned bucket via
+  <code>(hour_start_ns / ?) * ?</code>. Bound semantics <code>[start_ns, end_ns)</code>; empty list when
+  no rollup rows match.</p></div>
+  <p class="muted">Private helpers: <code>_safe_partition</code>, <code>_partitions_for_range</code>,
+  <code>_month_bounds</code>.</p>
+
+  <h4>Class <code>RollupManager</code></h4>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">RollupManager</span>
+  <p class="desc"><code>(db, *, interval=300.0, skew_s=0.0)</code>. Background task: no blocking warm-up on
+  boot — the first pass runs inside the loop task immediately, in a thread, so a large catch-up
+  never stalls startup or the event loop. API: <code>async start()</code>, <code>async run_once()</code>,
+  <code>async stop()</code>.</p></div>
+</div>
+
+<!-- ================================================================ -->
+<!-- 8. QUERY PACKAGE                                                 -->
+<!-- ================================================================ -->
+<h1 id="pkg-query">8. Package sqtseries.query</h1>
+<p>Query engine: aggregation, downsampling, gap filling, and the rollup fast path.</p>
+
+<div class="file" id="q-init">
+  <div class="file-head"><span class="path">src/sqtseries/query/__init__.py</span><span class="meta">28 lines</span></div>
+  <p>Exports <code>AggregationFunction</code>, <code>QueryError</code>, <code>TimeSeriesDB</code>,
+  <code>aggregate_series</code>, <code>downsample</code>, <code>downsample_to_intervals</code>,
+  <code>gap_fill_linear</code>, <code>median</code>, <code>p95</code>, <code>p99</code>, <code>parse_interval</code>.</p>
+</div>
+<div class="file" id="q-agg">
+  <div class="file-head"><span class="path">src/sqtseries/query/agg.py</span><span class="meta">191 lines</span></div>
+  <p>Aggregation, downsampling, and gap-filling functions — pure Python over
+  <code>(timestamp_ns, value)</code> samples.</p>
+  <div class="const"><span class="sig">Sample = tuple[int, float]</span> — type alias.</div>
+
+  <div class="sym"><span class="kind">enum</span><br><span class="sig">AggregationFunction(StrEnum)</span>
+  <p class="desc">AVG, SUM, MIN, MAX, COUNT, FIRST, LAST, MEDIAN, P95, P99.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">median(values) / p95(values) / p99(values)</span>
+  <p class="desc"><code>statistics.median</code> and a linear-interpolated percentile
+  (<code>_percentile</code>: rank = (n-1)*q, interpolates between the bracketing sorted values).
+  Empty input &rarr; NaN.</p></div>
+  <div class="const"><span class="sig">AGGREGATORS = {"avg", "sum", "min", "max", "count", "first", "last", "median", "p95", "p99"}</span> — name &rarr; callable.</div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">aggregate_series(samples, func) -> float</span>
+  <p class="desc">Aggregate a whole window. Empty window: count/sum &rarr; 0.0, everything else &rarr; NaN
+  (never raises StatisticsError/IndexError). Unsupported name &rarr; ValueError.</p></div>
+  <div class="const"><span class="sig">INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}</span></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">parse_interval(interval) -> int (seconds)</span>
+  <p class="desc">Parse "5m", "10s", "1h", "1d". Empty/unsupported/&lt;1 &rarr; ValueError.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">downsample(samples, interval, func="avg") -> list[Sample]</span>
+  <p class="desc">Bucket samples by <code>ts // bucket_ns</code> and aggregate each bucket; emits only
+  non-empty buckets, epoch-aligned bucket starts.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">downsample_to_intervals(samples, interval, func="avg", fill_missing=False) -> list[tuple[int, float]]</span>
+  <p class="desc">Downsample and optionally emit empty buckets (value = NaN) for gaps across the full
+  min&rarr;max bucket range.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_aggfn(func) -> callable</span>
+  <p class="desc">Resolve a name or AggregationFunction; ValueError when unsupported.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">gap_fill_linear(samples, max_gap_ns) -> list[Sample]</span>
+  <p class="desc">Linearly interpolate the midpoint between consecutive samples whose gap is
+  <code>0 &lt; gap &le;= max_gap_ns</code> (inserts one halfway point per gap). Input must be sorted
+  ascending; larger gaps stay unfilled.</p></div>
+</div>
+
+<div class="file" id="q-builder">
+  <div class="file-head"><span class="path">src/sqtseries/query/builder.py</span><span class="meta">417 lines</span></div>
+  <p>High-level query API over the storage engine: the spec's <code>insert / query / query_stream /
+  aggregate / downsample</code>, with the rollup fast path.</p>
+  <div class="const"><span class="sig">ROLLUP_FUNCS = frozenset({"avg", "sum", "min", "max", "count"})</span>
+  — aggregations exactly expressible from the rollup's columns.</div>
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">QueryError</span><p class="desc">Base error for query failures.</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">TimeSeriesDB</span>
+  <p class="desc">Wraps a <code>StorageEngine</code>. Methods:
+  <ul>
+    <li><span class="sig">insert(metric, value, tags=None, timestamp_ns=None) -> int</span> — single
+        measurement; server time when no timestamp.</li>
+    <li><span class="sig">query(metric=None, series_ids=None, start=None, end=None, *, aggregation=None, interval=None, limit=None, order="asc", fill_gaps_ns=None) -> list[(ts_ns, value)]</span> —
+        the main entry. If eligible (<code>_rollup_eligible</code>) serves from the rollup; otherwise
+        fetches raw and applies: downsample (aggregation+interval), whole-window aggregate anchored
+        at the oldest sample in the window (matching the rollup path's <code>first_sample_ts</code>),
+        or gap-fill. <code>limit</code> keeps the first N in the selected order.</li>
+    <li><span class="sig">query_stream(metric, start, end, *, order) -> Iterator</span> — bounded-memory raw
+        streaming, one series at a time.</li>
+    <li><span class="sig">aggregate(metric, start, end, *, funcs=None) -> dict[str, float]</span> — per-function
+        whole-window aggregates; each eligible func uses the rollup, and the raw row set is fetched
+        at most once for the others.</li>
+    <li><span class="sig">downsample(metric, start, end, *, interval="5m", aggregation="avg")</span> — sugar
+        over query.</li>
+    <li><span class="sig">_rollup_eligible(...) -> bool</span> — requires: aggregation in ROLLUP_FUNCS; an
+        interval that is None or a whole-hour multiple; watermark &gt; 0; the window's end hour &le;
+        watermark; at least one fully-inside hour (span &ge; 2 hours) — otherwise raw is faster;
+        and the start not already past the watermark.</li>
+    <li><span class="sig">_query_rollup(...)</span> — serve an eligible query: merged per-bucket partials
+        (rollup + raw edges) finalized by <code>_finalize_buckets</code>; whole-window form returns a
+        single row anchored at <code>first_sample_ts</code>.</li>
+    <li><span class="sig">_rollup_whole_window(...)</span> — whole-window value for <code>aggregate()</code>.</li>
+    <li><span class="sig">_rollup_window_partials(series_ids, start, end, bucket_ns)</span> — splits
+        <code>[start, end]</code> into three disjoint sources so nothing is counted twice: the first
+        (partial) edge hour from raw, the last partial hour from raw, and the fully-inside rolled
+        hours from <code>query_rollup_partial</code>; merged per bucket.</li>
+  </ul></p></div>
+
+  <h4>Module functions</h4>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_name(f) -> str</span>
+  <p class="desc">Normalize an AggregationFunction or string to its name.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_bucket_partials(samples, bucket_ns) -> list[(bucket, count, sum, min, max)]</span>
+  <p class="desc">Raw-edge partials matching the rollup's shape; one whole-window partial when bucket_ns
+  is None, otherwise one per epoch-aligned bucket (single pass, no sorting needed).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_merge_partials(groups) -> dict[bucket, [count, sum, min, max]]</span>
+  <p class="desc">Combine partial aggregates sharing the same bucket key (sums add, min/max take
+  extremes).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_finalize_buckets(merged, name, limit) -> list[(bucket, value)]</span>
+  <p class="desc">Emit ascending bucket values via <code>_value</code>, honoring limit (first N).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_value(name, cnt, sm, mn, mx) -> float</span>
+  <p class="desc">Derive avg (sm/cnt), sum, count, min, max from rollup partials; ValueError for
+  unsupported names.</p></div>
+</div>
+</div>
+<!-- ================================================================ -->
+<!-- 9. MESSAGING PACKAGE                                              -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="pkg-messaging">9. Package sqtseries.messaging</h1>
+<p>The ZeroMQ layer — externally facing sockets plus internal plumbing. Messages are JSON via
+orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
+<code>[topic, json-payload]</code>.</p>
+
+<div class="file" id="m-init">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/__init__.py</span><span class="meta">39 lines</span></div>
+  <p>Exports <code>DEFAULT_HWM</code>, <code>AdminBroker</code>, <code>ConnectionRegistry</code>,
+  <code>IngestMessage</code>, <code>Ingress</code>, <code>ProtocolError</code>, <code>PubSub</code>,
+  <code>QueryBroker</code>, <code>StatsPublisher</code>, <code>SubscriptionTracker</code>, <code>WorkerPool</code>,
+  <code>apply_options</code>, <code>dumps</code>, <code>new_connection_id</code>, <code>parse_admin</code>,
+  <code>parse_ingest</code>, <code>parse_query</code>, <code>socket_options</code>.</p>
+</div>
+
+<div class="file" id="m-protocol">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/protocol.py</span><span class="meta">122 lines</span></div>
+  <p>Message protocol: framing and validation for ZMQ messages.</p>
+  <div class="sym"><span class="kind">exception</span><br><span class="sig">ProtocolError(ValueError)</span>
+  <p class="desc">Malformed or invalid messages. Caught by brokers and mapped to the INVALID_REQUEST
+  error shape; in the ingress it increments the invalid counter.</p></div>
+  <div class="sym"><span class="kind">dataclass</span><br><span class="sig">IngestMessage</span>
+  <p class="desc">Validated ingest message: <code>metric</code> (str), <code>value</code> (float),
+  <code>tags</code> (dict|None), <code>timestamp</code> (epoch seconds, optional).
+  Method <span class="sig">to_rows() -> (metric, tags, value, ts_ns)</span> — defaults to server time,
+  converts seconds &rarr; ns.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">dumps(obj) -> bytes</span>
+  <p class="desc">orjson with OPT_NON_STR_KEYS (non-string keys allowed, e.g. numeric bucket keys).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">loads(data) -> Any</span>
+  <p class="desc">orjson parse; JSON errors &rarr; ProtocolError.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">parse_ingest(raw, reject_client_timestamp_skew_s=None) -> IngestMessage</span>
+  <p class="desc">Validates: object body; non-empty string metric; numeric non-bool finite value; tags
+  string&rarr;string (keys and values); numeric finite optional timestamp. When
+  <code>reject_client_timestamp_skew_s &gt; 0</code> and a timestamp is present, skew beyond the limit
+  raises ProtocolError (the clock-skew guard that protects rollup ordering).</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">parse_query(raw) -> dict</span>
+  <p class="desc">Validates a query: object body, type "query" or omitted, non-empty metric, start/end
+  integers when present; returns the normalized dict.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">parse_admin(raw) -> str</span>
+  <p class="desc">Validates an admin message and returns the command string.</p></div>
+</div>
+
+<div class="file" id="m-context">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/context.py</span><span class="meta">59 lines</span></div>
+  <p>ZeroMQ context and socket helpers. Benchmark-derived defaults: LINGER must be set BEFORE
+  bind/connect (pyzmq#1407); server sockets LINGER 500 ms (clean shutdown drain); client sockets
+  0 ms; HWM 10 000 for high-traffic ingestion.</p>
+  <div class="const"><span class="sig">DEFAULT_HWM = 10000</span> / <span class="sig">SERVER_LINGER_MS = 500</span> / <span class="sig">CLIENT_LINGER_MS = 0</span></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">socket_options(*, hwm=10000, linger_ms=500, sndhwm=None, rcvhwm=None, max_msg_size=50 MiB, heartbeat_ivl=1000, heartbeat_timeout=5000, heartbeat_ttl=5000, immediate=True) -> dict</span>
+  <p class="desc">Returns the option dict to apply before bind/connect: LINGER, MAXMSGSIZE, HEARTBEAT_*,
+  IMMEDIATE, plus SNDHWM/RCVHWM.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">apply_options(sock, options) -> sock</span>
+  <p class="desc">Applies options, logging (and tolerating) per-option failures — defensive.</p></div>
+</div>
+
+<div class="file" id="m-ingress">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/ingress.py</span><span class="meta">136 lines</span></div>
+  <p>Ingress pipeline: ZMQ PULL &rarr; validate &rarr; sink (SQLite write) + republish. No app-level
+  write queue — each validated frame goes straight to the sink and onto the pub/sub bus.</p>
+  <div class="const"><span class="sig">TOPIC_PREFIX = b""</span> — pubsub topic is the metric name.</div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">Ingress</span>
+  <p class="desc"><code>(endpoint, settings, sink=None, on_publish=None, context=None)</code>.
+  <code>sink(metric, tags, value, ts_ns)</code> is called synchronously per frame (None skips
+  persistence — validation and republish still happen); <code>on_publish(bytes_metric, dict)</code>
+  feeds live subscribers. Counters: <code>recv_count</code>, <code>error_count</code>, <code>invalid_count</code>.
+  <ul>
+    <li><span class="sig">async start()</span> — PULL socket with HWM + max message size, bound to the endpoint.</li>
+    <li><span class="sig">async run_once(block=True) -> bool</span> — recv one frame (blocking or NOBLOCK),
+        handle it, return whether one was handled; zmq errors counted and logged.</li>
+    <li><span class="sig">async drain()</span> — drain ALL pending frames in a tight loop (shutdown/tests).</li>
+    <li><span class="sig">_handle(raw)</span> — parse (invalid JSON counts), <code>parse_ingest</code> with the
+        skew guard (ProtocolError/OverflowError &rarr; invalid counter — OverflowError guards the
+        huge-float timestamp path where <code>ts * 1e9</code> can't fit an int), then sink + on_publish.</li>
+    <li><span class="sig">async stop()</span> — close the socket (linger 0).</li>
+    <li><span class="sig">stats()</span> — {recv, invalid, errors}.</li>
+  </ul></p></div>
+</div>
+
+<div class="file" id="m-broker">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/broker.py</span><span class="meta">204 lines</span></div>
+  <p>Query broker: REP (or ROUTER) socket serving query/aggregate requests with a pluggable
+  handler and an optional handler timeout.</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">QueryBroker</span>
+  <p class="desc"><code>(endpoint, settings, handler=None, context=None, use_router=False, handler_timeout_s=None)</code>.
+  Counters <code>requests</code>, <code>errors</code>.
+  <ul>
+    <li><span class="sig">async start()</span> — REP (default) or ROUTER socket, HWM 1000, bound.</li>
+    <li><span class="sig">async run_once(block=True) -> bool</span> — one request: router multipart or plain
+        frame; returns whether handled.</li>
+    <li><span class="sig">_handle(raw) / _handle_router(frames)</span> — parse (ProtocolError &rarr;
+        INVALID_REQUEST), dispatch, and reply; TimeoutError &rarr; QUERY_TIMEOUT; any other
+        exception &rarr; INTERNAL_ERROR (logged). Replies on REP are sent <em>blocking</em> — a REP
+        socket requires strict recv/send alternation, so dropping a reply on EAGAIN would wedge the
+        broker for every client; router replies use NOBLOCK with a warning on would-block.</li>
+    <li><span class="sig">async _dispatch(query)</span> — with <code>handler_timeout_s</code> the blocking
+        handler runs off the loop in a thread under <code>asyncio.wait_for</code> (a slow query never
+        stalls the event loop; over budget &rarr; QUERY_TIMEOUT). None/&le;0 runs synchronously inline.</li>
+    <li><span class="sig">async stop()</span>; <span class="sig">stats()</span> — {requests, errors}.</li>
+  </ul></p></div>
+</div>
+
+<div class="file" id="m-admin">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/admin.py</span><span class="meta">19 lines</span></div>
+  <p><span class="sig">class AdminBroker(QueryBroker)</span> — REP socket for admin commands on port
+  12504; messages are <code>{"cmd": "..."}</code>. Heavy operations (backup/vacuum) run in the handler
+  and therefore pause ingestion for their duration; the offline CLI
+  (<code>sqtseries vacuum</code>) is the recommended path for large maintenance.</p>
+</div>
+
+<div class="file" id="m-pubsub">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/pubsub.py</span><span class="meta">174 lines</span></div>
+  <p>PUB/SUB live-subscription bus with subscriber tracking via XPUB: the service receives
+  subscribe/unsubscribe events directly from the wire — no polling.</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">SubscriptionTracker</span>
+  <p class="desc">Tracks active vs <em>lingering</em> topics. <code>subscribe(topic)</code> activates;
+  <code>unsubscribe(topic)</code> moves it to <code>_linger_until</code> for <code>linger_seconds</code>
+  (a ZMQ subscriber disconnect/reconnect window); <code>cleanup()</code> sweeps expired linger
+  entries; properties <code>active_topics</code>, <code>stats()</code> ({active, lingering}).</p></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">PubSub</span>
+  <p class="desc"><code>(endpoint, *, linger_seconds=30.0, hwm=10000, context=None, registry=None)</code>.
+  <ul>
+    <li><span class="sig">async start()</span> — XPUB socket with <code>XPUB_VERBOSER=1</code> (emit an event
+        for EVERY join/leave, not just topic-trie transitions — without it a second subscriber to a
+        known topic generates no event and counts would be wrong), RCVHWM 0 (unlimited inbound
+        subscriptions), LINGER 500, SNDHWM hwm; plus a background reader task.</li>
+    <li><span class="sig">async publish(topic, payload)</span> — send <code>[topic, json]</code>;
+        increments <code>published</code> (publish attempts, not deliveries — libzmq may drop frames
+        for slow subscribers).</li>
+    <li><span class="sig">_read_subscriptions()</span> — decode <code>\x01topic</code> (subscribe) and
+        <code>\x00topic</code> (unsubscribe) events; update the tracker and the optional registry
+        (register/unregister_zmq_sub) in real time; idle ticks sweep expired linger topics.</li>
+    <li><span class="sig">async stop()</span>; <span class="sig">stats()</span> — {published, active, lingering}.</li>
+  </ul></p></div>
+</div>
+
+<div class="file" id="m-registry">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/connection_registry.py</span><span class="meta">190 lines</span></div>
+  <p>Connection and subscription registry: tracks every active WebSocket connection and ZMQ SUB
+  subscriber so the service can answer <code>connections</code>, <code>conncheck</code>, and
+  <code>subscribers</code> queries at any time. Events carry arrival/leaving timestamps
+  (<code>connected_at</code>/<code>left_at</code> for WS; <code>arrived_at</code>/<code>left_at</code> plus
+  <code>first_seen</code> for ZMQ topics).</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">ConnectionRegistry</span>
+  <p class="desc">Internal maps: <code>_ws</code> (conn_id &rarr; entry), <code>_zmq_subs</code> (topic &rarr;
+  count), <code>_zmq_first_seen</code>, <code>_listeners</code>. Methods:
+  <ul>
+    <li><span class="sig">on_event(callback) / remove_listener(callback)</span> — subscribe/unsubscribe to
+        <code>(event_type, payload)</code> pairs ("conn", "sub"). remove_listener must be paired with
+        every on_event or repeated start/stop cycles grow listeners without bound.</li>
+    <li><span class="sig">register_ws(conn_id, peer, topic)</span> — record a WS join; emit a "conn" event
+        (<code>connected: True</code>, ttl 60).</li>
+    <li><span class="sig">unregister_ws(conn_id)</span> — mark gone; the leave event carries connected_at and
+        left_at for duration display.</li>
+    <li><span class="sig">register_zmq_sub(topic) / unregister_zmq_sub(topic)</span> — increment/decrement
+        per-topic counts, emit "sub" events; first_seen set when a topic goes 0 &rarr; 1 (ttl 30 on joins).</li>
+    <li><span class="sig">check_connection(conn_id) -> bool</span> — conncheck support.</li>
+    <li><span class="sig">list_connections() -> list[dict]</span> — sorted by connected_at.</li>
+    <li><span class="sig">subscriber_count(topic=None) -> int</span>, <span class="sig">active_topics()</span>,
+        properties <span class="sig">ws_count</span> / <span class="sig">zmq_sub_count</span>.</li>
+    <li><span class="sig">snapshot() -> dict</span> — read-only summary: ws_connections, zmq_subscribers,
+        active_topics, connections list, per-topic subscriptions with first_seen (used by
+        /ws/connections, admin subscribers, and the stats report).</li>
+  </ul></p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">new_connection_id() -> str</span>
+  <p class="desc"><code>uuid4().hex[:12]</code> — short connection IDs.</p></div>
+</div>
+
+<div class="file" id="m-stats">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/stats_publisher.py</span><span class="meta">108 lines</span></div>
+  <p>Stats PUB socket (12506): broadcasts connection and subscription events in JSON; consumers
+  subscribe with prefix filters (<code>conn</code>, <code>sub</code>, <code>report</code>, or <code>""</code>).</p>
+  <div class="const"><span class="sig">REPORT_INTERVAL = 10.0</span></div>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">StatsPublisher</span>
+  <p class="desc"><code>(endpoint, registry, *, report_interval=10.0, context=None)</code>.
+  <ul>
+    <li><span class="sig">async start()</span> — PUB socket (LINGER 0, SNDHWM 1000) bound; starts the report
+        loop; hooks the registry via on_event.</li>
+    <li><span class="sig">async publish(event_type, payload)</span> — one frame, orjson with default=str.</li>
+    <li><span class="sig">_on_registry_event(...)</span> — forwards registry events into the socket via
+        tracked tasks (drained on stop).</li>
+    <li><span class="sig">_report_loop()</span> — every interval publishes a "report" event: uptime_s,
+        ws_connections, zmq_subscribers, active_topics.</li>
+    <li><span class="sig">async stop()</span> — unhooks the listener FIRST (no new tasks), cancels the loop,
+        drains in-flight forwards, closes the socket.</li>
+  </ul></p></div>
+</div>
+
+<div class="file" id="m-worker">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/worker.py</span><span class="meta">74 lines</span></div>
+  <p>Worker pool: N asyncio workers consuming from ingress and serving queries. ZMQ sockets are
+  not thread-shared; asyncio tasks on the same socket are safe only via the single event loop —
+  so the pool lives on one loop with cooperative workers. (For multiple processes:
+  ProcessPool + per-process context.)</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">WorkerPool</span>
+  <p class="desc"><code>(step, *, size=1)</code> where <code>step()</code> is an async callable doing one unit
+  of work and returning True if it did any. <code>async start()</code> spawns <code>size</code> tasks;
+  each worker loop calls step, sleeps <strong>0 ms when work flowed, 10 ms when idle</strong> — a
+  NOBLOCK recv raising zmq.Again does NOT release the event loop, so a tight idle loop would
+  starve timers and CPU-bound threads (verified: 112k spins/sec starved call_later; 10 ms only
+  delays the first message after idle, and busy cycles use sleep(0) with no added latency).
+  <code>async stop()</code> cancels and awaits all; property <code>running</code>.</p></div>
+</div>
+</div>
+<!-- ================================================================ -->
+<!-- 10. GATEWAY PACKAGE                                              -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="pkg-gateway">10. Package sqtseries.gateway</h1>
+<p>HTTP gateway (FastAPI REST + WebSocket) on port 12505. Bridges HTTP directly to the engine —
+single-process architecture, no ZMQ hop.</p>
+
+<div class="file" id="g-init">
+  <div class="file-head"><span class="path">src/sqtseries/gateway/__init__.py</span><span class="meta">6 lines</span></div>
+  <p>Exports <code>create_app</code> and <code>router</code>.</p>
+</div>
+
+<div class="file" id="g-app">
+  <div class="file-head"><span class="path">src/sqtseries/gateway/app.py</span><span class="meta">218 lines</span></div>
+  <p>REST + WebSocket gateway factory with CORS, rate limiting, request-ID and security-header
+  middleware.</p>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">create_app(store=None, tsdb=None, settings=None, pubsub=None, ingestion=None, registry=None, query_timeout_s=None) -> FastAPI</span>
+  <p class="desc">Builds the app. <code>tsdb</code> is created from <code>store</code> when absent. Everything
+  shared lives on <code>app.state</code>: <code>tsdb</code>, <code>store</code>, <code>pubsub</code>,
+  <code>settings</code>, <code>ingestion</code> (skew guard for HTTP writes), <code>registry</code>,
+  <code>query_timeout_s</code>, <code>ws_count</code>/<code>ws_max_connections</code> (live WebSocket
+  budget). Middleware (LIFO — last added runs outermost): request-ID middleware (outermost;
+  echoes or generates an <code>X-Request-ID</code>), security headers middleware (CSP
+  <code>default-src 'self'</code>, X-Frame-Options DENY, nosniff, X-XSS-Protection,
+  Referrer-Policy, Permissions-Policy), rate limiter, then CORS nearest the router. CORS and the
+  rate limiter short-circuit non-HTTP scopes, so WebSockets bypass both. Endpoints:
+  <ul>
+    <li><span class="sig">GET /api/v1/health</span> — {"status": ok|degraded, "version"} via <code>is_ready</code>.</li>
+    <li><span class="sig">WS /ws/subscribe?metric=*</span> — accept; enforce the 1000-connection cap (close
+        1013 "too many connections"); delegate to <code>subscribe_and_forward</code>; close 1008 when
+        streaming is disabled; decrement the slot in finally.</li>
+    <li><span class="sig">WS /ws/connections</span> — push-only live connection/subscription feed: sends a
+        snapshot on connect, then one frame per registry change. Registry callbacks may fire from
+        any thread, so events are marshalled onto the loop via call_soon_threadsafe into a bounded
+        queue (backlog &gt; 500 drops the oldest — a stalled client must not grow memory unbounded),
+        drained by a sender task paired with a disconnect watcher.</li>
+  </ul></p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_ws_slot_available(app) -> bool</span>
+  <p class="desc">Check-and-increment of the WebSocket cap. Single-threaded event loop: no await between
+  check and increment, so concurrent handlers cannot overshoot the cap.</p></div>
+</div>
+
+<div class="file" id="g-routes">
+  <div class="file-head"><span class="path">src/sqtseries/gateway/routes.py</span><span class="meta">292 lines</span></div>
+  <p>REST routes, all under <code>/api/v1</code>. Times on the wire are epoch <em>seconds</em>; the engine
+  uses ns internally.</p>
+  <div class="const"><span class="sig">_WRITE_BODY = Body(...)</span> — module-level sentinel for FastAPI body binding;
+  <span class="sig">_DEFAULT_QUERY_TIMEOUT_S = 30.0</span>.</div>
+
+  <div class="sym"><span class="kind">POST</span><br><span class="sig">/api/v1/write</span>
+  <p class="desc">Ingest one object or an array of rows. Batch semantics: validate the WHOLE batch first
+  (a bad item rejects the batch — retry-safe, nothing partially persists), persist in ONE
+  transaction (<code>_insert_validated_batch</code>; timestamp-less rows get distinct ns values so two
+  same-series rows can't collide on the clustered PK), then republish to live subscribers
+  (<code>_broadcast</code> — best-effort; a failing broadcast must not turn a successful write into a
+  500). Returns {"status": "ok", "written": n}. Validation mirrors the ZMQ path: non-empty metric,
+  finite number, string&rarr;string tags, numeric timestamp within int64 ns and within the clock
+  skew guard.</p></div>
+  <div class="sym"><span class="kind">GET</span><br><span class="sig">/api/v1/read?metric=&amp;start=&amp;end=&amp;aggregation=&amp;interval=&amp;limit=&amp;order=</span>
+  <p class="desc">Query rows; returns {"status": "ok", "data": [{timestamp (s), value}]}. limit ge=1 le=100000,
+  order pattern ^(asc|desc)$. Runs off the event loop in a thread under query_timeout_s
+  (504 GATEWAY_TIMEOUT on expiry).</p></div>
+  <div class="sym"><span class="kind">GET</span><br><span class="sig">/api/v1/aggregate?metric=&amp;start=&amp;end=&amp;funcs=</span>
+  <p class="desc">Comma-separated funcs (default "avg") over a window; returns
+  {"status": "ok", "aggregations": {func: value}}.</p></div>
+  <div class="sym"><span class="kind">GET</span><br><span class="sig">/api/v1/stats</span>
+  <p class="desc">{"status": "ok", "metrics": n, "series": n} from the store.</p></div>
+  <div class="sym"><span class="kind">GET</span><br><span class="sig">/api/v1/connections</span>
+  <p class="desc">Live WebSocket connection list from the registry (kind/peer/topic/connected_at).</p></div>
+  <div class="sym"><span class="kind">GET</span><br><span class="sig">/api/v1/subscribers</span>
+  <p class="desc">Live ZMQ subscriptions: {"status": "ok", "zmq_subscribers": n, "subscriptions": [...]}.</p></div>
+
+  <h4>Helpers</h4>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_to_ns(seconds) -> int | None</span>
+  <p class="desc">Seconds &rarr; ns; overflow raises 400.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_validate_row(row, max_skew) -> (metric, value, tags, ts_ns)</span>
+  <p class="desc">Full per-row validation with HTTPException(400) details; rejects timestamps outside
+  int64 ns and beyond the skew guard.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_broadcast(pubsub, rows)</span>
+  <p class="desc">Best-effort republish of HTTP writes.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">_insert_validated / _insert_validated_batch</span>
+  <p class="desc">Single-row insert / one-transaction batch insert with distinct server ns for
+  timestamp-less rows.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">async _run_query(request, fn)</span>
+  <p class="desc">Run a blocking query off the loop (asyncio.to_thread + wait_for, timeout from
+  query.timeout_s) so a slow aggregate can't stall WS streaming or admin; abandoned threads finish
+  in the background and their results are discarded.</p></div>
+</div>
+
+<div class="file" id="g-ratelimit">
+  <div class="file-head"><span class="path">src/sqtseries/gateway/ratelimit.py</span><span class="meta">63 lines</span></div>
+  <p>Fixed-window rate limiting middleware.</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">RateLimitMiddleware</span>
+  <p class="desc">ASGI middleware rejecting requests over <code>limit_per_minute</code> per fixed 60 s
+  window, keyed by the client peer address. The X-Forwarded-For header is deliberately NOT
+  trusted (client-controlled; anyone could rotate it to bypass). Memory-bounded: keys from other
+  windows are swept when the table exceeds 10 000 entries, and excess current-window keys are
+  evicted FIFO. Over-limit replies with the standard error shape and HTTP 429.</p></div>
+</div>
+
+<div class="file" id="g-websocket">
+  <div class="file-head"><span class="path">src/sqtseries/gateway/websocket.py</span><span class="meta">115 lines</span></div>
+  <p>WebSocket subscription handler — proxies live measurements from the pubsub XPUB socket to the
+  WS client and tracks connection state in the registry. The browser dashboard opens
+  <code>ws://host:12505/ws/subscribe?metric=...</code> and receives every published measurement.</p>
+  <div class="const"><span class="sig">SEND_TIMEOUT = 30.0</span> — a frame that can't be flushed within 30 s means the client is
+  dead; close it (1011 slow consumer) instead of holding the connection and its ZMQ subscription
+  hostage.</div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">async subscribe_and_forward(websocket, *, pubsub, topic="*", registry=None)</span>
+  <p class="desc">Creates a conn_id and registers the WS (peer host:port, topic). Opens a SUB socket and
+  subscribes <em>before</em> connect (the subscription then travels with the handshake; subscribing
+  after connect leaves a race where a measurement published in between is dropped). Two sibling
+  tasks: <code>send_loop</code> (recv_multipart with a 30 s wait_for timeout; on timeout sends a
+  <code>{"type":"ping"}</code> keepalive; filters by topic prefix; decodes payload with
+  errors="replace") and <code>watch_disconnect</code> (consumes inbound frames so a client disconnect
+  surfaces immediately instead of lingering until the next send — which would hold uvicorn's
+  graceful shutdown). First task to finish kills the other; the registry entry is always
+  unregistered in finally and the socket closed.</p></div>
+  <div class="sym"><span class="kind">function</span><br><span class="sig">async _send(websocket, text, what) -> bool</span>
+  <p class="desc">send_text under SEND_TIMEOUT; on timeout logs, closes 1011, returns False so the caller
+  aborts the stream.</p></div>
+</div>
+</div>
+<!-- ================================================================ -->
+<!-- 11. EXAMPLES                                                      -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="pkg-examples">11. Examples</h1>
+<p>Standalone runnable scripts for every operation. None of them import sqtseries internals (the
+Client is used where convenient) — the wire-protocol ones replicate what any language can do.
+Running them requires a live <code>sqtseries run</code> service on the default ports (except
+<code>run_custom.py</code> which starts its own).</p>
+
+<div class="file" id="x-producer">
+  <div class="file-head"><span class="path">examples/producer.py</span><span class="meta">79 lines</span></div>
+  <p>Send measurements via raw ZMQ PUSH to port 12501 — no Client, pure pyzmq: the fastest write
+  path, and a template for any language with a ZMQ binding.</p>
+  <ul>
+    <li><span class="sig">main()</span> — args: <code>--host</code>, <code>--port</code> (12501),
+        <code>--rate</code> (msg/s; 0 = as fast as possible), <code>--count</code> (0 = forever),
+        <code>--batch</code> (checkpoint print every N). Builds a PUSH socket (SNDHWM 10000,
+        LINGER 500), picks random metric/host from small pools, and sends one JSON frame per point.
+        Every <code>batch</code> points it prints throughput. Closes the socket with <code>linger=2000</code>
+        so queued points flush instead of being dropped (fire-and-forget PUSH loses everything with
+        linger 0).</li>
+  </ul>
+</div>
+
+<div class="file" id="x-consumer">
+  <div class="file-head"><span class="path">examples/consumer.py</span><span class="meta">71 lines</span></div>
+  <p>Query sqtseries from a separate process via ZMQ REQ or HTTP — also without importing
+  sqtseries.</p>
+  <ul>
+    <li><span class="sig">main()</span> — <code>--port</code> (12502) or <code>--http &lt;base&gt;</code>;
+        <code>--host</code>.</li>
+    <li><span class="sig">zmq_query(host, port)</span> — REQ socket; sends
+        <code>{"type": "query", "metric": "demo.cpu", "aggregation": "avg", "interval": "1m"}</code>;
+        prints the pretty reply.</li>
+    <li><span class="sig">http_query(base)</span> — GET
+        <code>/api/v1/read?metric=demo.cpu&amp;aggregation=avg&amp;interval=1m</code> via urllib.</li>
+  </ul>
+</div>
+
+<div class="file" id="x-stats-monitor">
+  <div class="file-head"><span class="path">examples/stats_monitor.py</span><span class="meta">81 lines</span></div>
+  <p>Live activity monitor for the stats PUB socket (12506): prints every connect, disconnect, and
+  subscription change with a timestamp — a template for dashboards or alerting pipelines.</p>
+  <ul>
+    <li><span class="sig">main()</span> — positional <code>filter</code> (conn | sub | report | empty = all);
+        SUB socket with the prefix filter. Prints formatted lines: <code>CONNECTED/DISCONNECTED</code>
+        (kind, id, peer), <code>SUB</code> (topic, listeners), <code>REPORT</code> (ws count, zmq_subs,
+        topics, uptime).</li>
+  </ul>
+</div>
+
+<div class="file" id="x-ingest-http">
+  <div class="file-head"><span class="path">examples/ingest_http.py</span><span class="meta">87 lines</span></div>
+  <p>Send measurements over plain HTTP — works with curl, urllib, fetch, any language. Use when
+  you can't or prefer not to install a ZMQ binding.</p>
+  <ul>
+    <li><span class="sig">main()</span> — args: <code>--host</code>, <code>--port</code> (12505),
+        <code>--rate</code>, <code>--batch</code> (points per request), <code>--count</code>. Builds a batch
+        of random sensor readings (temp/humidity/pressure with a room tag), POSTs the array to
+        <code>/api/v1/write</code>, prints per-request written counts. Demonstrates the batch
+        endpoint's atomicity (validate-then-persist in one transaction).</li>
+  </ul>
+</div>
+
+<div class="file" id="x-admin">
+  <div class="file-head"><span class="path">examples/admin_examples.py</span><span class="meta">127 lines</span></div>
+  <p>Exercises all nine admin commands against a running service and prints their replies.</p>
+  <ul>
+    <li><span class="sig">admin(endpoint, cmd, **kwargs) -> dict</span> — one REQ round trip with
+        <code>{"cmd": ..., **kwargs}</code>.</li>
+    <li><span class="sig">main()</span> — walks through <strong>ping</strong> (asserts pong),
+        <strong>health</strong> (status/version/uptime/database), <strong>stats</strong> (prints the key
+        counters), <strong>connections</strong>, <strong>conncheck</strong> (checks all live ids plus a
+        fake one), <strong>subscribers</strong>, <strong>optimize</strong>, <strong>backup</strong>,
+        <strong>vacuum</strong> (notes that VACUUM while running may fail — the offline path is
+        <code>sqtseries stop &amp;&amp; sqtseries vacuum</code>).</li>
+  </ul>
+</div>
+
+<div class="file" id="x-stream">
+  <div class="file-head"><span class="path">examples/stream_examples.py</span><span class="meta">128 lines</span></div>
+  <p>Subscribe to live measurement streams three ways: raw ZMQ SUB (12503), the Python Client, and
+  WebSocket (12505). Every accepted measurement is republished to matching topic prefixes.</p>
+  <ul>
+    <li><span class="sig">subscribe_zmq(host, port, topic)</span> — SUB socket, prefix filter, prints
+        <code>[topic] metric=value tags</code>.</li>
+    <li><span class="sig">subscribe_client(host, topic, port)</span> — <code>Client.subscribe</code>
+        generator; skips the None heartbeat yield.</li>
+    <li><span class="sig">subscribe_websocket(host, topic, http_port)</span> — <code>websockets</code>
+        library; connects to <code>/ws/subscribe?metric=...</code>; ignores the <code>{"type":"ping"}</code>
+        keepalive frames and prints idle pings.</li>
+    <li><span class="sig">main()</span> — <code>topic</code> positional (* = all), <code>--ws</code>,
+        <code>--client</code>, <code>--port</code>, <code>--http-port</code>.</li>
+  </ul>
+</div>
+
+<div class="file" id="x-tags">
+  <div class="file-head"><span class="path">examples/tags_examples.py</span><span class="meta">157 lines</span></div>
+  <p>A runnable walkthrough of tags: what they are, why to use them, and how to query per-tag
+  (the wire queries whole metrics; per-tag breakdowns use the embedded API with <code>--db</code>).</p>
+  <ul>
+    <li><span class="sig">seed(c)</span> — 6 series: cpu.usage for web1/web2/web3 with {host, env};
+        temp.celsius for lobby/kitchen/basement with {room, floor}.</li>
+    <li><span class="sig">whole_metric(c)</span> — merged aggregates over the wire (avg/max/count,
+        min/max).</li>
+    <li><span class="sig">per_tag(db)</span> — embedded: for each metric, group series_ids by a tag
+        value via <code>store.series_ids_for_metric</code> + <code>get_series_meta</code>, then query each
+        group's last 24 h and print point counts + averages per tag.</li>
+    <li><span class="sig">show_validation(http_port)</span> — demonstrates that non-string tag values
+        (<code>{"cpu_count": 8}</code>) get a clear HTTP 400.</li>
+    <li><span class="sig">main()</span> — prints the six-part catalog including the cardinality
+        warning: tag dimensions you slice by, never unique IDs, and put the reading in "value".</li>
+  </ul>
+</div>
+
+<div class="file" id="x-run-custom">
+  <div class="file-head"><span class="path">examples/run_custom.py</span><span class="meta">162 lines</span></div>
+  <p>Runs your own instance with custom ports and a fresh database — exactly the production flow:
+  write a config, start with <code>--config</code>, verify, stop. No sqtseries code drives the
+  lifecycle (only the Client for write/query).</p>
+  <ul>
+    <li><span class="sig">free_port()</span> — OS-assigned free port.</li>
+    <li><span class="sig">write_config(workdir) -> ports</span> — writes config.toml with six distinct
+        free ports and <code>auto_detect = false</code>.</li>
+    <li><span class="sig">wait_until_ping(port, timeout_s=20.0)</span> — polls the admin REP socket
+        until <code>{"cmd": "ping"}</code> answers pong.</li>
+    <li><span class="sig">main()</span> — <code>--workdir</code> (default <code>sqt-custom-work/</code>);
+        writes the config, spawns <code>python3 -m sqtseries --config ... run</code> as a background
+        process, waits for ping, writes + queries one metric via the Client on the custom ports,
+        then stops via the <code>stop</code> command (which reads runtime.json). Falls back to
+        SIGTERM if the stop command doesn't finish.</li>
+  </ul>
+</div>
+
+<div class="file" id="x-maintenance">
+  <div class="file-head"><span class="path">examples/maintenance_examples.py</span><span class="meta">169 lines</span></div>
+  <p>Maintenance operations and health checks: backup, vacuum, optimize, and a configurable
+  health-check loop for alerting.</p>
+  <ul>
+    <li><span class="sig">admin(host, cmd, port, **kwargs)</span> — REQ helper.</li>
+    <li><span class="sig">health_check(host, admin_port, http_port) -> bool</span> — checks ZMQ admin
+        "health" and the HTTP /api/v1/health endpoint.</li>
+    <li><span class="sig">backup_database / optimize_planner / vacuum_database / show_stats</span> — the
+        four maintenance operations with friendly output; vacuum prints the offline recipe when it
+        fails while running.</li>
+    <li><span class="sig">main()</span> — <code>--backup-only</code>, <code>--health-loop N</code>
+        (alert loop), <code>--admin-port</code>/<code>--http-port</code> overrides.</li>
+  </ul>
+</div>
+
+<div class="file" id="x-query">
+  <div class="file-head"><span class="path">examples/query_examples.py</span><span class="meta">225 lines</span></div>
+  <p>Every query type demonstrated: raw reads, limit/order, all ten whole-window aggregations,
+  downsampling, multi-aggregation, HTTP read and aggregate. Seeds 120 deterministic
+  <code>demo.cpu</code> points first so results are real.</p>
+  <ul>
+    <li><span class="sig">zmq_req(endpoint, payload)</span> — REQ helper.</li>
+    <li><span class="sig">seed_data(host, port)</span> — 120 points at 30 s intervals over the last
+        hour; closes with linger=2000 so nothing is dropped.</li>
+    <li>Query helpers: <span class="sig">raw_query</span>, <span class="sig">raw_query_limit</span>,
+        <span class="sig">whole_window_agg</span> (loops avg&rarr;p99), <span class="sig">downsample_query</span>
+        (1m buckets), <span class="sig">multi_agg</span> (one request, several funcs),
+        <span class="sig">http_query</span>, <span class="sig">http_aggregate</span>.</li>
+    <li>Calls out that gap filling is embedded-API only (no wire parameter).</li>
+  </ul>
+</div>
+<div class="file" id="x-questions">
+  <div class="file-head"><span class="path">examples/question_examples.py</span><span class="meta">412 lines</span></div>
+  <p>The question catalog: 13 real questions people ask a time-series database, each answered with
+  working code against one running service. Seed data is deterministic so printed answers are
+  reproducible; every <code>ANSWER:</code> line is machine-readable (key = value) so the test suite
+  can assert on it.</p>
+  <p class="note"><strong>Prerequisite:</strong> the demo writes "history" (yesterday, last week), so the
+  default clock-skew guard (300 s) would reject it. Start the service with
+  <code>reject_client_timestamp_skew_s = 864000</code> (10 days), as documented at the top of the file.</p>
+  <ul>
+    <li><span class="sig">_fmt(v, spec)</span> — format or "no data" for None/NaN.</li>
+    <li>Time helpers: <span class="sig">hour_ago_ns()</span>, <span class="sig">day_start_ns()</span>,
+        <span class="sig">yesterday_start_ns()</span>, <span class="sig">week_ago_ns()</span>.</li>
+    <li><span class="sig">class ExampleEnv</span> — one live instance: <code>seed()</code> writes
+        deterministic series (cpu.load 6 h &times; 5 min; temp.celsius 24 h &times; 60 min sine wave;
+        latency.web and visitors.web 8 days &times; 30 min with deterministic cycles);
+        <code>send(metric, value, ts_s)</code> writes with explicit timestamps. Client built with
+        subscribe/admin ports disabled (-1).</li>
+    <li>Answers: <span class="sig">answer_avg_cpu_last_hour</span>,
+        <span class="sig">answer_peak_temp_yesterday</span>, <span class="sig">answer_p99_week</span>,
+        <span class="sig">answer_count_today</span> — plus extras: <span class="sig">extra_trend</span>
+        (this hour vs previous), <span class="sig">extra_per_minute_curve</span> (downsampling),
+        <span class="sig">extra_hourly_buckets</span> / <span class="sig">extra_daily_buckets</span>
+        (min/avg/max per bucket), <span class="sig">extra_busiest</span> (busiest hour/day by visitor
+        sum), <span class="sig">extra_visitors_sum</span>, <span class="sig">extra_staleness</span>
+        (age of the newest reading via limit=1 order=desc), <span class="sig">extra_alltime</span>
+        (no window + rolling 3-day stats ladder), <span class="sig">http_variants</span> (the same
+        four questions as curl-able HTTP URLs).</li>
+  </ul>
+</div>
+
+<div class="file" id="x-questions-adv">
+  <div class="file-head"><span class="path">examples/question_examples_advanced.py</span><span class="meta">454 lines</span></div>
+  <p>The next-level catalog: 10 questions needing per-series breakdowns, two windows at once, or
+  arithmetic on top of results. <code>--db PATH</code> unlocks questions 1–3 which read series
+  directly from the database file (the wire protocol queries a whole metric); everything else runs
+  over ZMQ/HTTP. Seeds ~13k deterministic points (hosts, pages, visitors with a daily rhythm and
+  growth, cpu.load).</p>
+  <ul>
+    <li><span class="sig">utc_day_start(days_ago)</span> — UTC midnight in epoch seconds.</li>
+    <li><span class="sig">class ExampleEnv</span> — extended with <code>wait_for_ingest(expected,
+        timeout)</code> (polls admin stats until the service reports the ingested count — ZMQ
+        ingestion is fire-and-forget, so this makes the demo deterministic on any machine; the
+        <code>send</code> helper also sleeps 50 ms every 2000 points to keep the client HWM from
+        filling), and embedded-read helpers <code>open_store()</code>,
+        <code>series_ids(metric)</code>, <code>series_tags(sid)</code>,
+        <code>series_aggregate(sid, start_s, end_s, func)</code>.</li>
+    <li>Questions: <span class="sig">q1_busiest_host</span> (per-series avg &rarr; ranking),
+        <span class="sig">q2_p95_per_page</span>, <span class="sig">q3_visitors_per_page</span>,
+        <span class="sig">q4_throughput</span> (count/60 per minute), <span class="sig">q5_percentile_ladder</span>
+        (median/p95/p99), <span class="sig">q6_compare_days</span> (today vs yesterday vs a week ago),
+        <span class="sig">q7_busiest_hour</span> (sum &amp; 1h buckets &rarr; max),
+        <span class="sig">q8_data_quality</span> (expected vs received readings today),
+        <span class="sig">q9_trend</span> (day-over-day count slope), <span class="sig">q10_staleness</span>.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ -->
+<!-- 12. CAMERA STACK                                                  -->
+<!-- ================================================================ -->
+<h1 id="camera-stack">12. Camera Analytics Stack (examples/camera)</h1>
+<p>A complete self-contained demo: a <em>simulated camera</em> with edge analytics streams JSON
+over a WebSocket; <code>camera_feed.py</code> pumps every reading into sqtseries over plain HTTP
+(no sqtseries import needed — works from any Python environment); <code>camera_feed.py --ask</code>
+answers 17 questions about the accumulated data; <code>overlay.html</code> is a live dashboard that
+also subscribes to sqtseries and to the connection feed; <code>sqtcam.sh</code> starts everything
+in a tmux session.</p>
+
+<div class="file" id="x-overlay-server">
+  <div class="file-head"><span class="path">examples/camera/overlay_server.py</span><span class="meta">235 lines</span></div>
+  <p>Overlay HTTP server + WebSocket data generator (FastAPI + uvicorn). Serves <code>overlay.html</code>
+  on HTTP and simulated analytics on <code>/ws/metrics</code> — every 0.25 s by default. Used by OBS
+  browser sources (hence 0.0.0.0 and the S104 ruff ignore).</p>
+  <ul>
+    <li><span class="sig">CONFIG</span> — host from TEST_HOST, port from <code>--port</code>/TEST_PORT/
+        random, push_interval 0.25, error_interval 0 (simulated errors off), camera_id
+        test_cam_001.</li>
+    <li><span class="sig">free_port()</span> — OS-assigned free port.</li>
+    <li><span class="sig">class DataSimulator</span> — stateful random generator: visible people/cars
+        (random-walk around bases), monotonic totals, per-minute rates, battery percent drifting
+        down, battery/cpu temperature, cpu usage; every message carries <code>generated_at</code>
+        (ISO-8601 UTC) and system_metrics. <code>should_error()</code> optionally injects an error
+        payload every error_interval seconds.</li>
+    <li><span class="sig">class ConnectionManager</span> — accept/track/broadcast WebSockets; on
+        broadcast, dead sockets are detected via return_exceptions and disconnected.</li>
+    <li>Routes: <span class="sig">GET /overlay.html</span> and <span class="sig">GET /</span> serve the
+        dashboard (single self-contained file by design — a trusted, developer-owned artifact for
+        LAN/OBS use; the real API surface, the sqtseries gateway, sends strict security headers);
+        <span class="sig">WS /ws/metrics</span> — broadcast a payload every push_interval using
+        <code>wait_for(receive_text, timeout)</code> as the pacing timer.</li>
+    <li><span class="sig">main(argv)</span> — resolves the port and runs uvicorn with
+        ws_max_size 1 MiB, ws_ping 25/10.</li>
+  </ul>
+</div>
+
+<div class="file" id="x-camera-feed">
+  <div class="file-head"><span class="path">examples/camera/camera_feed.py</span><span class="meta">693 lines — the biggest example</span></div>
+  <p>Two parts: <strong>Pump</strong> (default) subscribes to a metrics WebSocket and writes every
+  reading to sqtseries via HTTP; <strong>Ask</strong> (<code>--ask</code>) answers 17 questions from
+  the stored data. Only needs stdlib + <code>websockets</code> (pump mode) — never imports sqtseries.</p>
+  <h4>Flattening (the core concept)</h4>
+  <p>Each camera message is flattened into flat <code>metric + value + tags</code> measurements tagged
+  with <code>camera_id</code>. 10 numeric fields (<span class="sig">FIELD_PATHS</span>, dotted JSON
+  paths like <code>system_metrics.batteryPercent</code>) plus 1 boolean
+  (<span class="sig">BOOL_PATHS</span>: detection_overlay_enabled &rarr; 1.0/0.0). String fields
+  (batteryHealth, footer, overlay URLs) can't be stored as numbers and are skipped.</p>
+  <ul>
+    <li><span class="sig">agg(base, metric, funcs, start_s, end_s)</span> — /api/v1/aggregate helper.</li>
+    <li><span class="sig">series(base, metric, start_s, end_s, interval, func)</span> — /api/v1/read
+        with downsampling; returns [(bucket_ts_s, value)].</li>
+    <li><span class="sig">latest(base, metric, start_s)</span> — newest reading (limit=1, desc).</li>
+    <li><span class="sig">flatten(msg) -> list[dict]</span> — one WebSocket message &rarr; write
+        points; uses the message's <code>generated_at</code> as the timestamp
+        (<span class="sig">_source_ts</span>), falls back to server time.</li>
+    <li><span class="sig">post_batch(base_url, points)</span> — POST the array; prints HTTP errors
+        (0 for unreachable).</li>
+    <li>The 17 questions: <span class="sig">q_traffic_current</span> (averages &amp; extremes),
+        <span class="sig">q_busiest_hour_day</span>, <span class="sig">q_footfall_total</span>,
+        <span class="sig">q_trend</span> (day-over-day), <span class="sig">q_turnover</span> (total vs
+        visible), <span class="sig">q_percentiles</span> (capacity planning),
+        <span class="sig">q_anomaly</span> (current hour vs same hour previous days: mean + 2&sigma;
+        threshold), <span class="sig">q_battery</span> (drain rate and projected time-to-empty),
+        <span class="sig">q_cpu</span> (usage/temperature profile + &gt;70 °C warning),
+        <span class="sig">q_correlation</span> (Pearson r footfall vs CPU per hour),
+        <span class="sig">q_battery_vs_busy</span>, <span class="sig">q_staleness</span>, <span class="sig">q_uptime</span>
+        (received vs expected readings, ~4/s), <span class="sig">q_multicam</span> (notes the wire
+        API can't split per-camera — points to --db),
+        <span class="sig">q_monthly_projection</span>, <span class="sig">q_storage</span>
+        (points/day &rarr; MB/day at ~100 B/pt), <span class="sig">q_overlay</span> (enabled % of time).</li>
+    <li><span class="sig">ask(base, hours)</span> — runs ALL_QUESTIONS over [now - hours, now], each
+        guarded by try/except so one bad metric can't kill the catalog.</li>
+    <li><span class="sig">main()</span> — <code>--ws</code> URL, <code>--host</code>/<code>--http-port</code>,
+        <code>--ask</code>, <code>--hours</code>, <code>--once</code> (pump one message and exit, for
+        tests). Pump mode: subscribe &rarr; flatten &rarr; post each message.</li>
+  </ul>
+</div>
+<div class="file" id="x-overlay-html">
+  <div class="file-head"><span class="path">examples/camera/overlay.html</span><span class="meta">821 lines — single-file dashboard</span></div>
+  <p>The live camera dashboard: a single self-contained HTML page (inline CSS + JS, GitHub-dark
+  theme) meant for OBS browser sources. It connects to <code>/ws/metrics</code> for camera telemetry
+  and — when opened with <code>?sqtseries=ws://&lt;host&gt;:&lt;port&gt;/ws/subscribe</code> — also
+  subscribes to sqtseries itself and to the <code>/ws/connections</code> feed, so the dashboard
+  doubles as a demonstration of the time-series database's live path.</p>
+  <h4>Layout</h4>
+  <p>Header (camera id, connection-state badge with animated dot, last-updated), an error banner for
+  simulated feed errors, and cards: People (visible now hero, detected total, per minute),
+  Vehicles, Battery (charge hero, temperature, health), CPU (usage hero, temperature, last-reading
+  age), Detection overlay (status, stream URL, footer), and a large <em>Time-series DB</em> card:
+  connection badge, frame counter, live connected-clients table, ZMQ subscribers table, and an
+  activity log. A collapsible raw-last-message viewer and a footer complete the page.</p>
+  <h4>JavaScript behavior</h4>
+  <ul>
+    <li><span class="sig">render(msg)</span> — updates every metric from one camera message;
+        <span class="sig">refreshAge()</span> re-renders the "last reading" age every second.</li>
+    <li><span class="sig">connect()</span> — camera WS with exponential backoff reconnect
+        (1&rarr;10 s cap); error payloads &rarr; banner.</li>
+    <li><span class="sig">connectDb()</span> — sqtseries WS subscription; records the latest value per
+        <code>metric|camera_id</code> key into a 15-entry Map; ignores <code>{"type":"ping"}</code>
+        keepalives; renders the db table with per-entry age.</li>
+    <li><span class="sig">connectConnWs()</span> — <code>/ws/connections</code> feed: applies the
+        initial snapshot and then <code>conn</code>/<code>sub</code> events
+        (<span class="sig">applyConnEvent</span> / <span class="sig">applySubEvent</span>) to two Maps;
+        <span class="sig">renderClients()</span> renders both tables; activity lines are appended
+        (bounded to 60).</li>
+    <li>Security posture: inline CSS/JS is intentional for this trusted developer-owned artifact
+        (no user input, no third-party content); the sqtseries gateway itself sends strict headers.</li>
+  </ul>
+</div>
+
+<div class="file" id="x-conn-validate">
+  <div class="file-head"><span class="path">examples/camera/conn_validate.py</span><span class="meta">238 lines</span></div>
+  <p>Validates the live connection/subscription feed of a running sqtseries. Connects N WebSocket
+  subscribers and M ZMQ SUB subscribers, watches the push-only <code>/ws/connections</code> feed,
+  and asserts every join and leave arrives instantly with the exact figures. Exits non-zero on any
+  mismatch. This backs the camera dashboard's "Connected clients" / "ZMQ subscribers" tables.</p>
+  <ul>
+    <li><span class="sig">next_msg(ws, timeout)</span> — one JSON frame with a timeout.</li>
+    <li><span class="sig">wait_for(ws, pred, timeout, label)</span> — consume frames until pred;
+        AssertionError with everything seen on timeout.</li>
+    <li><span class="sig">validate(args)</span> — the full scenario:
+      <ol>
+        <li>Connect to /ws/connections; record the baseline snapshot (ids, per-topic zmq counts).</li>
+        <li>Join <code>--clients</code> WebSocket subscribers on distinct topics (<code>v0.</code>...)
+            — assert a matching <code>conn</code> event within timeout, with connected_at.</li>
+        <li>Join <code>--zmq-subs</code> ZMQ subscribers on distinct topics (<code>cpu0.</code>...) —
+            assert <code>sub</code> events with arrived_at, and exact per-topic counts.</li>
+        <li>Cross-check via HTTP /api/v1/connections and /api/v1/subscribers — exact figures beyond
+            the baseline.</li>
+        <li>Leave WS clients one at a time (reverse order) — assert leave events with
+            connected_at &le; left_at.</li>
+        <li>Leave ZMQ subscribers — assert counts return to 0, with left_at &ge; first_seen.</li>
+        <li>Final HTTP check: back to the baseline exactly.</li>
+      </ol></li>
+    <li><span class="sig">parse_args</span> / <span class="sig">main(argv)</span> — CLI with
+        <code>--clients</code> (3), <code>--zmq-subs</code> (2), <code>--timeout</code> (5 s).</li>
+  </ul>
+</div>
+
+<div class="file" id="x-sqtcam-sh">
+  <div class="file-head"><span class="path">examples/camera/sqtcam.sh</span><span class="meta">102 lines</span></div>
+  <p>One command to run the whole demo: starts sqtseries, the overlay simulator, and the camera
+  feed in a tmux session (<code>sqtcam</code>) so data can collect overnight.</p>
+  <ul>
+    <li>Uses a dedicated work dir <code>/tmp/sqtcam</code> with its own config (ports 17101–17106,
+        auto_detect off) — never touches the default service.</li>
+    <li>Prefers the project venv python (<code>~/.env/sqtseries/bin/python3</code>), falls back to
+        <code>python3</code>.</li>
+    <li>Window 1: <code>python3 -m sqtseries --config conf.toml run</code>. Window 2: the overlay
+        server, logging to <code>overlay.log</code>. It then greps the log for the overlay's reported
+        WebSocket port and starts window 3: <code>camera_feed.py --ws ws://localhost:PORT/ws/metrics
+        --http-port 17105</code>.</li>
+    <li>Re-running prints attach instructions instead of duplicating the session.</li>
+  </ul>
+</div>
+
+<!-- ================================================================ -->
+<!-- 13. SCRIPTS                                                       -->
+<!-- ================================================================ -->
+<h1 id="scripts">13. scripts/benchmark.py</h1>
+<div class="file" id="scripts-file">
+  <div class="file-head"><span class="path">scripts/benchmark.py</span><span class="meta">182 lines</span></div>
+  <p>Reproducible performance benchmark: SQLite insert throughput + query latency, measuring the
+  raw engine and the rollup fast path. Data is written at evenly spaced intervals over
+  <code>--span-hours</code> across <code>--series</code> series, ending on a completed hour boundary
+  two hours in the past so every measurement is rollable.</p>
+  <ul>
+    <li><span class="sig">_completed_hour_end()</span> — start of a completed hour two hours back.</li>
+    <li><span class="sig">_data_bounds(engine)</span> — global MIN/MAX timestamp across partitions.</li>
+    <li><span class="sig">bench_inserts(db_path, rows, batch, series, span_hours) -> dict</span> —
+        inserts rows in batches via <code>store.insert_many</code>, tags <code>{host, id}</code>; returns
+        rows/seconds/rows_per_sec.</li>
+    <li><span class="sig">run_queries(db_path, n) -> dict</span> — measures p50/p95 latencies for:
+        (1) raw single-series 1 h range (clustered PK path); (2) the wide-window avg/1h query
+        before rollup (raw path); (3) the same query after <code>rollup_new_hours</code> — and
+        reports the <code>speedup</code> ratio.</li>
+    <li><span class="sig">main()</span> — <code>--db</code>, <code>--rows</code> (200k),
+        <code>--batch</code> (5000), <code>--series</code> (1000), <code>--span-hours</code> (24),
+        <code>--queries</code> (100).</li>
+  </ul>
+</div>
+</div>
+<!-- ================================================================ -->
+<!-- 14. TESTS                                                         -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="tests">14. Tests (54 files + conftest.py)</h1>
+<p>The suite is self-contained: every test uses a temp database under <code>tmp_path</code> — no
+pre-existing data or running service required. Service-spawning tests use OS-assigned free ports
+(<code>free_port()</code>), so nothing clashes with a local instance. <code>asyncio_mode = "auto"</code>
+awaits async tests without markers; a 60 s pytest-timeout guards hangs. Run:
+<code>python3 -m pytest tests/ -q</code>.</p>
+
+<div class="file" id="t-conftest">
+  <div class="file-head"><span class="path">tests/conftest.py</span><span class="meta">85 lines</span></div>
+  <ul>
+    <li><span class="sig">free_port()</span> — OS-assigned free port (bind port 0).</li>
+    <li><span class="sig">@pytest.fixture free_ports</span> — six distinct free ports for one service
+        instance (ingest/query/streaming/admin/http/stats).</li>
+    <li><span class="sig">@pytest.fixture(autouse=True) _silence_sqtseries_logs</span> — routes
+        "sqtseries" stdlib loggers to CRITICAL so background tasks don't flood test output.</li>
+    <li><span class="sig">@pytest.fixture tmp_db_path</span> — <code>tmp_path/data/test.sqlite</code>.</li>
+    <li><span class="sig">@pytest.fixture sample_toml / sample_json</span> — sample config files with
+        ports in the 14xxx range.</li>
+  </ul>
+</div>
+
+<div class="file" id="t-groups">
+  <div class="file-head"><span class="path">tests/ — every module with its test functions</span><span class="meta">~8.5k lines</span></div>
+  <p>Grouped by area (per tests/README.md and the code). Test names below each module summarize the
+  covered behaviors.</p>
+
+  <h4>Engine: schema, storage, PRAGMAs, durability</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_engine.py</code></td><td>tables_created, series_tables_without_rowid, secondary_timestamp_index, unique_series_index, resolve_creates_new, resolve_not_found, resolve_deduplicates, series_meta, insert_many_returns_count, insert_empty, insert_bulk_partitions, range_query(+desc), range_query_missing_metric, range_query_requires_arg, quick_check_ok, checkpoint_passive, idempotent_schema_init</td></tr>
+  <tr><td><code>test_store_edge.py</code></td><td>month_boundary_split, leap_year_feb29, negative_timestamp, nan_value_rejected_at_insert, inf_value, empty_insert_returns_zero, resolve_missing_no_create, get_series_meta_missing, series_ids_empty_metric, list_metrics_unique, no_auto_create_partition, lru_cache_eviction, limit, desc_order, start_gt_end_returns_empty, partitions_for_range_multi_month</td></tr>
+  <tr><td><code>test_db.py</code></td><td>result_fetch_helpers, result_iter, connection_commit_rollback_close, execute_error_closes_cursor, executemany_error_path, connect_is_reader_writes_dont_persist, begin_commits_on_success, begin_rolls_back_on_exception, database_execute_persists_writes, executescript, dbapi, missing_parent_dir</td></tr>
+  <tr><td><code>test_pragmas.py</code></td><td>wal_enabled, synchronous_normal, busy_timeout, foreign_keys_on, page_size, quick_check_ok, run_optimize, incremental_vacuum, auto_vacuum_incremental</td></tr>
+  <tr><td><code>test_persistence.py</code></td><td>data_survives_restart, backup_is_restorable, backup_consistent_while_writing</td></tr>
+  </table>
+
+  <h4>Query: builder, aggregations, rollup fast path</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_query.py</code></td><td>all_rows, time_range, no_metric, order_desc, aggregate_default_avg, aggregate_multiple, whole_window_aggregation, interval_buckets, interval_avg, median, p95_p99, aggregate_functions, bad_aggregation, gap_fill, downsample_buckets, query_stream, missing_series_stream, empty_range, limit</td></tr>
+  <tr><td><code>test_agg_edge.py</code></td><td>percentile edge cases: single_value, two_values, exact_index, empty; empty-window NaN/0 semantics; first/last; unsupported_func; parse_interval valid/empty/zero/unsupported; fill_missing gap buckets; gap_fill_linear thresholds; downsampling</td></tr>
+  <tr><td><code>test_rollup.py</code></td><td>rollup_aggregates, rollup_replace</td></tr>
+  <tr><td><code>test_rollup_query.py</code></td><td>query_matches_raw, aggregate_matches_raw, window_within_one_hour, window_crossing_boundary, empty_window, limit, trailing_edge_current_hour, non_expressible_funcs_fall_back, non_aligned_interval_falls_back, no_rollup_data_falls_back, tail_beyond_watermark_falls_back, eligible_uses_rollup, watermark_and_idempotence</td></tr>
+  <tr><td><code>test_property.py</code></td><td>Hypothesis invariants: roundtrip_exact, series_identity_stable, aggregate_count_matches, aggregate_sum_matches_python, min_max_bounds, downsample_counts_conserve, downsample_sum_conserves, month_crossing_query_complete, rollup_matches_raw_for_windows</td></tr>
+  </table>
+
+  <h4>Messaging: transports, protocol, pub/sub</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_messaging.py</code></td><td>ingest_roundtrip, invalid_json_counted, publish_delivery, subscription_lifecycle, rep_query, broker_error_handling, runs_steps, invalid_size</td></tr>
+  <tr><td><code>test_messaging_edge.py</code></td><td>run_once_before_start_raises, no_handler_returns_invalid_request, invalid_request_reply, handler_error_reply, router_mode_with_dealer, router_missing_payload, invalid_message_counted, skew_rejected, overflowing_timestamp_counted_invalid, recv_error_counted, publish_before_start_raises, step_error_continues, size_zero_raises</td></tr>
+  <tr><td><code>test_protocol.py</code></td><td>dumps/loads roundtrip, invalid_json, ingest validation (metric/value/tags/timestamp), to_rows_uses_server_time, skew_rejected_when_configured, query type/metric/start validation, admin cmd validation</td></tr>
+  <tr><td><code>test_protocol_fuzz.py</code></td><td>Hypothesis fuzz-lite: parse_ingest/parse_query/parse_admin never crash on arbitrary input; valid shapes accepted or ProtocolError; loads arbitrary bytes; roundtrip; int bounds</td></tr>
+  <tr><td><code>test_zmq_edge.py</code></td><td>slow_joiner_loses_early_messages (PUB/SUB semantics), rep_serves_sequential_requests, cleanup_expires_lingering, stats_active_lingering, resubscribe_clears_linger, published_counter, shared_topic_counts_and_decrements</td></tr>
+  </table>
+
+  <h4>Gateway: REST, WebSocket, rate limiting</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_gateway.py</code></td><td>write_single, write_batch, write_invalid_metric, write_bad_body, read_empty, read_data, read_aggregation, read_missing_metric_param, aggregate_multiple, aggregate_bad_func, health, request_id_header, cors_headers, headers_present, headers_on_error_response, stats, ws_subscribe_receives, http_write_publishes_to_ws, ws_connections_push, ws_connections_no_listener_leak, slow_aggregate_does_not_stall_health</td></tr>
+  <tr><td><code>test_gateway_edge.py</code></td><td>full 400 catalog: empty/missing metric, non-numeric/bool values, bad tags, invalid timestamps, non-object body, array with invalid item, huge integer value/timestamp &rarr; 400 (incl. int64 boundary), batch no-timestamps single transaction, bad aggregation, 422s (order pattern, missing metric, limit over max), far-past timestamp rejection, stats, health</td></tr>
+  <tr><td><code>test_ratelimit.py</code></td><td>allows_under_limit, rejects_over_limit, window_resets, different_clients_independent, xff_header_does_not_bypass_limit, hits_table_bounded_within_single_window</td></tr>
+  <tr><td><code>test_websocket_edge.py</code></td><td>topic_prefix_filtering, http_write_reaches_subscriber, keepalive_ping_after_idle, message_order_preserved, large_payload_round_trip, malformed_client_data_does_not_break_stream, abrupt_client_disconnect_others_unaffected, oversized_inbound_frame_closes_connection (1009), slow_subscriber_does_not_block_others, rapid_churn_registry_and_listeners_converge, many_concurrent_subscribers, close_1008_when_no_pubsub, cap_closes_overflow_with_1013</td></tr>
+  </table>
+
+  <h4>Client, service lifecycle, CLI</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_client.py</code></td><td>write_then_query, write_many, query_aggregation, query_missing_metric_returns_empty, subscribe_streams, close_idempotent, write_then_close_flushes (the consumer-close tests the 2 s linger), query_timeout_recovers, admin ping/health/stats/unknown/optimize/backup/vacuum, query_error_raises, admin_error_raises</td></tr>
+  <tr><td><code>test_service.py</code></td><td>start_shutdown, invalid_config_raises, query_handler, health, starts_with_configured_logging, http_gateway_is_served, rollup_manager_wired, rollup_serves_aggregates</td></tr>
+  <tr><td><code>test_service_edge.py</code></td><td>start_failure_cleans_up_and_raises, sink_insert_failure_swallowed, publish_failure_swallowed, query_handler_not_ready, admin_handler_not_ready, negative_limit_invalid_query, admin_backup_failure, admin_vacuum_busy, unknown_admin_command</td></tr>
+  <tr><td><code>test_lifecycle_shutdown.py</code></td><td>clean_run_exits_promptly, exits_promptly_after_ws_disconnect, exits_promptly_with_ws_open_at_sigterm, stop_waits_removes_runtime_and_frees_ports, streams_frames_and_cleans_registry, graceful_shutdown_timeout_configured, sighup_terminates_overlay, overlay_dies_when_tmux_session_killed</td></tr>
+  <tr><td><code>test_cli.py</code></td><td>help, version, start_help, subcommand_smoke, python_m_sqtseries</td></tr>
+  <tr><td><code>test_cli2.py</code></td><td>all_commands_registered, version, health_ok_on_fresh_db, stats_empty, vacuum, optimize, backup, status_not_running, ports_not_running, unit_template, unit_name_const, install_writes_unit_to_home, uninstall_removes_unit, run_rejects_invalid_config</td></tr>
+  <tr><td><code>test_cli_edge.py</code></td><td>stop_not_running, stop_stale_pid, status_stale_runtime</td></tr>
+  <tr><td><code>test_cli_db.py</code></td><td>--db flag behavior: stats_reads_flagged_db, ports_show_flagged_db_when_not_running, status_flags_conflict, status_silent_when_dbs_match, run_refuses_conflicting_db, run_refuses_same_db_already_served, stop_refuses_wrong_db, stop_reaches_kill_with_matching_db, template_includes_config_when_passed, template_omits_config_when_absent, install_writes_config_file</td></tr>
+  </table>
+
+  <h4>Config, health, runtime, ports, recovery, backup, maintenance, retention</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_config.py</code></td><td>defaults_apply, version_accessible, load_from_toml, load_from_json, load_missing_file_raises, load_default, path_expands_home, env_overrides_defaults, env_overrides_file, env_nested_value, env_leaf_excluded_from_file_override, valid_settings_have_no_errors, invalid_port_range, duplicate_ports</td></tr>
+  <tr><td><code>test_config_edge.py</code></td><td>unsupported_extension_raises, json_non_mapping_raises, json_invalid_raises, yaml_requires_pyyaml, batch_size_over_limit, hwm_below_one, pending_max_below_one, invalid_rollup_interval, invalid_retention_ttl, invalid_maintenance_interval, stats_port_collision_reported, stats_port_range_reported, db_path_expanded</td></tr>
+  <tr><td><code>test_health.py</code></td><td>collect_health_ok, collect_health_degraded_on_corrupt, is_ready</td></tr>
+  <tr><td><code>test_runtime.py</code></td><td>write_read_roundtrip, read_missing, remove, corrupt_file</td></tr>
+  <tr><td><code>test_ports.py</code></td><td>alloc_returns_free_port, alloc_skips_used, alloc_deducts_internally, release, exhausted, fixed_port_in_use, offset, auto_detect_never_picks_a_fixed_port</td></tr>
+  <tr><td><code>test_recovery.py</code></td><td>quick_check_clean, recover_wal, strict_raises_on_corrupt, non_strict_corrupt_returns_problem_count</td></tr>
+  <tr><td><code>test_backup.py</code></td><td>backup_creates_valid_file, backup_dir_created, backup_same_second_raises, latest_returns_none_when_empty</td></tr>
+  <tr><td><code>test_backup_and_timeout.py</code></td><td>slow_handler_times_out, fast_handler_with_timeout_succeeds, no_timeout_means_synchronous, service_enforces_configured_timeout, run_once_creates_snapshot, skips_fresh_snapshot, start_stop_lifecycle, is_fresh_helper, backup_interval_validated, disabled_backup_not_validated, service_creates_backups_on_schedule, disabled_backup_no_manager, zero_timeout_runs_handler, admin_conncheck_ids</td></tr>
+  <tr><td><code>test_maintenance.py</code></td><td>parse_checkpoint_result, maintenance_runs_analyze_after_interval, checkpoint_detects_blocked_readers, checkpoint_no_wal_no_tracking</td></tr>
+  <tr><td><code>test_partition.py</code></td><td>list_empty_plus_current, ensure_creates, rotation_current_month, drop_partition, store_auto_creates_partition</td></tr>
+  <tr><td><code>test_retention.py</code></td><td>parses, invalid, retains_recent_only, run_drops, no_drop_when_within_ttl, drop_removes_rollup_rows, drop_rollup_when_no_rollup_table, manager_drops_and_invalidates, manager_start_stop</td></tr>
+  </table>
+
+  <h4>Connection tracking, async cleanup, concurrency, regressions, docs claims, stress</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_connection_tracking.py</code></td><td>register/unregister ws, unregister idempotent, list_connections, zmq_sub_tracking, active_topics, snapshot, event_callbacks, new_connection_id, ws_churn_no_accumulation, remove_listener_idempotent, event_timestamps, unregister_unknown_emits_nothing, zmq_first_seen_round_trip, PubSub start/publish/stop, emit_report, on_registry_event_after_stop, stop_unhooks_registry_listener, xpub_subscription_tracking, admin connections/conncheck/subscribers (empty and with live ws/zmq)</td></tr>
+  <tr><td><code>test_async_cleanup.py</code></td><td>stop_cancels_running_tasks, step_after_stop_no_work, managers_stop_idempotent, pubsub_stop_awaits_reader, stats_publisher_stop_awaits_and_drains, subscription_lingering_bounded_without_publishes, shutdown_drains_publish_tasks, shutdown_twice_safe, restart_no_registry_listener_growth</td></tr>
+  <tr><td><code>test_concurrency.py</code></td><td>concurrent_writers_no_loss, concurrent_readers, wal_reader_during_write</td></tr>
+  <tr><td><code>test_regressions.py</code></td><td>QA-audit guards: sigterm_exits_zero, nan_value_rejected, desc_is_globally_descending, desc_limit_returns_newest, query_after_drop_no_error, failed_insert_leaves_no_orphan_series, late_write_within_skew_is_served_correctly, skew_cutoff_excludes_fresh_hours, invalid_item_rejects_whole_batch, anchor_consistent_asc_desc, empty_env_var_treated_unset, case_variant_env_wins, config_file_with_config_file_key, alloc_skips_reserved, file_expands_home_and_creates_dir, health_degraded_on_corrupt</td></tr>
+  <tr><td><code>test_docs_claims.py</code></td><td>verifies docs behaviors: http_read_uses_seconds, client_query_uses_nanoseconds, invalid_query_code, db_path_env_var, config_file_env_var, rate_limit_env_var, health_reply_fields, stats_reply_keys, optimize_reply_field, context_manager, series_ids_query, status_shows_running</td></tr>
+  <tr><td><code>test_edge_cases.py</code></td><td>partition_drop_during_query, max_batch_size, timestamp_skew_rejection</td></tr>
+  <tr><td><code>test_misc_edge.py</code></td><td>python_m_sqtseries_version, checkpoint_failure_does_not_crash, write_with_timestamp, query_with_limit_and_order, get_series_meta_missing</td></tr>
+  <tr><td><code>test_resource_leaks.py</code></td><td>no_resource_warnings_from_db_api, fd_stable_across_operations, lru_caches_clear_on_close, zmq_client_close_no_fd_leak, zmq_contexts_terminate</td></tr>
+  <tr><td><code>test_stress.py</code></td><td>sustained_bursts_ok, no_fd_leak</td></tr>
+  <tr><td><code>test_stress_concurrent.py</code></td><td>rapid_sub_connect_disconnect, admin_during_churn, stats_immediate_emit, ingest_with_subscribers, conncheck_returns_correctly, stats_report_loop_runs</td></tr>
+  <tr><td><code>test_logging.py</code></td><td>console_logger, json_logger, file_output, logger_emits_structured_keywords</td></tr>
+  <tr><td><code>test_systemd_edge.py</code></td><td>install_writes_and_enables, install_system_uses_no_user_prefix, uninstall_disables_and_removes, uninstall_system, template_quotes_python_with_spaces, template_defaults</td></tr>
+  </table>
+
+  <h4>Example runners and browser tests</h4>
+  <table>
+  <tr><th>File</th><th>Test functions / coverage</th></tr>
+  <tr><td><code>test_examples_run.py</code></td><td>answers_all_four_readme_questions, all_answer_lines_present, producer_and_consumer, ingest_http_then_read, admin_examples, query_examples_every_query_type, tags_examples, run_custom_lifecycle</td></tr>
+  <tr><td><code>test_question_examples_advanced.py</code></td><td>advanced_catalog_runs, per_series_questions_need_db, per_series_with_db_works, utc_day_start</td></tr>
+  <tr><td><code>test_camera_feed.py</code></td><td>flatten_message, flatten_skips_strings_and_missing, flatten_error_payload, ask_on_empty_db_no_errors, ask_single_point, ask_after_real_pump, ask_q8_recharge_message, random_port_mode, serves_live_dashboard_html</td></tr>
+  <tr><td><code>test_camera_overlay_page.py</code></td><td>Playwright (headless Chromium): connects_and_renders_live_values, reconnects_after_server_restart, subscribes_to_sqtseries, db_reconnects_after_sqtseries_restart, connected_clients_live, conn_validate_script</td></tr>
+  </table>
+
+  <h4>Per-file legend (files with no explicit test list)</h4>
+  <p class="small"><code>test_cli.py</code>/<code>test_cli2.py</code>/<code>test_cli_db.py</code>/<code>test_cli_edge.py</code> cover the CLI;
+  <code>test_gateway_edge.py</code>/<code>test_websocket_edge.py</code> cover gateway edge cases;
+  <code>test_service*.py</code> cover the daemon lifecycle; <code>test_zmq_edge.py</code> covers ZMQ semantics — all listed above.</p>
+</div>
+
+<!-- ================================================================ -->
+<!-- 15. DOCS DIRECTORY                                                -->
+<!-- ================================================================ -->
+<h1 id="docs-dir">15. docs/ Directory</h1>
+<p>A hand-written documentation site (HTML + style.css + app.js), not generated. It powers the
+README links and is itself validated by <code>test_docs_claims.py</code>. Pages:</p>
+<table>
+<tr><th>Page</th><th>Covers</th></tr>
+<tr><td><code>index.html</code></td><td>What it is, try it, camera demo, ports</td></tr>
+<tr><td><code>quickstart.html</code></td><td>Install &rarr; write &rarr; query &rarr; subscribe &rarr; systemd</td></tr>
+<tr><td><code>configuration.html</code></td><td>Every setting, config file formats, env vars, port rules</td></tr>
+<tr><td><code>ingestion.html</code></td><td>Writing via ZMQ/HTTP/Client, tags, timestamps, the skew guard</td></tr>
+<tr><td><code>queries.html</code></td><td>Ranges, aggregations, intervals, downsampling, gap fill</td></tr>
+<tr><td><code>streaming.html</code></td><td>Live data via SUB, WebSocket, Client; stats events</td></tr>
+<tr><td><code>camera.html</code></td><td>The 17-question camera walkthrough</td></tr>
+<tr><td><code>clients.html</code></td><td>Python, Go, Rust, PHP, Node.js samples</td></tr>
+<tr><td><code>api.html</code></td><td>Embedded API, Client, CLI, wire protocol, admin commands</td></tr>
+<tr><td><code>architecture.html</code></td><td>Engine layout, schema, write path, rollup design, error handling</td></tr>
+<tr><td><code>backup.html</code></td><td>Backup/restore procedure, vacuum</td></tr>
+<tr><td><code>systemd.html</code></td><td>Service hardening, dedicated user setup</td></tr>
+<tr><td><code>examples.html</code></td><td>Real-world scenario walkthroughs</td></tr>
+<tr><td><code>benchmarks.md</code></td><td>Reproducible performance numbers</td></tr>
+</table>
+<p>Supporting assets: <code>style.css</code>, <code>app.js</code> (theme toggle + TOC), <code>favicon.svg</code>.</p>
+</div>
+<!-- ================================================================ -->
+<!-- 16. WIRE PROTOCOL                                                 -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="protocol">16. Wire Protocol Reference</h1>
+<p>Both transports carry the same JSON shapes. Timestamps: <em>seconds</em> on the wire
+(ingest/HTTP and returned rows); ZMQ query <em>bounds</em> are nanoseconds; HTTP query bounds are
+seconds.</p>
+
+<h3>16.1 Ingest (ZMQ PUSH &rarr; 12501, or POST /api/v1/write)</h3>
+<pre>{"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}, "timestamp": 1691234567.5}
+(fields: metric required non-empty string; value required finite number (no bool);
+ tags optional string→string object; timestamp optional finite number, epoch seconds)</pre>
+<p class="note">Clock-skew guard: a client timestamp more than <code>reject_client_timestamp_skew_s</code>
+(300 s default) from server time is rejected (ProtocolError / HTTP 400). This protects the
+rollup's in-order assumption. HTTP accepts a single object or an array (atomic batch).</p>
+
+<h3>16.2 Query (ZMQ REQ &rarr; 12502, or GET /api/v1/read, /api/v1/aggregate)</h3>
+<pre>{"type": "query", "metric": "cpu.usage", "start": 1691234567000000000, "end": 1691238167000000000,
+ "aggregation": "avg", "interval": "1h", "limit": 100, "order": "asc"}
+{"type": "query", "metric": "cpu.usage", "aggregations": "avg,min,max,p95", "start": ..., "end": ...}
+
+reply ok:  {"status": "ok", "data": [{"timestamp": 1691234567, "value": 0.72}, ...]}
+            or {"status": "ok", "data": {"avg": 1.1, "min": 0.2, ...}} for aggregations
+reply err:  {"status": "error", "error": {"code": "INVALID_QUERY|INVALID_REQUEST|QUERY_TIMEOUT|INTERNAL_ERROR",
+             "message": "..."}}</pre>
+<p>HTTP adds validation: <code>limit</code> 1–100000, <code>order</code> ^(asc|desc)$; errors use HTTP status
+(400/422/504) with the same message style. Aggregations (both transports):
+<code>avg, sum, min, max, count, first, last, median, p95, p99</code>.</p>
+
+<h3>16.3 Streaming (ZMQ XPUB &rarr; 12503 SUB, or WS /ws/subscribe)</h3>
+<pre>two-part frame: [topic, payload]     topic = metric name
+payload: {"metric": "cpu.usage", "tags": {...}, "value": 0.72}
+WebSocket: same payload as text frames, plus {"type": "ping"} keepalive when idle ≥30 s</pre>
+
+<h3>16.4 Admin (ZMQ REQ &rarr; 12504) — commands and reply highlights</h3>
+<table>
+<tr><th>Command</th><th>Request</th><th>Reply highlights</th></tr>
+<tr><td><code>ping</code></td><td><code>{"cmd": "ping"}</code></td><td><code>{"status": "ok", "pong": true}</code></td></tr>
+<tr><td><code>health</code></td><td><code>{"cmd": "health"}</code></td><td>status ok|degraded, version, uptime, database bool</td></tr>
+<tr><td><code>stats</code></td><td><code>{"cmd": "stats"}</code></td><td>uptime_s, ingested, invalid, ingest_errors, queries, admin_requests, wal_bytes, checkpoints, checkpoint_busy_runs, analyze_runs, retention_runs, partitions_dropped, backup_runs, backups_created, last_backup, published, subscribers, series, metrics</td></tr>
+<tr><td><code>optimize</code></td><td><code>{"cmd": "optimize"}</code></td><td><code>{"optimized": true}</code></td></tr>
+<tr><td><code>backup</code></td><td><code>{"cmd": "backup"}</code></td><td><code>{"path": "..."}</code> or BACKUP_FAILED</td></tr>
+<tr><td><code>vacuum</code></td><td><code>{"cmd": "vacuum"}</code></td><td><code>{"vacuumed": true}</code> or VACUUM_BUSY (stop the service for full VACUUM)</td></tr>
+<tr><td><code>connections</code></td><td><code>{"cmd": "connections"}</code></td><td>data: [{id, kind, peer, topic, connected_at}]</td></tr>
+<tr><td><code>conncheck</code></td><td><code>{"cmd": "conncheck", "ids": [...]}</code></td><td>present: [ids that are connected]</td></tr>
+<tr><td><code>subscribers</code></td><td><code>{"cmd": "subscribers"}</code></td><td>zmq_subscribers, subscriptions: [{topic, subscribers, first_seen}]</td></tr>
+</table>
+
+<h3>16.5 Stats events (ZMQ PUB &rarr; 12506)</h3>
+<pre>topic "conn":   {"kind": "ws", "id": ..., "peer": ..., "topic": ..., "connected": true|false,
+                 "connected_at": ..., "left_at": ...}
+topic "sub":    {"kind": "zmq", "topic": ..., "subscribers": n, "arrived_at": ..., "left_at": ..., "first_seen": ...}
+topic "report": {"uptime_s": ..., "ws_connections": n, "zmq_subscribers": n, "active_topics": n}</pre>
+
+<h3>16.6 WS /ws/connections (push-only monitoring feed)</h3>
+<pre>{"type": "snapshot", "ws_connections": n, "zmq_subscribers": n, "connections": [...], "subscriptions": [...]}
+then one frame per change: {"type": "conn", ...} / {"type": "sub", ...}</pre>
+</div>
+
+<!-- ================================================================ -->
+<!-- 17. DATA FLOWS                                                    -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="flows">17. End-to-End Data Flows</h1>
+
+<h3>17.1 Write path (ZMQ)</h3>
+<pre>producer (PUSH) ──frame──► Ingress.run_once ──► _handle:
+    orjson.loads ─► parse_ingest (+skew guard) ─► _sink("cpu.usage", tags, 0.72, ts_ns)
+        │                                                 │
+        │                                                 ▼
+        │                                     StorageEngine.insert_many (ONE transaction:
+        │                                     resolve series, create partition if needed,
+        │                                     executemany into measurements_YYYY_MM)
+        ▼
+    on_publish(metric, {metric, tags, value}) ─► PubSub.publish ─► [topic, json] on XPUB 12503
+                                                      └─► WS /ws/subscribe clients via SUB socket</pre>
+
+<h3>17.2 Write path (HTTP)</h3>
+<p><code>POST /api/v1/write</code> &rarr; validate the whole body (400 on any bad row) &rarr; one-transaction
+<code>insert_many</code> (batch) &rarr; best-effort <code>_broadcast</code> to PubSub &rarr;
+<code>{"status": "ok", "written": n}</code>. Timestamp-less rows in a batch get distinct server-ns values
+so the clustered PK can't collide.</p>
+
+<h3>17.3 Query path</h3>
+<pre>Client.query / HTTP /read ─► TimeSeriesDB.query
+    │
+    ├─ _rollup_eligible? ─── no ─► raw fetch (query_time_range per partition)
+    │                              └► downsample / whole-window aggregate / gap-fill in Python
+    │
+    └─ yes ─► _rollup_window_partials: raw LEFT edge hour + rollup MIDDLE hours
+              (query_rollup_partial) + raw RIGHT tail ─► _merge_partials ─► _finalize_buckets
+              (or whole-window _value anchored at first_sample_ts)
+              └► [{"timestamp": ts_s, "value": v}, ...]</pre>
+
+<h3>17.4 Rollup background job</h3>
+<pre>every rollup.interval (5m): rollup_new_hours(db, skew_s=300)
+    completed = floor(now - skew) to the hour
+    watermark = rollup_meta.last_hour
+    for each partition intersecting [watermark, completed):
+        GROUP BY series_id, hour ─► INSERT OR REPLACE INTO rollup_hourly
+    advance rollup_meta.last_hour = completed</pre>
+
+<h3>17.5 Retention background job</h3>
+<pre>every check_interval (1h): RetentionPolicy.run()
+    horizon = now - ttl (30d)
+    drop partitions whose LAST day &lt; horizon  (DROP TABLE + DELETE their rollup_hourly hours)</pre>
+
+<h3>17.6 Lifecycle</h3>
+<pre>sqtseries run ─► conflict check vs runtime.json ─► migrate + quick_check + recover_wal
+  ─► start managers ─► bind ZMQ sockets ─► start uvicorn ─► ANALYZE ─► write runtime.json
+  ─► wait for SIGINT/SIGTERM
+  ─► stop managers ─► stop sockets ─► uvicorn.should_exit ─► drain publishes ─► optimize
+  ─► TRUNCATE checkpoint ─► dispose engine ─► remove runtime.json</pre>
+</div>
+
+<!-- ================================================================ -->
+<!-- 18. GLOSSARY                                                     -->
+<!-- ================================================================ -->
+<div class="part">
+<h1 id="glossary">18. Glossary</h1>
+<table>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td><strong>Measurement</strong></td><td>One data point: metric + value (+ tags + timestamp).</td></tr>
+<tr><td><strong>Metric</strong></td><td>Named series identifier, e.g. <code>cpu.usage</code>. Queries address whole metrics over the wire.</td></tr>
+<tr><td><strong>Series</strong></td><td>The unique <code>(metric, tags)</code> combination; owned by a <code>series_id</code>.</td></tr>
+<tr><td><strong>Tags</strong></td><td>String&rarr;string dimensions on a measurement; each distinct set creates a new series.</td></tr>
+<tr><td><strong>Partition</strong></td><td>Monthly table <code>measurements_YYYY_MM</code> (WITHOUT ROWID, PK series_id+timestamp_ns); created lazily, dropped by retention.</td></tr>
+
+<tr><td><strong>Watermark</strong></td><td><code>rollup_meta.last_hour</code> — the next hour the rollup still has to aggregate.</td></tr>
+<tr><td><strong>Skew guard</strong></td><td><code>reject_client_timestamp_skew_s</code> — rejects client timestamps too far from server time; keeps the rollup strictly in order.</td></tr>
+<tr><td><strong>TTL</strong></td><td>Retention horizon ("30d") after which whole partitions are dropped.</td></tr>
+<tr><td><strong>WAL</strong></td><td>SQLite Write-Ahead Log journal — crash-atomic writes; checkpointed by CheckpointManager and on shutdown.</td></tr>
+<tr><td><strong>HWM</strong></td><td>ZeroMQ high-water mark — queue limit before backpressure/drop.</td></tr>
+<tr><td><strong>XPUB</strong></td><td>PUB socket that also receives subscription events — used to track ZMQ subscribers exactly.</td></tr>
+<tr><td><strong>XPUB_VERBOSER</strong></td><td>libzmq option emitting a subscription event for EVERY join/leave (not only topic-trie transitions).</td></tr>
+<tr><td><strong>runtime.json</strong></td><td>File next to the database recording pid, active ports, db path, start time; written on start, removed on clean shutdown.</td></tr>
+<tr><td><strong>fast path</strong></td><td>The rollup-accelerated query path; falls back to raw scanning when ineligible.</td></tr>
+<tr><td><strong>embedded API</strong></td><td>Direct in-process Python API (StorageEngine/TimeSeriesDB on the DB file) — required for per-series reads the wire protocol can't express.</td></tr>
+</table>
+</div>
+
+</body>
+</html>
