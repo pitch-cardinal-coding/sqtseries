@@ -3,109 +3,58 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sqtseries — Complete Codebase Guide</title>
-<style>
-/* ============ Print/PDF-focused stylesheet (self-contained) ============ */
-@page { size: A4; margin: 15mm 13mm 16mm 13mm; }
-html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body {
-  font-family: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
-  font-size: 9.6pt; line-height: 1.42; color: #1c2733; margin: 0;
-}
-h1, h2, h3, h4, h5 { font-weight: 600; color: #0d2b45; line-height: 1.25; margin: 1.1em 0 0.45em; }
-h1 { font-size: 19pt; border-bottom: 2px solid #0969da; padding-bottom: 6px; }
-h2 { font-size: 14.5pt; border-bottom: 1px solid #9fb6c9; padding-bottom: 4px; }
-h3 { font-size: 12pt; }
-h4 { font-size: 10.5pt; }
-h5 { font-size: 9.8pt; margin: 0.9em 0 0.25em; color: #17456e; }
-p { margin: 0.45em 0; }
-ul, ol { margin: 0.35em 0 0.5em; padding-left: 1.5em; }
-li { margin: 0.18em 0; }
-
-code {
-  font-family: "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace;
-  font-size: 8.4pt; background: #eef1f5; border: 1px solid #dde3ea; border-radius: 3px;
-  padding: 0 3px; color: #16324f;
-}
-pre {
-  font-family: "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace;
-  font-size: 8.1pt; line-height: 1.38; background: #f4f6f9; border: 1px solid #d8dee5;
-  border-left: 4px solid #0969da; border-radius: 4px; padding: 7px 10px;
-  white-space: pre-wrap; word-wrap: break-word; margin: 0.5em 0; page-break-inside: avoid;
-}
-pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
-table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 8.8pt; }
-th { text-align: left; background: #e8eef4; border: 1px solid #c3cedb; padding: 4px 7px; font-weight: 600; }
-td { border: 1px solid #c3cedb; padding: 3.5px 7px; vertical-align: top; }
-tr { page-break-inside: avoid; }
-a { color: #0969da; text-decoration: none; }
-a:hover { text-decoration: underline; }
-hr { border: none; border-top: 1px solid #c3cedb; margin: 1.2em 0; }
-.small { font-size: 8.2pt; color: #5a6b7c; }
-.muted { color: #5a6b7c; }
-
-/* ---------- structure ---------- */
-.part { page-break-before: always; }
-.cover { page-break-after: always; text-align: center; padding-top: 12mm; }
-.cover h1 { font-size: 26pt; border: none; margin-bottom: 4px; }
-.cover .subtitle { font-size: 13pt; color: #44586c; margin-bottom: 18px; }
-.cover .badge-row { margin: 14px 0; }
-.cover .badge {
-  display: inline-block; border: 1px solid #9fb6c9; border-radius: 999px;
-  background: #eef4fa; padding: 3px 12px; margin: 3px; font-size: 9pt; color: #1c3c5c;
-}
-.cover .mono { font-family: Consolas, Menlo, monospace; font-size: 9pt; background: #eef1f5; border: 1px solid #dde3ea; border-radius: 3px; padding: 1px 5px; }
-
-/* ---------- file sections ---------- */
-.file { margin: 0 0 1.4em; }
-.file-head {
-  margin-top: 1.3em;
-  border: 1px solid #b9cbdc; border-left: 5px solid #0969da; border-radius: 5px;
-  background: #eef4fa; padding: 5px 10px; page-break-inside: avoid;
-}
-.file-head .path { font-family: Consolas, Menlo, monospace; font-size: 10.5pt; font-weight: 700; color: #0d2b45; }
-.file-head .meta { font-size: 8pt; color: #58697b; }
-.file-head .purpose { font-size: 9pt; color: #2c3e52; margin-top: 1px; }
-
-.sym { margin: 0.55em 0 0.75em; page-break-inside: avoid; }
-.sym .sig {
-  font-family: "SF Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
-  font-size: 8.6pt; background: #f4f8fc; border: 1px solid #c9d8e8; border-radius: 3px;
-  padding: 3px 8px; display: inline-block; margin: 0.25em 0; color: #0b3d6e; word-break: break-all;
-}
-.sym .kind { font-size: 7.6pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #0969da; }
-.sym .desc { margin: 0.25em 0 0.3em; }
-.const { margin: 0.3em 0 0.6em; page-break-inside: avoid; }
-.const .sig { font-family: Consolas, Menlo, monospace; font-size: 8.6pt; background: #f6f3ec; border: 1px solid #ddd2b8; border-radius: 3px; padding: 2px 6px; color: #6b4d0a; }
-.note { border-left: 3px solid #d29922; background: #fdf9ec; padding: 4px 9px; margin: 0.5em 0; border-radius: 0 4px 4px 0; page-break-inside: avoid; }
-.tip { border-left: 3px solid #1a7f37; background: #effaf1; padding: 4px 9px; margin: 0.5em 0; border-radius: 0 4px 4px 0; page-break-inside: avoid; }
-.warn { border-left: 3px solid #cf222e; background: #fff2f3; padding: 4px 9px; margin: 0.5em 0; border-radius: 0 4px 4px 0; page-break-inside: avoid; }
-
-/* ---------- TOC ---------- */
-.toc { column-count: 2; column-gap: 26px; font-size: 8.8pt; }
-.toc ul { list-style: none; padding-left: 0; margin: 0; }
-.toc li { margin: 0.12em 0; }
-.toc li.l1 { font-weight: 700; margin-top: 0.5em; color: #0d2b45; }
-.toc li.l2 { padding-left: 1em; font-weight: 500; }
-
-.diagram { font-size: 7.6pt; line-height: 1.25; }
-</style>
+<meta name="color-scheme" content="light dark">
+<title>Codebase Guide — sqtseries</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header>
+  <a class="brand" href="index.html" aria-label="sqtseries home">
+    <span class="brand-mark" aria-hidden="true">S</span>
+    <span class="brand-name">sqtseries</span>
+  </a>
+  <span class="version-badge">v0.1.0</span>
+  <span class="spacer"></span>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+<nav aria-label="Main">
+  <a href="index.html">Home</a>
+  <a href="quickstart.html">Quick Start</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ingestion.html">Ingestion</a>
+  <a href="queries.html">Queries</a>
+  <a href="streaming.html">Streaming</a>
+  <a href="camera.html">Camera</a>
+  <a href="clients.html">Client Libraries</a>
+  <a href="backup.html">Backup &amp; Restore</a>
+  <a href="systemd.html">Systemd</a>
+  <a href="api.html">API Reference</a>
+  <a href="architecture.html">Architecture</a>
+  <a class="here" href="codebase-guide.html">Codebase Guide</a>
+  <a href="examples.html">Examples</a>
+</nav>
+<main id="main">
+<div class="docs-grid">
+  <div class="docs-content">
 
 <!-- ================================================================ -->
 <!-- COVER                                                             -->
 <!-- ================================================================ -->
 <div class="cover">
-  <h1>sqtseries</h1>
-  <p class="subtitle">Complete Codebase Guide — every file, class, function, constant and example explained</p>
-  <p class="mono">/home/iam/devcode/PiCCL/sqtseries</p>
+  <h2>Complete Codebase Guide</h2>
+  <p class="subtitle">Every file, class, function, constant and example explained</p>
+  <p class="mono">/home/iam/devcode/sqtseries</p>
   <div class="badge-row">
     <span class="badge">version 0.1.0</span>
     <span class="badge">Python &ge; 3.14 + SQLite + ZeroMQ + FastAPI</span>
-    <span class="badge">~19k lines: 6.1k source &middot; 4.2k examples &middot; 8.5k tests</span>
+    <span class="badge">~20k lines: 6.1k source &middot; 4.2k examples &middot; 9.5k tests</span>
   </div>
-  <p class="small">Generated 2026-08-10 &middot; self-contained HTML, printable to PDF<br>
+  <p class="small">Generated 2026-08-11 &middot; printable to PDF<br>
   <code>google-chrome --headless=new --disable-gpu --no-sandbox --print-to-pdf=codebase-guide.pdf codebase-guide.html</code></p>
 </div>
 
@@ -113,8 +62,8 @@ hr { border: none; border-top: 1px solid #c3cedb; margin: 1.2em 0; }
 <!-- TOC                                                               -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="toc">Table of Contents</h1>
-<div class="toc">
+<h2 id="toc">Table of Contents</h2>
+<div class="guide-toc">
 <ul>
   <li class="l1"><a href="#overview">1. Project Overview</a></li>
   <li class="l1"><a href="#architecture">2. Architecture at a Glance</a></li>
@@ -207,7 +156,7 @@ hr { border: none; border-top: 1px solid #c3cedb; margin: 1.2em 0; }
 <!-- 1. OVERVIEW                                                        -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="overview">1. Project Overview</h1>
+<h2 id="overview">1. Project Overview</h2>
 
 <p><strong>sqtseries</strong> is a local, single-file time-series database. You feed it
 measurements — <code>metric</code> + <code>value</code> + optional string <code>tags</code> — and later ask
@@ -234,7 +183,7 @@ same answer, about 9&times; faster.</p>
 <tr><td><code>src/sqtseries/</code></td><td>43 Python source files across 6 packages</td><td>~6,100</td></tr>
 <tr><td><code>examples/</code></td><td>12 standalone runnable scripts + camera stack</td><td>~4,200</td></tr>
 <tr><td><code>scripts/</code></td><td>1 reproducible benchmark</td><td>182</td></tr>
-<tr><td><code>tests/</code></td><td>54 test modules + conftest.py (unit, integration, property, fuzz, stress, Playwright)</td><td>~8,500</td></tr>
+<tr><td><code>tests/</code></td><td>54 test modules + conftest.py (unit, integration, property, fuzz, stress, Playwright)</td><td>~9,500</td></tr>
 <tr><td><code>docs/</code></td><td>Hand-written HTML documentation site (not generated)</td><td>—</td></tr>
 </table>
 
@@ -257,7 +206,7 @@ ruff/black/isort, playwright (dashboard page tests), memory-profiler (bench).</p
 <!-- 2. ARCHITECTURE                                                    -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="architecture">2. Architecture at a Glance</h1>
+<h2 id="architecture">2. Architecture at a Glance</h2>
 
 <p>Everything runs in <em>one process</em>: the event loop drives the ZMQ sockets and the HTTP
 gateway reads the same in-memory engine objects (<code>StorageEngine</code>, <code>TimeSeriesDB</code>, <code>PubSub</code>).
@@ -331,7 +280,7 @@ ports — so it is usually <strong>12500</strong>, not the configured 12501. The
 <!-- 3. CORE CONCEPTS                                                  -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="concepts">3. Core Concepts</h1>
+<h2 id="concepts">3. Core Concepts</h2>
 
 <h3>3.1 Measurement &rarr; series &rarr; partition</h3>
 <ul>
@@ -406,7 +355,7 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
 <!-- 4. ROOT FILES                                                      -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="root-files">4. Root Files</h1>
+<h2 id="root-files">4. Root Files</h2>
 
 <div class="file" id="pyproject">
   <div class="file-head"><span class="path">pyproject.toml</span><span class="meta">packaging + tool config</span></div>
@@ -457,7 +406,7 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
 <!-- 5. TOP-LEVEL PACKAGE                                              -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="pkg-top">5. Package sqtseries (top level)</h1>
+<h2 id="pkg-top">5. Package sqtseries (top level)</h2>
 
 <div class="file" id="f-init">
   <div class="file-head"><span class="path">src/sqtseries/__init__.py</span><span class="meta">5 lines</span></div>
@@ -806,7 +755,7 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
   <p class="desc">Fire an asyncio task per measurement to republish to live subscribers; tasks are tracked
   in <code>_publish_tasks</code> and drained on shutdown.</p></div>
   <div class="sym"><span class="kind">method</span><br><span class="sig">_query_handler(query) -> dict</span>
-  <p class="desc">Servers the query REP socket: validates <code>limit</code>, dispatches the
+  <p class="desc">Serves the query REP socket: validates <code>limit</code>, dispatches the
   <code>aggregations</code> (comma-separated) form to <code>ts.aggregate</code>, otherwise to
   <code>ts.query</code>, converts ns &rarr; seconds timestamps, and maps value/type errors to
   <code>INVALID_QUERY</code>.</p></div>
@@ -866,7 +815,7 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
 <!-- 6. ENGINE PACKAGE                                                 -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="pkg-engine">6. Package sqtseries.engine</h1>
+<h2 id="pkg-engine">6. Package sqtseries.engine</h2>
 <p>The raw sqlite3 storage layer: schema, partitions, PRAGMAs, migrations, checkpoints, backups,
 maintenance. Why raw sqlite3 (per the module docs): benchmark-validated 2026-08-07 — roughly
 6.7&times; faster point lookups and 1.2&times; bulk inserts than alternatives on the exact hot paths;
@@ -1088,7 +1037,7 @@ aiosqlite rejected (sequential thread hops).</p>
 <!-- ================================================================ -->
 <!-- 7. PARTITION PACKAGE                                             -->
 <!-- ================================================================ -->
-<h1 id="pkg-partition">7. Package sqtseries.partition</h1>
+<h2 id="pkg-partition">7. Package sqtseries.partition</h2>
 <p>Retention &amp; partitions: automatic data lifecycle management.</p>
 
 <div class="file" id="p-init">
@@ -1192,7 +1141,7 @@ aiosqlite rejected (sequential thread hops).</p>
 <!-- ================================================================ -->
 <!-- 8. QUERY PACKAGE                                                 -->
 <!-- ================================================================ -->
-<h1 id="pkg-query">8. Package sqtseries.query</h1>
+<h2 id="pkg-query">8. Package sqtseries.query</h2>
 <p>Query engine: aggregation, downsampling, gap filling, and the rollup fast path.</p>
 
 <div class="file" id="q-init">
@@ -1292,7 +1241,7 @@ aiosqlite rejected (sequential thread hops).</p>
 <!-- 9. MESSAGING PACKAGE                                              -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="pkg-messaging">9. Package sqtseries.messaging</h1>
+<h2 id="pkg-messaging">9. Package sqtseries.messaging</h2>
 <p>The ZeroMQ layer — externally facing sockets plus internal plumbing. Messages are JSON via
 orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
 <code>[topic, json-payload]</code>.</p>
@@ -1498,7 +1447,7 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
 <!-- 10. GATEWAY PACKAGE                                              -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="pkg-gateway">10. Package sqtseries.gateway</h1>
+<h2 id="pkg-gateway">10. Package sqtseries.gateway</h2>
 <p>HTTP gateway (FastAPI REST + WebSocket) on port 12505. Bridges HTTP directly to the engine —
 single-process architecture, no ZMQ hop.</p>
 
@@ -1622,7 +1571,7 @@ single-process architecture, no ZMQ hop.</p>
 <!-- 11. EXAMPLES                                                      -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="pkg-examples">11. Examples</h1>
+<h2 id="pkg-examples">11. Examples</h2>
 <p>Standalone runnable scripts for every operation. None of them import sqtseries internals (the
 Client is used where convenient) — the wire-protocol ones replicate what any language can do.
 Running them requires a live <code>sqtseries run</code> service on the default ports (except
@@ -1845,7 +1794,7 @@ Running them requires a live <code>sqtseries run</code> service on the default p
 <!-- ================================================================ -->
 <!-- 12. CAMERA STACK                                                  -->
 <!-- ================================================================ -->
-<h1 id="camera-stack">12. Camera Analytics Stack (examples/camera)</h1>
+<h2 id="camera-stack">12. Camera Analytics Stack (examples/camera)</h2>
 <p>A complete self-contained demo: a <em>simulated camera</em> with edge analytics streams JSON
 over a WebSocket; <code>camera_feed.py</code> pumps every reading into sqtseries over plain HTTP
 (no sqtseries import needed — works from any Python environment); <code>camera_feed.py --ask</code>
@@ -1854,7 +1803,7 @@ also subscribes to sqtseries and to the connection feed; <code>sqtcam.sh</code> 
 in a tmux session.</p>
 
 <div class="file" id="x-overlay-server">
-  <div class="file-head"><span class="path">examples/camera/overlay_server.py</span><span class="meta">235 lines</span></div>
+  <div class="file-head"><span class="path">examples/camera/overlay_server.py</span><span class="meta">237 lines</span></div>
   <p>Overlay HTTP server + WebSocket data generator (FastAPI + uvicorn). Serves <code>overlay.html</code>
   on HTTP and simulated analytics on <code>/ws/metrics</code> — every 0.25 s by default. Used by OBS
   browser sources (hence 0.0.0.0 and the S104 ruff ignore).</p>
@@ -1984,7 +1933,7 @@ in a tmux session.</p>
 </div>
 
 <div class="file" id="x-sqtcam-sh">
-  <div class="file-head"><span class="path">examples/camera/sqtcam.sh</span><span class="meta">102 lines</span></div>
+  <div class="file-head"><span class="path">examples/camera/sqtcam.sh</span><span class="meta">101 lines</span></div>
   <p>One command to run the whole demo: starts sqtseries, the overlay simulator, and the camera
   feed in a tmux session (<code>sqtcam</code>) so data can collect overnight.</p>
   <ul>
@@ -2003,7 +1952,7 @@ in a tmux session.</p>
 <!-- ================================================================ -->
 <!-- 13. SCRIPTS                                                       -->
 <!-- ================================================================ -->
-<h1 id="scripts">13. scripts/benchmark.py</h1>
+<h2 id="scripts">13. scripts/benchmark.py</h2>
 <div class="file" id="scripts-file">
   <div class="file-head"><span class="path">scripts/benchmark.py</span><span class="meta">182 lines</span></div>
   <p>Reproducible performance benchmark: SQLite insert throughput + query latency, measuring the
@@ -2030,7 +1979,7 @@ in a tmux session.</p>
 <!-- 14. TESTS                                                         -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="tests">14. Tests (54 files + conftest.py)</h1>
+<h2 id="tests">14. Tests (54 files + conftest.py)</h2>
 <p>The suite is self-contained: every test uses a temp database under <code>tmp_path</code> — no
 pre-existing data or running service required. Service-spawning tests use OS-assigned free ports
 (<code>free_port()</code>), so nothing clashes with a local instance. <code>asyncio_mode = "auto"</code>
@@ -2052,7 +2001,7 @@ awaits async tests without markers; a 60 s pytest-timeout guards hangs. Run:
 </div>
 
 <div class="file" id="t-groups">
-  <div class="file-head"><span class="path">tests/ — every module with its test functions</span><span class="meta">~8.5k lines</span></div>
+  <div class="file-head"><span class="path">tests/ — every module with its test functions</span><span class="meta">~9.5k lines</span></div>
   <p>Grouped by area (per tests/README.md and the code). Test names below each module summarize the
   covered behaviors.</p>
 
@@ -2159,7 +2108,7 @@ awaits async tests without markers; a 60 s pytest-timeout guards hangs. Run:
 <!-- ================================================================ -->
 <!-- 15. DOCS DIRECTORY                                                -->
 <!-- ================================================================ -->
-<h1 id="docs-dir">15. docs/ Directory</h1>
+<h2 id="docs-dir">15. docs/ Directory</h2>
 <p>A hand-written documentation site (HTML + style.css + app.js), not generated. It powers the
 README links and is itself validated by <code>test_docs_claims.py</code>. Pages:</p>
 <table>
@@ -2177,6 +2126,7 @@ README links and is itself validated by <code>test_docs_claims.py</code>. Pages:
 <tr><td><code>backup.html</code></td><td>Backup/restore procedure, vacuum</td></tr>
 <tr><td><code>systemd.html</code></td><td>Service hardening, dedicated user setup</td></tr>
 <tr><td><code>examples.html</code></td><td>Real-world scenario walkthroughs</td></tr>
+<tr><td><code>codebase-guide.html</code></td><td>Every source file, class, function, constant, and example — this page</td></tr>
 <tr><td><code>benchmarks.md</code></td><td>Reproducible performance numbers</td></tr>
 </table>
 <p>Supporting assets: <code>style.css</code>, <code>app.js</code> (theme toggle + TOC), <code>favicon.svg</code>.</p>
@@ -2185,7 +2135,7 @@ README links and is itself validated by <code>test_docs_claims.py</code>. Pages:
 <!-- 16. WIRE PROTOCOL                                                 -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="protocol">16. Wire Protocol Reference</h1>
+<h2 id="protocol">16. Wire Protocol Reference</h2>
 <p>Both transports carry the same JSON shapes. Timestamps: <em>seconds</em> on the wire
 (ingest/HTTP and returned rows); ZMQ query <em>bounds</em> are nanoseconds; HTTP query bounds are
 seconds.</p>
@@ -2245,7 +2195,7 @@ then one frame per change: {"type": "conn", ...} / {"type": "sub", ...}</pre>
 <!-- 17. DATA FLOWS                                                    -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="flows">17. End-to-End Data Flows</h1>
+<h2 id="flows">17. End-to-End Data Flows</h2>
 
 <h3>17.1 Write path (ZMQ)</h3>
 <pre>producer (PUSH) ──frame──► Ingress.run_once ──► _handle:
@@ -2301,7 +2251,7 @@ so the clustered PK can't collide.</p>
 <!-- 18. GLOSSARY                                                     -->
 <!-- ================================================================ -->
 <div class="part">
-<h1 id="glossary">18. Glossary</h1>
+<h2 id="glossary">18. Glossary</h2>
 <table>
 <tr><th>Term</th><th>Meaning</th></tr>
 <tr><td><strong>Measurement</strong></td><td>One data point: metric + value (+ tags + timestamp).</td></tr>
@@ -2322,6 +2272,24 @@ so the clustered PK can't collide.</p>
 <tr><td><strong>embedded API</strong></td><td>Direct in-process Python API (StorageEngine/TimeSeriesDB on the DB file) — required for per-series reads the wire protocol can't express.</td></tr>
 </table>
 </div>
-
+</div>
+<aside class="toc" aria-label="On this page">
+  <h3>On this page</h3>
+  <ul id="toc-list"></ul>
+</aside>
+</div>
+</main>
+<footer>
+  <div class="footer-meta">
+    <span>sqtseries — a local time-series database</span>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick Start</a>
+      <a href="api.html">API Reference</a>
+      <a href="examples.html">Examples</a>
+    </nav>
+  </div>
+</footer>
+<script src="app.js"></script>
 </body>
 </html>

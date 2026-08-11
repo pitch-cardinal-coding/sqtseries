@@ -349,4 +349,41 @@ footer{
   a{color:inherit;text-decoration:underline}
   table{font-size:9pt}
   th{background:none}
+  .part{page-break-before:always}
+  .cover{page-break-after:always}
 }
+
+/* ---------------------------------------------------------------- codebase guide */
+.cover{text-align:center;padding:2rem 0 .5rem;border-bottom:1px solid var(--border);margin-bottom:1.5rem}
+.cover h2{font-size:1.9rem;margin:0 0 .35rem}
+.cover .subtitle{color:var(--text-muted);font-size:1.05rem;margin:0 0 .75rem}
+.cover .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:.2rem .6rem;display:inline-block}
+.cover .badge-row{margin:1rem 0}
+.cover .badge{display:inline-block;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface-2);padding:.2rem .8rem;margin:.2rem;font-size:.78rem;color:var(--text-muted)}
+.cover .small{font-size:.82rem;color:var(--text-subtle)}
+
+.guide-toc{column-count:2;column-gap:2.2rem;font-size:.9rem}
+.guide-toc ul{list-style:none;padding-left:0;margin:0}
+.guide-toc li{margin:.15rem 0}
+.guide-toc li.l1{font-weight:650;margin-top:.6rem;color:var(--text)}
+.guide-toc li.l2{padding-left:1.1rem;font-weight:500}
+@media (max-width:640px){.guide-toc{column-count:1}}
+
+.file{margin:0 0 2.2rem}
+.file-head{border:1px solid var(--border);border-left:5px solid var(--accent);border-radius:var(--radius-md);background:var(--surface);padding:.65rem 1rem;margin-bottom:.6rem}
+.file-head .path{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;font-size:.95rem;color:var(--text)}
+.file-head .meta{font-size:.78rem;color:var(--text-muted)}
+.file-head .purpose{font-size:.9rem;color:var(--text-muted);margin-top:.15rem}
+
+.sym{margin:.85rem 0 1.05rem}
+.sym .kind{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent)}
+.sym .sig{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:.25rem .6rem;display:inline-block;margin:.25rem 0;color:var(--text);word-break:break-all}
+.sym .desc{margin:.25rem 0}
+.const{margin:.4rem 0 .8rem}
+.const .sig{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem;background:var(--warn-subtle);border:1px solid var(--border);border-radius:6px;padding:.2rem .5rem;color:var(--text)}
+
+.small{font-size:.82rem;color:var(--text-muted)}
+.muted{color:var(--text-muted)}
+.tip{border:1px solid var(--border);border-left-width:4px;border-left-color:var(--success-fg);border-radius:var(--radius-md);padding:.85rem 1rem;margin:1rem 0;font-size:.95rem;background:var(--success-subtle)}
+.warn{border:1px solid var(--border);border-left-width:4px;border-left-color:var(--danger-fg);border-radius:var(--radius-md);padding:.85rem 1rem;margin:1rem 0;font-size:.95rem;background:var(--danger-subtle)}
+.diagram{font-size:.78rem;line-height:1.35}

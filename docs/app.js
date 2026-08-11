@@ -137,7 +137,7 @@
       var order = ["index.html", "quickstart.html", "configuration.html",
                    "ingestion.html", "queries.html", "streaming.html",
                    "camera.html", "clients.html", "backup.html", "systemd.html",
-                   "api.html", "architecture.html", "examples.html"];
+                   "api.html", "architecture.html", "codebase-guide.html", "examples.html"];
       var here = document.querySelector('nav a.here');
       if (here) {
         var cur = here.getAttribute("href");

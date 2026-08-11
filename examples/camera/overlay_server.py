@@ -129,11 +129,15 @@ class ConnectionManager:
         if not self._active:
             return
         dead: list[WebSocket] = []
+        # snapshot: `self._active` can shrink (a concurrent disconnect)
+        # between the gather and the zip below — the zip must pair each
+        # result with the exact ws that produced it (B905)
+        active = list(self._active)
         results = await asyncio.gather(
-            *(ws.send_json(payload) for ws in self._active),
+            *(ws.send_json(payload) for ws in active),
             return_exceptions=True,
         )
-        for ws, result in zip(self._active, results, strict=False):
+        for ws, result in zip(active, results, strict=True):
             if isinstance(result, Exception):
                 dead.append(ws)
         for ws in dead:
@@ -148,9 +152,7 @@ async def serve_overlay() -> FileResponse:
     # CSP note (COMPLIANCE.md): overlay.html intentionally ships as a single
     # self-contained file with inline CSS/JS — it is a trusted, developer-owned
     # artifact for LAN/OBS browser sources (no user input, no third-party
-    # content), so an external-assets split would only add failure modes. The
-    # sqtseries HTTP gateway (the real API surface) does send strict security
-    # headers.
+    # content), so an external-assets split would only add failure modes.
     return FileResponse(OVERLAY_DIR / "overlay.html")
 
 
