@@ -37,6 +37,7 @@
   <a href="architecture.html">Architecture</a>
   <a class="here" href="codebase-guide.html">Codebase Guide</a>
   <a href="examples.html">Examples</a>
+  <a href="configuration.html#abbreviations">Abbreviations</a>
 </nav>
 <main id="main">
 <div class="docs-grid">
@@ -73,6 +74,7 @@
   <li class="l2"><a href="#requirements">4.2 requirements.txt</a></li>
   <li class="l2"><a href="#readme">4.3 README.md</a></li>
   <li class="l2"><a href="#gitignore">4.4 .gitignore</a></li>
+  <li class="l2"><a href="#config">4.5 config.toml</a></li>
   <li class="l1"><a href="#pkg-top">5. Package sqtseries (top level)</a></li>
   <li class="l2"><a href="#f-init">5.1 __init__.py</a></li>
   <li class="l2"><a href="#f-main">5.2 __main__.py</a></li>
@@ -185,6 +187,7 @@ same answer, about 9&times; faster.</p>
 <tr><td><code>scripts/</code></td><td>1 reproducible benchmark</td><td>182</td></tr>
 <tr><td><code>tests/</code></td><td>54 test modules + conftest.py (unit, integration, property, fuzz, stress, Playwright)</td><td>~9,500</td></tr>
 <tr><td><code>docs/</code></td><td>Hand-written HTML documentation site (not generated)</td><td>—</td></tr>
+<tr><td><code>config.toml</code></td><td>Annotated configuration sample (optional)</td><td>~100</td></tr>
 </table>
 
 <h3>Runtime dependencies</h3>
@@ -400,6 +403,14 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
   <p>Excludes Python artifacts (<code>__pycache__</code>, <code>.pyc</code>, venvs), build output,
   <code>.pytest_cache</code>, coverage data, and local work directories such as
   <code>sqt-custom-work/</code> and <code>/tmp</code>-style scratch (as produced by <code>run_custom.py</code>).</p>
+</div>
+
+<div class="file" id="config">
+  <div class="file-head"><span class="path">config.toml</span><span class="meta">annotated configuration sample</span></div>
+  <p>Every configurable section with defaults and comments (see <a href="configuration.html">Configuration</a>
+  for the full table and precedence rules). Pass with <code>--config config.toml</code> to any command,
+  or set <code>SQT_SERIES_CONFIG_FILE</code>. Environment variables (<code>SQT_SERIES_*</code>) override
+  file values. The file is optional — the service starts with built-in defaults out of the box.</p>
 </div>
 </div>
 <!-- ================================================================ -->

@@ -37,6 +37,7 @@
   <a href="architecture.html">Architecture</a>
   <a href="codebase-guide.html">Codebase Guide</a>
   <a href="examples.html">Examples</a>
+  <a href="configuration.html#abbreviations">Abbreviations</a>
 </nav>
 <main id="main">
 <div class="docs-grid">
@@ -432,6 +433,39 @@ afterwards):</p>
   <tr><td><code>threads</code></td><td>4</td><td>Parallel sort</td></tr>
   <tr><td><code>foreign_keys</code></td><td>ON</td><td>Enforce referential integrity</td></tr>
 </table></div>
+
+<h2 id="abbreviations">Abbreviations &amp; jargon</h2>
+<p>Every abbreviation used in these docs, spelled out once. Time-series terms first, then
+storage/engine terms, then transports and project/tech terms.</p>
+<div class="table-wrap"><table>
+<tr><th>Abbreviation</th><th>Stands for</th><th>Meaning in context</th></tr>
+<tr><td>TSDB</td><td>Time-Series Database</td><td>A database optimized for timestamped measurements; sqtseries is an embedded TSDB on SQLite.</td></tr>
+<tr><td>WAL</td><td>Write-Ahead Log</td><td>SQLite journal mode for crash-atomic writes; checkpointed periodically and on shutdown.</td></tr>
+<tr><td>TTL</td><td>Time To Live</td><td>Retention horizon (e.g., "30d") after which whole monthly partitions are dropped.</td></tr>
+<tr><td>HWM</td><td>High Water Mark</td><td>ZeroMQ socket queue limit before backpressure/drop (default 10000).</td></tr>
+<tr><td>XPUB</td><td>Extended PUB</td><td>ZMQ PUB socket that also emits subscription events — used to track live subscribers exactly.</td></tr>
+<tr><td>REQ / REP</td><td>Request / Reply</td><td>ZMQ socket pattern for synchronous command/response (query port 12502, admin port 12504).</td></tr>
+<tr><td>PUSH / PULL</td><td>Push / Pull</td><td>ZMQ socket pattern for fire-and-forget ingestion (ingest port 12501).</td></tr>
+<tr><td>PUB / SUB</td><td>Publish / Subscribe</td><td>ZMQ pattern for live streaming (streaming port 12503) and stats events (stats port 12506).</td></tr>
+<tr><td>HTTP / WS</td><td>HyperText Transfer Protocol / WebSocket</td><td>REST API + browser streaming on port 12505.</td></tr>
+<tr><td>ZMQ / ZeroMQ</td><td>ZeroMQ</td><td>The messaging library used for all wire transports except HTTP.</td></tr>
+<tr><td>SQLite</td><td>—</td><td>The embedded storage engine; single file, WAL mode, monthly partitions.</td></tr>
+<tr><td>PRAGMA</td><td>—</td><td>SQLite runtime configuration commands (page_size, journal_mode, etc.).</td></tr>
+<tr><td>JSON</td><td>JavaScript Object Notation</td><td>Wire format for all APIs (ZMQ and HTTP); serialized with orjson.</td></tr>
+<tr><td>TOML / YAML</td><td>Tom's Obvious Minimal Language / YAML Ain't Markup Language</td><td>Config file formats supported (also JSON).</td></tr>
+<tr><td>CLI</td><td>Command-Line Interface</td><td>The <code>sqtseries</code> command (click-based).</td></tr>
+<tr><td>API</td><td>Application Programming Interface</td><td>Both the embedded Python API and the wire protocols (ZMQ/HTTP).</td></tr>
+<tr><td>RSS</td><td>Resident Set Size</td><td>Process memory usage; monitored in leak tests.</td></tr>
+<tr><td>fd</td><td>File Descriptor</td><td>Handle to an open file/socket/pipe; tracked to prevent leaks.</td></tr>
+<tr><td>PEP</td><td>Python Enhancement Proposal</td><td>PEP 758 (comma-except syntax) requires Python ≥ 3.14.</td></tr>
+<tr><td>UUID</td><td>Universally Unique Identifier</td><td>Used for connection IDs and subscriber tracking.</td></tr>
+<tr><td>CORS</td><td>Cross-Origin Resource Sharing</td><td>HTTP gateway CORS policy (configurable via <code>http.cors_origins</code>).</td></tr>
+<tr><td>VACUUM</td><td>—</td><td>SQLite command to rebuild the database file; <code>VACUUM INTO</code> creates consistent backups.</td></tr>
+<tr><td>ANALYZE</td><td>—</td><td>SQLite command to refresh query-planner statistics; run periodically by MaintenanceManager.</td></tr>
+<tr><td>OBS</td><td>Open Broadcaster Software</td><td>Target consumer for the camera overlay (browser source).</td></tr>
+</table></div>
+<p>Project-specific terms (Measurement, Metric, Series, Tags, Partition, Watermark, Skew guard, fast path, embedded API)
+are defined in the <a href="codebase-guide.html#glossary">Codebase Guide glossary</a>.</p>
 
 <h3>Security</h3>
 <div class="note">
