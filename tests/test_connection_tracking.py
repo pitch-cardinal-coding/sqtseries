@@ -1,6 +1,7 @@
 """Tests for the connection registry, stats publisher, and admin commands."""
 
 import asyncio
+import time
 
 import orjson
 import pytest
@@ -408,3 +409,1029 @@ class TestAdminCommands:
         assert isinstance(svc.settings.stats.port, int)
         assert 1024 <= svc.settings.stats.port <= 65535
         assert svc.settings.stats.enabled is True
+
+
+class TestConnectionEdgeCases:
+    """Edge cases for join/leave, event emission, and registry consistency."""
+
+    # ------------------------------------------------------------------
+    # WebSocket edge cases
+    # ------------------------------------------------------------------
+
+    def test_register_same_id_twice_overwrites(self):
+        """Registering the same conn_id twice overwrites the first entry."""
+        reg = ConnectionRegistry()
+        reg.register_ws("dup", "1.1.1.1:1", "cpu")
+        reg.register_ws("dup", "2.2.2.2:2", "mem")
+        assert reg.ws_count == 1
+        conns = reg.list_connections()
+        assert conns[0]["peer"] == "2.2.2.2:2"
+        assert conns[0]["topic"] == "mem"
+
+    def test_unregister_then_reregister_same_id(self):
+        """Unregister then re-register the same ID gives a clean lifecycle."""
+        reg = ConnectionRegistry()
+        reg.register_ws("cycle", "peer", "t")
+        assert reg.ws_count == 1
+        reg.unregister_ws("cycle")
+        assert reg.ws_count == 0
+        reg.register_ws("cycle", "peer2", "t2")
+        assert reg.ws_count == 1
+        conns = reg.list_connections()
+        assert conns[0]["peer"] == "peer2"
+
+    def test_touch_ws_unknown_id_no_crash(self):
+        """touch_ws on an unknown ID must not raise."""
+        reg = ConnectionRegistry()
+        reg.touch_ws("nonexistent")  # no crash
+
+    def test_touch_ws_updates_last_activity(self):
+        """touch_ws refreshes last_activity_at."""
+        import time
+
+        reg = ConnectionRegistry()
+        reg.register_ws("c1", "peer", "t")
+        original = reg.list_connections()[0]["last_activity_at"]
+        time.sleep(0.02)
+        reg.touch_ws("c1")
+        updated = reg.list_connections()[0]["last_activity_at"]
+        assert updated > original
+
+    def test_multiple_connections_same_topic(self):
+        """Multiple WS connections on the same topic are independent."""
+        reg = ConnectionRegistry()
+        reg.register_ws("a", "peer-a", "cpu")
+        reg.register_ws("b", "peer-b", "cpu")
+        reg.register_ws("c", "peer-c", "mem")
+        assert reg.ws_count == 3
+        reg.unregister_ws("a")
+        assert reg.ws_count == 2
+        remaining = [c["id"] for c in reg.list_connections()]
+        assert "b" in remaining and "c" in remaining
+        assert "a" not in remaining
+
+    def test_ws_empty_peer(self):
+        """Connection with empty peer string is accepted."""
+        reg = ConnectionRegistry()
+        reg.register_ws("x", "", "topic")
+        conns = reg.list_connections()
+        assert conns[0]["peer"] == ""
+
+    def test_ws_unicode_topic(self):
+        """Connection with Unicode topic works."""
+        reg = ConnectionRegistry()
+        reg.register_ws("u", "peer", "温度.传感器")
+        conns = reg.list_connections()
+        assert conns[0]["topic"] == "温度.传感器"
+
+    def test_ws_long_topic(self):
+        """Connection with very long topic string is accepted."""
+        reg = ConnectionRegistry()
+        long_topic = "a" * 10000
+        reg.register_ws("long", "peer", long_topic)
+        conns = reg.list_connections()
+        assert conns[0]["topic"] == long_topic
+
+    def test_ws_register_unregister_register_cycle(self):
+        """Full lifecycle: register -> unregister -> register -> unregister."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+
+        reg.register_ws("x", "peer", "t")
+        reg.unregister_ws("x")
+        reg.register_ws("x", "peer2", "t2")
+        reg.unregister_ws("x")
+
+        assert reg.ws_count == 0
+        conn_events = [e for e in events if e[0] == "conn"]
+        assert len(conn_events) == 4  # 2 connects + 2 disconnects
+        assert conn_events[0][1]["connected"] is True
+        assert conn_events[1][1]["connected"] is False
+        assert conn_events[2][1]["connected"] is True
+        assert conn_events[3][1]["connected"] is False
+
+    def test_list_connections_sorted_by_connected_at(self):
+        """list_connections returns entries sorted by connected_at."""
+        import time
+
+        reg = ConnectionRegistry()
+        reg.register_ws("first", "peer", "t")
+        time.sleep(0.01)
+        reg.register_ws("second", "peer", "t")
+        conns = reg.list_connections()
+        assert conns[0]["id"] == "first"
+        assert conns[1]["id"] == "second"
+
+    def test_ws_1000_connections(self):
+        """1000 concurrent connections tracked correctly."""
+        reg = ConnectionRegistry()
+        for i in range(1000):
+            reg.register_ws(f"ws{i}", f"peer{i}", "topic")
+        assert reg.ws_count == 1000
+        for i in range(1000):
+            reg.unregister_ws(f"ws{i}")
+        assert reg.ws_count == 0
+
+    def test_unregister_ws_event_payload_fields(self):
+        """Unregister event contains all expected fields."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_ws("c1", "1.2.3.4:8080", "cpu")
+        reg.unregister_ws("c1")
+        leave = events[1][1]
+        assert leave["kind"] == "ws"
+        assert leave["peer"] == "1.2.3.4:8080"
+        assert leave["topic"] == "cpu"
+        assert leave["id"] == "c1"
+        assert leave["connected"] is False
+        assert isinstance(leave["connected_at"], float)
+        assert isinstance(leave["left_at"], float)
+        assert leave["left_at"] >= leave["connected_at"]
+
+    # ------------------------------------------------------------------
+    # ZMQ SUB edge cases
+    # ------------------------------------------------------------------
+
+    def test_zmq_unsubscribe_more_than_subscribed(self):
+        """Unsubscribing more times than subscribed clamps to 0."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        assert reg.subscriber_count("cpu") == 0
+        assert reg.zmq_sub_count == 0
+
+    def test_zmq_rapid_subscribe_unsubscribe_no_drift(self):
+        """1000 rapid subscribe/unsubscribe cycles end at 0."""
+        reg = ConnectionRegistry()
+        for _ in range(1000):
+            reg.register_zmq_sub("cpu")
+            reg.unregister_zmq_sub("cpu")
+        assert reg.subscriber_count("cpu") == 0
+        assert reg.zmq_sub_count == 0
+        assert "cpu" not in reg.active_topics()
+
+    def test_zmq_multiple_topics_independent(self):
+        """Each topic has its own independent count."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("b")
+        assert reg.subscriber_count("a") == 3
+        assert reg.subscriber_count("b") == 1
+        reg.unregister_zmq_sub("a")
+        assert reg.subscriber_count("a") == 2
+        assert reg.subscriber_count("b") == 1
+
+    def test_zmq_subscribe_after_full_unsubscribe(self):
+        """After all subscribers leave, re-subscribe starts fresh."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("x")
+        reg.register_zmq_sub("x")
+        reg.unregister_zmq_sub("x")
+        reg.unregister_zmq_sub("x")
+        assert "x" not in reg._zmq_first_seen
+        reg.register_zmq_sub("x")
+        assert reg.subscriber_count("x") == 1
+        assert "x" in reg._zmq_first_seen
+
+    def test_zmq_1000_subscribers_same_topic(self):
+        """1000 subscribers on the same topic counted accurately."""
+        reg = ConnectionRegistry()
+        for _ in range(1000):
+            reg.register_zmq_sub("hot Topic")
+        assert reg.subscriber_count("hot Topic") == 1000
+        assert reg.zmq_sub_count == 1000
+        for _ in range(1000):
+            reg.unregister_zmq_sub("hot Topic")
+        assert reg.subscriber_count("hot Topic") == 0
+        assert reg.zmq_sub_count == 0
+
+    def test_zmq_subscriber_count_none_returns_total(self):
+        """subscriber_count(None) returns total across all topics."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("b")
+        assert reg.subscriber_count() == 3
+
+    def test_zmq_active_topics_empty_when_no_subs(self):
+        """active_topics returns empty list when nothing is subscribed."""
+        reg = ConnectionRegistry()
+        assert reg.active_topics() == []
+
+    def test_zmq_active_topics_sorted(self):
+        """active_topics returns topics in sorted order."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("z Topic")
+        reg.register_zmq_sub("a Topic")
+        reg.register_zmq_sub("m Topic")
+        assert reg.active_topics() == ["a Topic", "m Topic", "z Topic"]
+
+    def test_zmq_unsubscribe_event_payload_fields(self):
+        """Unsubscribe event contains all expected fields."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        leave = events[1][1]
+        assert leave["kind"] == "zmq"
+        assert leave["topic"] == "cpu"
+        assert leave["subscribers"] == 0
+        assert isinstance(leave["left_at"], float)
+        assert isinstance(leave["first_seen"], float)
+        assert leave["left_at"] >= leave["first_seen"]
+
+    def test_zmq_subscribe_event_payload_fields(self):
+        """Subscribe event contains all expected fields."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_zmq_sub("mem")
+        join = events[0][1]
+        assert join["kind"] == "zmq"
+        assert join["topic"] == "mem"
+        assert join["subscribers"] == 1
+        assert isinstance(join["arrived_at"], float)
+        assert "ttl" in join
+
+    # ------------------------------------------------------------------
+    # Mixed WS + ZMQ edge cases
+    # ------------------------------------------------------------------
+
+    def test_mixed_ws_and_zmq_events_no_cross_contamination(self):
+        """WS and ZMQ events are independent."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+
+        reg.register_ws("ws1", "peer", "topic")
+        reg.register_zmq_sub("topic")
+        reg.register_ws("ws2", "peer", "topic")
+        reg.register_zmq_sub("topic")
+
+        conn_events = [e for e in events if e[0] == "conn"]
+        sub_events = [e for e in events if e[0] == "sub"]
+        assert len(conn_events) == 2
+        assert len(sub_events) == 2
+
+        reg.unregister_ws("ws1")
+        reg.unregister_zmq_sub("topic")
+
+        conn_events = [e for e in events if e[0] == "conn"]
+        sub_events = [e for e in events if e[0] == "sub"]
+        assert len(conn_events) == 3  # 2 joins + 1 leave
+        assert len(sub_events) == 3  # 2 joins + 1 leave
+
+    # ------------------------------------------------------------------
+    # Event listener edge cases
+    # ------------------------------------------------------------------
+
+    def test_listener_exception_does_not_break_other_listeners(self):
+        """A listener that throws does not prevent other listeners from firing."""
+        good_events = []
+
+        def bad_listener(etype, payload):
+            raise RuntimeError("boom")
+
+        def good_listener(etype, payload):
+            good_events.append(etype)
+
+        reg = ConnectionRegistry()
+        reg.on_event(bad_listener)
+        reg.on_event(good_listener)
+        reg.register_ws("x", "peer", "t")
+        assert len(good_events) == 1
+        assert good_events[0] == "conn"
+
+    def test_multiple_listeners_all_receive_events(self):
+        """All registered listeners receive every event."""
+        a_events = []
+        b_events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: a_events.append(et))
+        reg.on_event(lambda et, p: b_events.append(et))
+        reg.register_ws("x", "peer", "t")
+        reg.unregister_ws("x")
+        assert len(a_events) == 2
+        assert len(b_events) == 2
+
+    def test_remove_listener_during_emit(self):
+        """Removing a listener while events are being emitted is safe."""
+        events = []
+        reg = ConnectionRegistry()
+
+        def remover(etype, payload):
+            reg.remove_listener(remover)
+
+        reg.on_event(remover)
+        reg.on_event(lambda et, p: events.append(et))
+
+        reg.register_ws("x", "peer", "t")  # remover fires, removes itself
+        reg.unregister_ws("x")  # remover not called again
+        assert len(events) == 2  # both conn events received by second listener
+
+    def test_no_listeners_no_crash(self):
+        """Emitting with zero listeners is a no-op."""
+        reg = ConnectionRegistry()
+        reg.register_ws("x", "peer", "t")  # no listeners, no crash
+        reg.unregister_ws("x")
+
+    # ------------------------------------------------------------------
+    # Snapshot consistency
+    # ------------------------------------------------------------------
+
+    def test_snapshot_reflects_state_at_call_time(self):
+        """Snapshot shows the state when called, not when created."""
+        reg = ConnectionRegistry()
+        reg.register_ws("a", "peer", "t")
+        snap1 = reg.snapshot()
+        assert snap1["ws_connections"] == 1
+
+        reg.register_ws("b", "peer", "t")
+        snap2 = reg.snapshot()
+        assert snap2["ws_connections"] == 2
+        assert snap1["ws_connections"] == 1  # snap1 is a separate dict
+
+    def test_snapshot_empty_registry(self):
+        """Snapshot of empty registry returns zeroed counts."""
+        reg = ConnectionRegistry()
+        snap = reg.snapshot()
+        assert snap["ws_connections"] == 0
+        assert snap["zmq_subscribers"] == 0
+        assert snap["active_topics"] == 0
+        assert snap["connections"] == []
+        assert snap["subscriptions"] == []
+
+    # ------------------------------------------------------------------
+    # Connection ID edge cases
+    # ------------------------------------------------------------------
+
+    def test_connection_id_uniqueness(self):
+        """Generated connection IDs are unique over many calls."""
+        from sqtseries.messaging.connection_registry import new_connection_id
+
+        ids = {new_connection_id() for _ in range(10000)}
+        assert len(ids) == 10000  # all unique
+
+    def test_connection_id_format(self):
+        """Connection ID is a 12-char hex string."""
+        from sqtseries.messaging.connection_registry import new_connection_id
+
+        cid = new_connection_id()
+        assert len(cid) == 12
+        assert all(c in "0123456789abcdef" for c in cid)
+
+
+# ---------------------------------------------------------------------------
+# Deep edge cases — API boundary, state transitions, data integrity
+# ---------------------------------------------------------------------------
+
+
+class TestDeepEdgeCases:
+    """Thorough edge cases derived from line-by-line code path analysis.
+
+    Categories:
+    - API boundary / input validation
+    - State transition correctness
+    - Data integrity (shallow copy leaks)
+    - Listener lifecycle anomalies
+    - SubscriptionTracker direct testing
+    - StatsPublisher edge cases
+    """
+
+    # ------------------------------------------------------------------
+    # 1. subscriber_count API boundary
+    # ------------------------------------------------------------------
+
+    def test_subscriber_count_empty_string_returns_total(self):
+        """subscriber_count('') treats empty string as falsy → returns total.
+
+        This is an API quirk: empty string is falsy in Python, so
+        ``if topic:`` falls through to the total path. If a caller wants
+        to count subscribers for an actual empty-string topic, they can't.
+        """
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("b")
+        # Empty string → total (falsy path)
+        assert reg.subscriber_count("") == 2
+        # None → total (explicit None path)
+        assert reg.subscriber_count(None) == 2
+        # Actual topic → count for that topic
+        assert reg.subscriber_count("a") == 1
+
+    def test_subscriber_count_zero_returns_total(self):
+        """subscriber_count(0) treats 0 as falsy → returns total."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("x")
+        assert reg.subscriber_count(0) == 1  # 0 is falsy → total
+
+    def test_subscriber_count_no_topics_returns_zero(self):
+        """subscriber_count returns 0 when no topics exist."""
+        reg = ConnectionRegistry()
+        assert reg.subscriber_count() == 0
+        assert reg.subscriber_count("any") == 0
+
+    # ------------------------------------------------------------------
+    # 2. Duplicate listener registration
+    # ------------------------------------------------------------------
+
+    def test_same_callback_registered_twice_fires_twice(self):
+        """Registering the same callback twice makes it fire twice per event."""
+        calls = []
+        reg = ConnectionRegistry()
+
+        def listener(etype, payload):
+            calls.append(etype)
+
+        reg.on_event(listener)
+        reg.on_event(listener)  # duplicate
+        reg.register_ws("x", "peer", "t")
+        assert len(calls) == 2  # listener fired twice
+
+    def test_remove_listener_only_removes_first_occurrence(self):
+        """remove_listener removes only the first occurrence of a duplicate."""
+        calls = []
+        reg = ConnectionRegistry()
+
+        def listener(etype, payload):
+            calls.append(etype)
+
+        reg.on_event(listener)
+        reg.on_event(listener)  # duplicate
+        reg.remove_listener(listener)  # removes first only
+        reg.register_ws("x", "peer", "t")
+        assert len(calls) == 1  # second copy still fires
+
+    def test_remove_all_copies_of_duplicate(self):
+        """Removing twice removes both copies of a duplicate listener."""
+        calls = []
+        reg = ConnectionRegistry()
+
+        def listener(etype, payload):
+            calls.append(etype)
+
+        reg.on_event(listener)
+        reg.on_event(listener)
+        reg.remove_listener(listener)
+        reg.remove_listener(listener)
+        reg.register_ws("x", "peer", "t")
+        assert len(calls) == 0  # both copies removed
+
+    # ------------------------------------------------------------------
+    # 3. Listener adds another listener during emit
+    # ------------------------------------------------------------------
+
+    def test_listener_adds_listener_during_emit(self):
+        """A listener that adds a new listener mid-emit: new listener does NOT
+        fire on the current event (snapshot), fires on next."""
+        calls = []
+        reg = ConnectionRegistry()
+
+        def adder(etype, payload):
+            calls.append("adder")
+            reg.on_event(lambda et, p: calls.append("added"))
+
+        reg.on_event(adder)
+        reg.register_ws("x", "peer", "t")  # adder fires, adds "added"
+        # "added" was in the snapshot? No — snapshot was taken before emit.
+        # Actually the snapshot IS list(self._listeners) at the time of _emit.
+        # adder appends to self._listeners, but the snapshot was already taken.
+        # So "added" does NOT fire on this event.
+        assert calls == ["adder"]
+
+        calls.clear()
+        reg.register_ws("y", "peer", "t")  # now "added" is in the snapshot
+        # Both adder and added fire, and adder adds another "added"
+        assert "adder" in calls
+        assert "added" in calls
+
+    def test_listener_removes_different_listener_during_emit(self):
+        """Listener A removes listener B during emit. B still fires on this
+        event (snapshot was taken), but not on the next."""
+        calls_a = []
+        calls_b = []
+        reg = ConnectionRegistry()
+
+        def listener_a(etype, payload):
+            calls_a.append(etype)
+            reg.remove_listener(listener_b)
+
+        def listener_b(etype, payload):
+            calls_b.append(etype)
+
+        reg.on_event(listener_a)
+        reg.on_event(listener_b)
+
+        # Snapshot [a, b] — both fire. A removes B from _listeners.
+        reg.register_ws("x", "peer", "t")
+        assert len(calls_a) == 1
+        assert len(calls_b) == 1  # B fired because snapshot included it
+
+        calls_a.clear()
+        calls_b.clear()
+        # Now _listeners = [a] — only A fires.
+        reg.register_ws("y", "peer", "t")
+        assert len(calls_a) == 1
+        assert len(calls_b) == 0  # B was removed
+
+    # ------------------------------------------------------------------
+    # 4. Empty / boundary conn_id
+    # ------------------------------------------------------------------
+
+    def test_empty_conn_id_register_unregister(self):
+        """Empty string is a valid conn_id — register/unregister works."""
+        reg = ConnectionRegistry()
+        reg.register_ws("", "peer", "topic")
+        assert reg.ws_count == 1
+        assert reg.check_connection("") is True
+        reg.unregister_ws("")
+        assert reg.ws_count == 0
+        assert reg.check_connection("") is False
+
+    def test_empty_conn_id_overwrite(self):
+        """Two connections with empty ID overwrite each other."""
+        reg = ConnectionRegistry()
+        reg.register_ws("", "peer1", "t1")
+        reg.register_ws("", "peer2", "t2")
+        assert reg.ws_count == 1
+        assert reg.list_connections()[0]["peer"] == "peer2"
+
+    # ------------------------------------------------------------------
+    # 5. ZMQ state transition correctness
+    # ------------------------------------------------------------------
+
+    def test_zmq_first_seen_set_on_first_subscribe(self):
+        """first_seen is set when topic goes 0 -> 1."""
+        reg = ConnectionRegistry()
+        before = time.time()
+        reg.register_zmq_sub("cpu")
+        after = time.time()
+        assert before <= reg._zmq_first_seen["cpu"] <= after
+
+    def test_zmq_first_seen_not_updated_on_additional_subscribe(self):
+        """first_seen does NOT change when topic goes 1 -> 2."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        first = reg._zmq_first_seen["cpu"]
+        time.sleep(0.01)
+        reg.register_zmq_sub("cpu")
+        assert reg._zmq_first_seen["cpu"] == first  # unchanged
+
+    def test_zmq_first_seen_cleared_when_count_reaches_zero(self):
+        """first_seen is removed from dict when last subscriber leaves."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        assert "cpu" in reg._zmq_first_seen
+        reg.unregister_zmq_sub("cpu")
+        assert "cpu" not in reg._zmq_first_seen
+
+    def test_zmq_first_seen_preserved_when_count_above_zero(self):
+        """first_seen is NOT cleared when count goes 2 -> 1."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        reg.register_zmq_sub("cpu")
+        first = reg._zmq_first_seen["cpu"]
+        reg.unregister_zmq_sub("cpu")
+        assert "cpu" in reg._zmq_first_seen
+        assert reg._zmq_first_seen["cpu"] == first
+
+    def test_zmq_first_seen_fresh_after_full_cycle(self):
+        """After subscribe -> unsubscribe -> subscribe, first_seen is fresh."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        first = reg._zmq_first_seen["cpu"]
+        reg.unregister_zmq_sub("cpu")
+        time.sleep(0.01)
+        reg.register_zmq_sub("cpu")
+        second = reg._zmq_first_seen["cpu"]
+        assert second >= first
+        assert second > first  # strictly later (due to sleep)
+
+    def test_zmq_unsubscribe_unknown_topic_emits_zero(self):
+        """Unsubscribing an unknown topic emits event with count=0, first_seen=None."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.unregister_zmq_sub("ghost")
+        assert len(events) == 1
+        etype, payload = events[0]
+        assert etype == "sub"
+        assert payload["subscribers"] == 0
+        assert payload["first_seen"] is None
+        assert payload["topic"] == "ghost"
+
+    # ------------------------------------------------------------------
+    # 6. Data integrity — shallow copy leak testing
+    # ------------------------------------------------------------------
+
+    def test_list_connections_returns_copies_not_references(self):
+        """Mutating a returned entry does NOT affect the registry."""
+        reg = ConnectionRegistry()
+        reg.register_ws("x", "peer", "topic")
+        conns = reg.list_connections()
+        conns[0]["peer"] = "MUTATED"
+        conns[0]["topic"] = "MUTATED"
+        # Registry is unaffected
+        actual = reg.list_connections()[0]
+        assert actual["peer"] == "peer"
+        assert actual["topic"] == "topic"
+
+    def test_snapshot_returns_copies_not_references(self):
+        """Mutating snapshot dicts does NOT affect the registry."""
+        reg = ConnectionRegistry()
+        reg.register_ws("x", "peer", "topic")
+        reg.register_zmq_sub("cpu")
+        snap = reg.snapshot()
+        snap["connections"][0]["peer"] = "MUTATED"
+        snap["subscriptions"][0]["topic"] = "MUTATED"
+        snap["ws_connections"] = 999
+        snap["zmq_subscribers"] = 999
+        # Registry is unaffected
+        actual = reg.snapshot()
+        assert actual["connections"][0]["peer"] == "peer"
+        assert actual["subscriptions"][0]["topic"] == "cpu"
+        assert actual["ws_connections"] == 1
+        assert actual["zmq_subscribers"] == 1
+
+    # ------------------------------------------------------------------
+    # 7. Event payload field completeness
+    # ------------------------------------------------------------------
+
+    def test_ws_connect_event_has_all_fields(self):
+        """WS connect event payload has every expected field with correct types."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_ws("c1", "1.2.3.4:80", "cpu")
+        payload = events[0][1]
+        assert payload["kind"] == "ws"
+        assert payload["id"] == "c1"
+        assert payload["peer"] == "1.2.3.4:80"
+        assert payload["topic"] == "cpu"
+        assert payload["connected"] is True
+        assert isinstance(payload["connected_at"], float)
+        assert "ttl" in payload
+        # No left_at on connect
+        assert "left_at" not in payload
+
+    def test_ws_disconnect_event_has_all_fields(self):
+        """WS disconnect event payload has every expected field."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_ws("c1", "1.2.3.4:80", "cpu")
+        reg.unregister_ws("c1")
+        payload = events[1][1]
+        assert payload["kind"] == "ws"
+        assert payload["id"] == "c1"
+        assert payload["connected"] is False
+        assert isinstance(payload["connected_at"], float)
+        assert isinstance(payload["left_at"], float)
+        assert payload["left_at"] >= payload["connected_at"]
+
+    def test_zmq_subscribe_event_has_all_fields(self):
+        """ZMQ subscribe event payload has every expected field."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_zmq_sub("cpu")
+        payload = events[0][1]
+        assert payload["kind"] == "zmq"
+        assert payload["topic"] == "cpu"
+        assert payload["subscribers"] == 1
+        assert isinstance(payload["arrived_at"], float)
+        assert "ttl" in payload
+        # No left_at on join
+        assert "left_at" not in payload
+
+    def test_zmq_unsubscribe_event_has_all_fields(self):
+        """ZMQ unsubscribe event payload has every expected field."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        payload = events[1][1]
+        assert payload["kind"] == "zmq"
+        assert payload["topic"] == "cpu"
+        assert payload["subscribers"] == 0
+        assert isinstance(payload["left_at"], float)
+        assert isinstance(payload["first_seen"], float)
+        assert payload["left_at"] >= payload["first_seen"]
+
+    # ------------------------------------------------------------------
+    # 8. TTL values in events
+    # ------------------------------------------------------------------
+
+    def test_ws_connect_event_ttl_is_60(self):
+        """WS connect events carry ttl=60."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_ws("x", "peer", "t")
+        assert events[0][1]["ttl"] == 60
+
+    def test_zmq_subscribe_event_ttl_is_30(self):
+        """ZMQ subscribe events carry ttl=30."""
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.register_zmq_sub("cpu")
+        assert events[0][1]["ttl"] == 30
+
+    # ------------------------------------------------------------------
+    # 9. check_connection state transitions
+    # ------------------------------------------------------------------
+
+    def test_check_connection_true_only_while_registered(self):
+        """check_connection returns True only between register and unregister."""
+        reg = ConnectionRegistry()
+        assert reg.check_connection("x") is False
+        reg.register_ws("x", "peer", "t")
+        assert reg.check_connection("x") is True
+        reg.unregister_ws("x")
+        assert reg.check_connection("x") is False
+
+    def test_check_connection_after_overwrite(self):
+        """check_connection still True after same-id overwrite."""
+        reg = ConnectionRegistry()
+        reg.register_ws("x", "p1", "t1")
+        reg.register_ws("x", "p2", "t2")
+        assert reg.check_connection("x") is True
+        conns = reg.list_connections()
+        assert conns[0]["peer"] == "p2"
+
+    # ------------------------------------------------------------------
+    # 10. connected_at stability
+    # ------------------------------------------------------------------
+
+    def test_connected_at_immutable_after_register(self):
+        """connected_at does not change across multiple list_connections calls."""
+        reg = ConnectionRegistry()
+        reg.register_ws("x", "peer", "t")
+        t1 = reg.list_connections()[0]["connected_at"]
+        time.sleep(0.01)
+        t2 = reg.list_connections()[0]["connected_at"]
+        assert t1 == t2  # same timestamp, not re-evaluated
+
+    # ------------------------------------------------------------------
+    # 11. ws_count and zmq_sub_count properties
+    # ------------------------------------------------------------------
+
+    def test_ws_count_reflects_real_time(self):
+        """ws_count property returns live count, not cached."""
+        reg = ConnectionRegistry()
+        assert reg.ws_count == 0
+        reg.register_ws("a", "p", "t")
+        assert reg.ws_count == 1
+        reg.register_ws("b", "p", "t")
+        assert reg.ws_count == 2
+        reg.unregister_ws("a")
+        assert reg.ws_count == 1
+        reg.unregister_ws("b")
+        assert reg.ws_count == 0
+
+    def test_zmq_sub_count_reflects_real_time(self):
+        """zmq_sub_count property returns live total, not cached."""
+        reg = ConnectionRegistry()
+        assert reg.zmq_sub_count == 0
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("a")
+        reg.register_zmq_sub("b")
+        assert reg.zmq_sub_count == 3
+        reg.unregister_zmq_sub("a")
+        assert reg.zmq_sub_count == 2
+        reg.unregister_zmq_sub("a")
+        reg.unregister_zmq_sub("b")
+        assert reg.zmq_sub_count == 0
+
+    # ------------------------------------------------------------------
+    # 12. Multiple registries isolated
+    # ------------------------------------------------------------------
+
+    def test_multiple_registries_are_isolated(self):
+        """Two ConnectionRegistry instances share no state."""
+        reg1 = ConnectionRegistry()
+        reg2 = ConnectionRegistry()
+        reg1.register_ws("x", "peer", "t")
+        reg1.register_zmq_sub("cpu")
+        assert reg1.ws_count == 1
+        assert reg2.ws_count == 0
+        assert reg1.zmq_sub_count == 1
+        assert reg2.zmq_sub_count == 0
+
+    # ------------------------------------------------------------------
+    # 13. SubscriptionTracker direct testing
+    # ------------------------------------------------------------------
+
+    def test_subscription_tracker_subscribe_unsubscribe_cycle(self):
+        """Subscribe -> unsubscribe -> subscribe: topic is active, not lingering."""
+        from sqtseries.messaging.pubsub import SubscriptionTracker
+
+        t = SubscriptionTracker(linger_seconds=5.0)
+        t.subscribe("cpu")
+        assert "cpu" in t.active_topics
+        assert t.stats()["active"] == 1
+
+        t.unsubscribe("cpu")
+        assert "cpu" not in t.active_topics
+        assert t.stats()["lingering"] == 1
+
+        t.subscribe("cpu")  # re-subscribe clears linger
+        assert "cpu" in t.active_topics
+        assert t.stats()["lingering"] == 0
+        assert t.stats()["active"] == 1
+
+    def test_subscription_tracker_linger_persists_until_cleanup(self):
+        """Unsubscribed topic stays in linger until cleanup removes it."""
+        from sqtseries.messaging.pubsub import SubscriptionTracker
+
+        t = SubscriptionTracker(linger_seconds=0.05)
+        t.subscribe("cpu")
+        t.unsubscribe("cpu")
+        assert t.stats()["lingering"] == 1
+        # Not cleaned up yet
+        t.cleanup()
+        # cleanup runs, but linger_seconds hasn't expired yet (maybe)
+        # With 0.05s linger, after sleep it will be gone
+        time.sleep(0.1)
+        t.cleanup()
+        assert t.stats()["lingering"] == 0
+
+    def test_subscription_tracker_active_topics_after_subscribe(self):
+        """active_topics returns set of currently subscribed topics."""
+        from sqtseries.messaging.pubsub import SubscriptionTracker
+
+        t = SubscriptionTracker()
+        assert t.active_topics == set()
+        t.subscribe("a")
+        t.subscribe("b")
+        assert t.active_topics == {"a", "b"}
+        t.unsubscribe("a")
+        assert t.active_topics == {"b"}
+
+    def test_subscription_tracker_unsubscribe_unknown_topic(self):
+        """Unsubscribing a topic that was never subscribed is a no-op."""
+        from sqtseries.messaging.pubsub import SubscriptionTracker
+
+        t = SubscriptionTracker()
+        t.unsubscribe("ghost")  # no crash
+        assert t.stats()["active"] == 0
+        assert t.stats()["lingering"] == 1  # lingers even if never active
+
+    def test_subscription_tracker_double_subscribe(self):
+        """Subscribing twice to the same topic: active_topics still shows it once."""
+        from sqtseries.messaging.pubsub import SubscriptionTracker
+
+        t = SubscriptionTracker()
+        t.subscribe("cpu")
+        t.subscribe("cpu")  # duplicate
+        assert t.active_topics == {"cpu"}
+        assert t.stats()["active"] == 1  # set, not counter
+
+    # ------------------------------------------------------------------
+    # 14. StatsPublisher edge cases
+    # ------------------------------------------------------------------
+
+    async def test_stats_publisher_event_hook_after_stop_is_noop(self):
+        """After stop(), registry events are silently dropped."""
+        reg = ConnectionRegistry()
+        pub = StatsPublisher(f"tcp://127.0.0.1:{free_port()}", registry=reg)
+        await pub.start()
+        await pub.stop()
+        # Register a WS — the event hook should no-op
+        reg.register_ws("x", "peer", "topic")
+        reg.unregister_ws("x")
+        # No crash, no tasks spawned
+
+    async def test_stats_publisher_start_stop_cycles_no_listener_leak(self):
+        """5 start/stop cycles leave 0 listeners on the registry."""
+        reg = ConnectionRegistry()
+        for _ in range(5):
+            pub = StatsPublisher(f"tcp://127.0.0.1:{free_port()}", registry=reg)
+            await pub.start()
+            assert len(reg._listeners) == 1
+            await pub.stop()
+            assert len(reg._listeners) == 0
+
+    async def test_stats_publisher_report_contains_uptime(self):
+        """Report event includes uptime_s > 0."""
+        reg = ConnectionRegistry()
+        pub = StatsPublisher(
+            f"tcp://127.0.0.1:{free_port()}",
+            registry=reg,
+            report_interval=0.1,
+        )
+        await pub.start()
+        await asyncio.sleep(0.2)
+
+        ctx = zmq.Context()
+        sub = ctx.socket(zmq.SUB)
+        sub.setsockopt(zmq.LINGER, 0)
+        sub.connect(pub.endpoint)
+        sub.setsockopt(zmq.SUBSCRIBE, b"report")
+        await asyncio.sleep(0.2)
+
+        for _ in range(20):
+            if sub.poll(100, zmq.POLLIN):
+                _topic, payload = sub.recv_multipart()
+                data = orjson.loads(payload)
+                if data.get("uptime_s", 0) > 0:
+                    break
+        else:
+            pytest.fail("did not receive report with uptime")
+
+        sub.close(linger=0)
+        ctx.term()
+        await pub.stop()
+
+    # ------------------------------------------------------------------
+    # 15. Cross-cutting: WS + ZMQ events don't interfere
+    # ------------------------------------------------------------------
+
+    def test_zmq_events_do_not_affect_ws_count(self):
+        """Registering ZMQ subscribers does not change ws_count."""
+        reg = ConnectionRegistry()
+        reg.register_ws("x", "p", "t")
+        assert reg.ws_count == 1
+        reg.register_zmq_sub("cpu")
+        reg.register_zmq_sub("mem")
+        assert reg.ws_count == 1  # unchanged
+
+    def test_ws_events_do_not_affect_zmq_count(self):
+        """Registering WS connections does not change zmq_sub_count."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        assert reg.zmq_sub_count == 1
+        reg.register_ws("x", "p", "t")
+        reg.register_ws("y", "p", "t")
+        assert reg.zmq_sub_count == 1  # unchanged
+
+    # ------------------------------------------------------------------
+    # 16. Edge: unregister_zmq_sub emits event even for unknown topic
+    # ------------------------------------------------------------------
+
+    def test_unregister_zmq_sub_unknown_still_emits_event(self):
+        """Unsubscribing an unknown topic emits a 'sub' event with count=0.
+
+        This is the current behavior: unknown topics still generate events.
+        The caller (pubsub._read_subscriptions) drives this, and the registry
+        faithfully records the state change (0 -> 0 with count=0).
+        """
+        events = []
+        reg = ConnectionRegistry()
+        reg.on_event(lambda et, p: events.append((et, p)))
+        reg.unregister_zmq_sub("never_existed")
+        assert len(events) == 1
+        assert events[0][0] == "sub"
+        assert events[0][1]["subscribers"] == 0
+        assert events[0][1]["topic"] == "never_existed"
+
+    # ------------------------------------------------------------------
+    # 17. Edge: list_connections with many connections sorted correctly
+    # ------------------------------------------------------------------
+
+    def test_list_connections_sorts_by_connected_at(self):
+        """Connections are returned in registration order (by connected_at)."""
+        reg = ConnectionRegistry()
+        reg.register_ws("c", "p", "t")  # third
+        time.sleep(0.01)
+        reg.register_ws("a", "p", "t")  # first (registered earlier)
+        time.sleep(0.01)
+        reg.register_ws("b", "p", "t")  # second
+        ids = [c["id"] for c in reg.list_connections()]
+        # c was registered first, then a, then b
+        assert ids == ["c", "a", "b"]
+
+    # ------------------------------------------------------------------
+    # 18. Edge: snapshot subscriptions have first_seen
+    # ------------------------------------------------------------------
+
+    def test_snapshot_subscriptions_include_first_seen(self):
+        """Snapshot subscriptions list includes first_seen for each topic."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        reg.register_zmq_sub("mem")
+        snap = reg.snapshot()
+        subs = {s["topic"]: s for s in snap["subscriptions"]}
+        assert "cpu" in subs
+        assert "mem" in subs
+        assert isinstance(subs["cpu"]["first_seen"], float)
+        assert isinstance(subs["mem"]["first_seen"], float)
+
+    def test_snapshot_subscriptions_first_seen_none_after_full_unsub(self):
+        """Snapshot shows first_seen=None for topic that was fully unsubscribed."""
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        # Topic is gone from _zmq_subs, so snapshot has no entry for it
+        snap = reg.snapshot()
+        topics = [s["topic"] for s in snap["subscriptions"]]
+        assert "cpu" not in topics

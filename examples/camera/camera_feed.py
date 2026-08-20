@@ -139,7 +139,8 @@ def latest(base: str, metric: str, start_s: int) -> dict | None:
 
 
 def fmt_v(v: float | None, unit: str = "", nd: int = 1) -> str:
-    if v is None or v != v:  # None or NaN
+    # None or NaN (v != v is the standard NaN check)
+    if v is None or v != v:
         return "no data"
     return f"{v:.{nd}f}{unit}"
 

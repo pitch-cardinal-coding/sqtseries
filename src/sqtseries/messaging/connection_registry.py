@@ -21,18 +21,9 @@ class ConnectionRegistry:
     Thread-safe: all mutation methods are synchronous (called from the event
     loop). The registry emits ``conn`` events on every state change and can
     verify connection IDs on demand (``conncheck``).
-
-    Connection health:
-        ``touch_ws`` updates ``last_activity_at`` on every received frame.
-        ``sweep_stale`` returns connections whose ``last_activity_at`` is
-        older than ``expired_timeout_s`` (default 30s).  Inspired by
-        dafka_beacon.c:272 ``dafka_beacon_clear_dead_peers`` — iterate a
-        hash of timestamps and remove entries past their expiry.
     """
 
-    def __init__(
-        self, evasive_timeout_s: float = 10.0, expired_timeout_s: float = 30.0
-    ):
+    def __init__(self) -> None:
         # keyed by connection_id (str)
         self._ws: dict[str, dict[str, Any]] = {}
         # topic -> subscriber_count
@@ -40,8 +31,6 @@ class ConnectionRegistry:
         # topic -> epoch seconds when its count first went 0 -> 1
         self._zmq_first_seen: dict[str, float] = {}
         self._listeners: list[Callable[[str, dict[str, Any]], None]] = []
-        self.evasive_timeout_s = evasive_timeout_s
-        self.expired_timeout_s = expired_timeout_s
 
     def on_event(self, callback: Callable[[str, dict[str, Any]], None]) -> None:
         """Register a listener for ``(event_type, payload)`` pairs.
@@ -61,7 +50,9 @@ class ConnectionRegistry:
             self._listeners.remove(callback)
 
     def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
-        for cb in self._listeners:
+        # Snapshot the list so listeners added/removed during emission are
+        # picked up on the *next* emit, not skipped or double-fired.
+        for cb in list(self._listeners):
             with contextlib.suppress(Exception):
                 cb(event_type, payload)
 
@@ -157,24 +148,6 @@ class ConnectionRegistry:
     def check_connection(self, conn_id: str) -> bool:
         """Return ``True`` if ``conn_id`` is a currently-registered connection."""
         return conn_id in self._ws
-
-    def sweep_stale(self) -> list[dict[str, Any]]:
-        """Return connections that have exceeded ``expired_timeout_s``.
-
-        Iterates the connection hash and compares each entry's
-        ``last_activity_at`` against the current time, mirroring
-        ``dafka_beacon_clear_dead_peers`` (dafka_beacon.c:272-287).
-        Stale connections are NOT removed here — the caller decides
-        whether to close them (to avoid mutating during iteration).
-        """
-        now = time.time()
-        stale: list[dict[str, Any]] = []
-        for conn_id, entry in self._ws.items():
-            last = entry.get("last_activity_at", entry["connected_at"])
-            age = now - last
-            if age > self.expired_timeout_s:
-                stale.append({**entry, "id": conn_id, "age_s": round(age, 1)})
-        return stale
 
     def list_connections(self) -> list[dict[str, Any]]:
         """Return every active connection entry."""
