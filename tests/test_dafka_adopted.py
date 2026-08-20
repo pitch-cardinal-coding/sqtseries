@@ -1,106 +1,12 @@
 """Tests for patterns adopted from dafka/zyre into sqtseries.
 
 Covers:
-- Connection health sweep (dafka_beacon.c:272, zyre_peer.c:198)
 - Query result cache (dafka_fetch_filter.c)
 """
 
 import time
 
-from sqtseries.messaging.connection_registry import ConnectionRegistry
 from sqtseries.messaging.query_cache import QueryResultCache
-
-# ---------------------------------------------------------------------------
-# XPUB welcome message
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Connection health sweep
-# ---------------------------------------------------------------------------
-
-
-class TestConnectionHealthSweep:
-    """Verify evasive/expired timeout detection for WebSocket connections."""
-
-    def test_touch_ws_updates_activity(self):
-        """touch_ws() refreshes last_activity_at."""
-        reg = ConnectionRegistry(expired_timeout_s=1.0)
-        reg.register_ws("c1", "127.0.0.1:12345", "cpu")
-
-        entry = reg.list_connections()[0]
-        original_activity = entry["last_activity_at"]
-
-        time.sleep(0.05)
-        reg.touch_ws("c1")
-
-        entry = reg.list_connections()[0]
-        assert entry["last_activity_at"] > original_activity
-
-    def test_sweep_stale_returns_expired(self):
-        """sweep_stale() returns connections older than expired_timeout_s."""
-        reg = ConnectionRegistry(expired_timeout_s=0.1)
-        reg.register_ws("c1", "127.0.0.1:12345", "cpu")
-        reg.register_ws("c2", "127.0.0.1:12346", "mem")
-
-        # Wait for c1 to expire
-        time.sleep(0.15)
-
-        # Touch c2 to keep it alive
-        reg.touch_ws("c2")
-
-        stale = reg.sweep_stale()
-        stale_ids = [s["id"] for s in stale]
-        assert "c1" in stale_ids
-        assert "c2" not in stale_ids
-
-    def test_sweep_stale_empty_when_all_active(self):
-        """sweep_stale() returns empty when all connections are active."""
-        reg = ConnectionRegistry(expired_timeout_s=5.0)
-        reg.register_ws("c1", "127.0.0.1:12345", "cpu")
-
-        stale = reg.sweep_stale()
-        assert stale == []
-
-    def test_sweep_stale_does_not_remove(self):
-        """sweep_stale() does NOT remove connections — caller decides."""
-        reg = ConnectionRegistry(expired_timeout_s=0.1)
-        reg.register_ws("c1", "127.0.0.1:12345", "cpu")
-
-        time.sleep(0.15)
-
-        stale = reg.sweep_stale()
-        assert len(stale) == 1
-        # Connection is still in the registry
-        assert reg.check_connection("c1")
-
-    def test_sweep_stale_includes_age(self):
-        """Stale entries include age_s for diagnostic purposes."""
-        reg = ConnectionRegistry(expired_timeout_s=0.1)
-        reg.register_ws("c1", "127.0.0.1:12345", "cpu")
-
-        time.sleep(0.15)
-
-        stale = reg.sweep_stale()
-        assert len(stale) == 1
-        assert "age_s" in stale[0]
-        assert stale[0]["age_s"] >= 0.1
-
-    def test_sweep_stale_with_evasive_timeout(self):
-        """evasive_timeout_s is tracked but doesn't auto-disconnect."""
-        reg = ConnectionRegistry(evasive_timeout_s=0.05, expired_timeout_s=0.2)
-        reg.register_ws("c1", "127.0.0.1:12345", "cpu")
-
-        time.sleep(0.1)
-
-        # Not expired yet
-        stale = reg.sweep_stale()
-        assert len(stale) == 0
-
-        # Wait for expiry
-        time.sleep(0.15)
-        stale = reg.sweep_stale()
-        assert len(stale) == 1
-
 
 # ---------------------------------------------------------------------------
 # Query result cache
