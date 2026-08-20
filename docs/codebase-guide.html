@@ -1190,7 +1190,7 @@ aiosqlite rejected (sequential thread hops).</p>
   <p class="desc">Resolve a name or AggregationFunction; ValueError when unsupported.</p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">gap_fill_linear(samples, max_gap_ns) -> list[Sample]</span>
   <p class="desc">Linearly interpolate the midpoint between consecutive samples whose gap is
-  <code>0 &lt; gap &le;= max_gap_ns</code> (inserts one halfway point per gap). Input must be sorted
+  <code>0 &lt; gap &lt;= max_gap_ns</code> (inserts one halfway point per gap). Input must be sorted
   ascending; larger gaps stay unfilled.</p></div>
 </div>
 
