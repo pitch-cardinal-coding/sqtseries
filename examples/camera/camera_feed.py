@@ -174,9 +174,7 @@ def q_busiest_hour_day(base: str, start_s: int, end_s: int) -> None:
         print("  no hourly data yet")
         return
     if len(hours) < 2:
-        print(
-            f"  only {len(hours)} hour(s) of data so far — need 2+ to " f"compare hours"
-        )
+        print(f"  only {len(hours)} hour(s) of data so far — need 2+ to compare hours")
     else:
         hh = max(hours, key=lambda r: r[1])
         print(
@@ -220,8 +218,7 @@ def q_trend(base: str, start_s: int, end_s: int) -> None:
     print(
         "  daily: "
         + " | ".join(
-            f"{datetime.datetime.fromtimestamp(r[0], datetime.UTC):%m-%d}"
-            f"={r[1]:.0f}"
+            f"{datetime.datetime.fromtimestamp(r[0], datetime.UTC):%m-%d}={r[1]:.0f}"
             for r in days
         )
     )
@@ -272,7 +269,7 @@ def q_percentiles(base: str, start_s: int, end_s: int) -> None:
 
 def q_anomaly(base: str, start_s: int, end_s: int) -> None:
     """Q7. Anomaly vs the same hour over the previous days."""
-    print("\n[Q7] Anomaly detection — current hour vs the same hour, " "previous days")
+    print("\n[Q7] Anomaly detection — current hour vs the same hour, previous days")
     now = datetime.datetime.now(datetime.UTC)
     cur_hour_start = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
     cur = agg(base, "traffic.people.current", ["avg"], cur_hour_start, NOW_S).get("avg")
@@ -328,9 +325,7 @@ def q_battery(base: str, start_s: int, end_s: int) -> None:
         when = datetime.datetime.fromtimestamp(
             last["timestamp"] + hours_left * 3600, datetime.UTC
         )
-        print(
-            f"  projected empty in {hours_left:.0f}h " f"(~{when:%Y-%m-%d %H:%M} UTC)"
-        )
+        print(f"  projected empty in {hours_left:.0f}h (~{when:%Y-%m-%d %H:%M} UTC)")
     elif drain < 0:
         print("  battery gained charge (recharged or replaced) — no drain to project")
     else:
@@ -347,8 +342,7 @@ def q_cpu(base: str, start_s: int, end_s: int) -> None:
     print("\n[Q9] CPU & thermal")
     st = agg(base, "system.cpu.usage", ["avg", "max"], start_s, end_s)
     print(
-        f"  cpu usage: avg={fmt_v(st.get('avg'), '%')}  "
-        f"max={fmt_v(st.get('max'), '%')}"
+        f"  cpu usage: avg={fmt_v(st.get('avg'), '%')}  max={fmt_v(st.get('max'), '%')}"
     )
     st = agg(base, "system.cpu.temperature", ["min", "max", "avg"], start_s, end_s)
     print(
@@ -452,8 +446,7 @@ def q_multicam(base: str, start_s: int, end_s: int) -> None:
     try:
         stats = _http_get(f"{base}/api/v1/stats")
         print(
-            f"  series stored: {stats.get('series')}  "
-            f"metrics: {stats.get('metrics')}"
+            f"  series stored: {stats.get('series')}  metrics: {stats.get('metrics')}"
         )
     except Exception:
         print("  (stats endpoint unreachable)")

@@ -92,7 +92,8 @@ always use their configured values.</p>
     the rollup fast path (eligible queries only).</p></div>
   <div class="card"><h3>Messaging</h3>
     <p><code>messaging/</code>: PULL ingest, REP query + admin, XPUB live
-    bus, stats PUB, connection registry, worker pool.</p></div>
+    bus, stats PUB, connection registry (with health sweep for stale detection),
+    query result cache (LRU with TTL), worker pool.</p></div>
   <div class="card"><h3>HTTP gateway</h3>
     <p>FastAPI REST + WebSocket (<code>gateway/</code>), rate-limited
     (600 req/min), CORS-enabled.</p></div>

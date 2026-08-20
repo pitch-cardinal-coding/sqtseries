@@ -110,9 +110,9 @@ class TestQuestionExamples:
 
     async def test_answers_all_four_readme_questions(self, running_service):
         res = await run_example("question_examples.py", *_args(running_service))
-        assert (
-            res.returncode == 0
-        ), f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        assert res.returncode == 0, (
+            f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        )
         answers = parse_answers(res.stdout)
 
         # 1. average CPU load last hour: seeded cycle 20.0..100.0
@@ -227,9 +227,9 @@ class TestOtherExamples:
 
     async def test_query_examples_every_query_type(self, running_service):
         res = await run_example("query_examples.py", *_args(running_service))
-        assert (
-            res.returncode == 0
-        ), f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        assert res.returncode == 0, (
+            f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        )
         for marker in (
             "1. Raw query",
             "3. Whole-window aggregation",
@@ -254,9 +254,9 @@ class TestOtherExamples:
             "--http-port",
             str(ports["http"]),
         )
-        assert (
-            res.returncode == 0
-        ), f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        assert res.returncode == 0, (
+            f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        )
         for marker in (
             "=== 1. Writing tagged measurements",
             "=== 3. Whole-metric query over the wire (merged)",
@@ -270,9 +270,9 @@ class TestOtherExamples:
     async def test_run_custom_lifecycle(self, tmp_path):
         """run_custom.py starts its own instance (own ports, own db)."""
         res = await run_example("run_custom.py", "--workdir", str(tmp_path / "custom"))
-        assert (
-            res.returncode == 0
-        ), f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        assert res.returncode == 0, (
+            f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+        )
         assert "ping:    ok" in res.stdout
         assert "write+query: ok" in res.stdout
         assert "stop:    ok" in res.stdout

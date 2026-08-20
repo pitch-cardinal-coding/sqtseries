@@ -346,8 +346,7 @@ def extra_staleness(env: ExampleEnv) -> None:
     age_s = time.time() - rows[0]["timestamp"]
     print(f"  ANSWER: no_data_for_s = {age_s:.0f}")
     print(
-        f"  last reading at t={rows[0]['timestamp']:.0f} "
-        f"value={rows[0]['value']:.1f}"
+        f"  last reading at t={rows[0]['timestamp']:.0f} value={rows[0]['value']:.1f}"
     )
 
 
@@ -405,7 +404,7 @@ def http_variants(env: ExampleEnv) -> None:
             print(f"    {label}: {aggs}")
         except Exception as exc:
             print(f"    {label}: HTTP not available ({exc})")
-    print("    (equivalent curl: " 'curl "' + urls[0][1] + '")')
+    print('    (equivalent curl: curl "' + urls[0][1] + '")')
 
 
 if __name__ == "__main__":

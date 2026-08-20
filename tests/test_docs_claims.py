@@ -175,6 +175,9 @@ class TestAdminReplyFields:
             "metrics",
             "wal_bytes",
             "checkpoints",
+            "query_cache_size",
+            "query_cache_hits",
+            "query_cache_misses",
         ):
             assert key in st, f"missing {key}"
 

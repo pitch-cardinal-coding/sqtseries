@@ -14,6 +14,7 @@ from .protocol import (
     parse_query,
 )
 from .pubsub import PubSub, SubscriptionTracker
+from .query_cache import QueryResultCache
 from .stats_publisher import StatsPublisher
 from .worker import WorkerPool
 
@@ -26,6 +27,7 @@ __all__ = [
     "ProtocolError",
     "PubSub",
     "QueryBroker",
+    "QueryResultCache",
     "StatsPublisher",
     "SubscriptionTracker",
     "WorkerPool",

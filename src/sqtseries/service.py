@@ -39,6 +39,7 @@ from .messaging import (
     WorkerPool,
 )
 from .messaging.protocol import parse_admin
+from .messaging.query_cache import QueryResultCache
 from .partition import RetentionManager, RollupManager
 from .partition.retention import parse_ttl
 from .ports import PortAllocator
@@ -83,6 +84,7 @@ class Service:
         self.runtime = RuntimeState(_runtime_path(settings))
         self._runtime_owned = False
         self.connection_registry = ConnectionRegistry()
+        self._query_cache = QueryResultCache()
 
     async def start(self) -> None:
         """Start the service; on partial failure, clean up what started."""
@@ -335,6 +337,13 @@ class Service:
                 "status": "error",
                 "error": {"code": "NOT_READY", "message": "query engine unavailable"},
             }
+        # Check cache first — identical queries within TTL are served from
+        # cache, avoiding redundant SQLite scans.  Inspired by dafka's fetch
+        # filter (dafka/src/dafka_fetch_filter.c) which suppresses duplicate
+        # FETCH requests for the same partition.
+        cached = self._query_cache.get(query)
+        if cached is not None:
+            return cached
         metric = query.get("metric")
         start = query.get("start")
         end = query.get("end")
@@ -347,12 +356,14 @@ class Service:
             aggs = query.get("aggregations")
             if aggs:
                 funcs = [f.strip() for f in str(aggs).split(",") if f.strip()]
-                return {
+                result = {
                     "status": "ok",
                     "data": self.ts.aggregate(
                         metric=metric, start=start, end=end, funcs=funcs
                     ),
                 }
+                self._query_cache.put(query, result)
+                return result
             data = self.ts.query(
                 metric=metric,
                 start=start,
@@ -367,10 +378,12 @@ class Service:
                 "status": "error",
                 "error": {"code": "INVALID_QUERY", "message": str(exc)},
             }
-        return {
+        result = {
             "status": "ok",
             "data": [{"timestamp": ts / 1e9, "value": v} for ts, v in data],
         }
+        self._query_cache.put(query, result)
+        return result
 
     def _admin_handler(self, query: dict[str, Any]) -> dict[str, Any]:
         """Serve admin commands over the admin REP socket (port 12504)."""
@@ -458,6 +471,11 @@ class Service:
         if self.store is not None:
             payload["series"] = self.store.series_count()
             payload["metrics"] = len(self.store.list_metrics())
+        # Query cache stats
+        qstats = self._query_cache.stats()
+        payload["query_cache_size"] = qstats["size"]
+        payload["query_cache_hits"] = qstats["hits"]
+        payload["query_cache_misses"] = qstats["misses"]
         return payload
 
     def _admin_connections(self) -> dict[str, Any]:

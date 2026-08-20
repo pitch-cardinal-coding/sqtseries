@@ -72,8 +72,7 @@ markers.
 | `test_stress_concurrent.py` | Concurrent connect/disconnect stress on the registry |
 | `test_systemd_edge.py` | Systemd unit template edge cases (mocked systemctl) |
 
-Helper code lives in `conftest.py` (shared fixtures such as `tmp_db_path`,
-`free_port`/`free_ports`, and sample TOML/JSON config files).
+Helper code lives in `conftest.py` (shared fixtures such as `free_port`/`free_ports` and sample TOML/JSON config files).
 
 ## Common commands
 
@@ -97,6 +96,67 @@ python3 -m pytest tests/ -x
 5. Add new fixtures to `conftest.py` and share them; the suite already has
    fixtures for a temp DB path and sample TOML/JSON config files.
 
+## Profiling with py-spy-watch
+
+`scripts/py-spy-watch.sh` continuously samples `py-spy dump` on live
+`python3 -m sqtseries` processes and appends every stack trace to a log
+file. Use it alongside a running server **or** a test run that spawns
+subprocesses (the script targets any `python3.*sqtseries` process).
+
+### Quick start
+
+```bash
+# Start the watcher in a tmux session (1-second interval, custom log)
+tmux new -d -s py-spy-watch "bash scripts/py-spy-watch.sh 1 /tmp/sqtseries-py-spy.log"
+
+# In another window: run the tests
+tmux new -d -s tests "python3 -m pytest tests/ -q"
+
+# Inspect the log
+tail -f /tmp/sqtseries-py-spy.log
+
+# When done
+tmux kill-session -t py-spy-watch
+tmux kill-session -t tests
+```
+
+### Why a unique output file?
+
+The default log path (`/tmp/py-spy-watch.log`) is shared with the
+airbits project's own watcher. Always pass a project-specific path to
+avoid interleaved dumps:
+
+```bash
+bash scripts/py-spy-watch.sh 2 /tmp/sqtseries-py-spy.log
+```
+
+### How targeting works
+
+The script uses `pgrep -f "python3.*sqtseries"` to find targets. This
+matches processes whose command line contains both `python3` *and*
+`sqtseries` — i.e. any sqtseries server instance or subprocess spawned
+by the test suite. It avoids matching bash wrappers, non-Python helper
+scripts, or unrelated processes from other projects.
+
+`sudo` is required for ptrace under `yama/ptrace_scope=1` (the
+kernel default on most distros).
+
+### What the dumps tell you
+
+Each dump shows the full Python call stack of every thread. Look for:
+
+- **Stuck loops** — the same stack appearing on every dump suggests a busy
+  loop or deadlock.
+- **Growing thread count** — many threads accumulating over time indicates
+  a leak in task/thread creation.
+- **Surprising allocations** — deep stacks in unexpected modules (e.g.
+  large buffering inside a query) can hint at memory pressure.
+
+The `test_resource_leaks.py`, `test_async_cleanup.py`, and
+`test_concurrency.py` suites validate fd stability, task cleanup, and
+concurrent safety; py-spy complements them by showing runtime behaviour
+under load.
+
 ## Troubleshooting
 
 | Symptom | Reason / fix |
@@ -104,6 +164,7 @@ python3 -m pytest tests/ -x
 | "Address already in use" | Should not happen: every service fixture binds OS-assigned free ports (`free_ports`). If it does, a leftover process may hold a port — check `ss -tlnp` and kill it. |
 | Slow suite | Run a single file, or `--durations` to find the slowest tests |
 | Weird failures after editing config | New settings often need new `test_config*` cases; the loader reads env vars, so unset `SQT_SERIES_*` before running |
+| py-spy-watch "Failed to find python version" | The watcher picked up a non-Python process. The default `pgrep` pattern should prevent this; if it persists, check `pgrep -af "python3.*sqtseries"` to see what it matches. |
 
 ## Documentation links
 

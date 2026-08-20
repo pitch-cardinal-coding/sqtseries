@@ -325,8 +325,7 @@ def q7_busiest_hour(env: ExampleEnv) -> None:
     hour_row = max(rows, key=lambda r: r["value"])
     hh = time.strftime("%H:%M", time.gmtime(hour_row["timestamp"]))
     print(
-        f"  ANSWER: busiest_visitors_hour = {hh} UTC "
-        f"({hour_row['value']:.0f} visitors)"
+        f"  ANSWER: busiest_visitors_hour = {hh} UTC ({hour_row['value']:.0f} visitors)"
     )
 
 

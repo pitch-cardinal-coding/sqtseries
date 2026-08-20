@@ -400,7 +400,8 @@ written to <code>runtime.json</code> (next to the database) and shown by
       <code>QUERY_TIMEOUT</code> error instead of waiting forever, and the
       service stays responsive to other traffic. Set to <code>0</code> to
       disable the server-side budget entirely (queries then run to
-      completion).</li>
+      completion). Identical queries within a 5-second TTL are served from
+      an LRU cache (512 entries), avoiding redundant SQLite scans.</li>
   <li><code>streaming.linger_seconds</code> (30) — the pubsub subscription
       tracker's linger window after a topic unsubscribes.</li>
   <li><code>backup.enabled</code>/<code>interval</code> — automatic

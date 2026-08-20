@@ -83,7 +83,7 @@ def subscribe_websocket(host: str, topic: str, http_port: int = HTTP_PORT):
                     data = orjson.loads(msg)
                     if data.get("type") == "ping":
                         continue
-                    print(f"[ws] {data.get('metric','?')}={data.get('value',0)}")
+                    print(f"[ws] {data.get('metric', '?')}={data.get('value', 0)}")
                 except TimeoutError:
                     print("[ws] ping (idle)")
 

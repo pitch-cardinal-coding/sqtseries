@@ -227,11 +227,14 @@ Errors use the standard error shape
           probe fails; <code>uptime</code> is integer seconds)</td></tr>
   <tr><td><code>stats</code></td>
       <td><code>{"cmd":"stats"}</code></td>
-      <td><code>{"status":"ok","uptime_s":...,"ingested":...,"invalid":...,"ingest_errors":...,"queries":...,"admin_requests":...,"published":...,"subscribers":...,"series":...,"metrics":...,"wal_bytes":...,"checkpoint_busy_runs":...,"checkpoints":...,"analyze_runs":...,"retention_runs":...,"partitions_dropped":...,"backup_runs":...,"backups_created":...,"last_backup":...}</code>
+      <td><code>{"status":"ok","uptime_s":...,"ingested":...,"invalid":...,"ingest_errors":...,"queries":...,"admin_requests":...,"published":...,"subscribers":...,"series":...,"metrics":...,"wal_bytes":...,"checkpoint_busy_runs":...,"checkpoints":...,"analyze_runs":...,"retention_runs":...,"partitions_dropped":...,"backup_runs":...,"backups_created":...,"last_backup":...,"query_cache_size":...,"query_cache_hits":...,"query_cache_misses":...}</code>
           (<code>uptime_s</code> in seconds; counters reset on restart;
           <code>backup_runs</code>/<code>backups_created</code> appear when
           the scheduled backup task is enabled; <code>last_backup</code>
-          appears only after the first snapshot succeeds)</td></tr>
+          appears only after the first snapshot succeeds;
+          <code>query_cache_size/hits/misses</code> track the LRU query
+          result cache — identical queries within the TTL are served from
+          cache, avoiding redundant SQLite scans)</td></tr>
   <tr><td><code>connections</code></td>
       <td><code>{"cmd":"connections"}</code></td>
       <td><code>{"status":"ok","data":[{id,kind,peer,topic,connected_at}]}</code>

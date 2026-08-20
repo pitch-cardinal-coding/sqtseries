@@ -41,7 +41,7 @@ def write_config(tmp_path: Path, ports: dict[str, int]) -> Path:
     """A TOML config with six fixed free ports and auto_detect off."""
     cfg = tmp_path / "lifecycle.toml"
     cfg.write_text(f"""[database]
-path = "{tmp_path / 'lc.sqlite'}"
+path = "{tmp_path / "lc.sqlite"}"
 
 [ingestion]
 port = {ports["ingest"]}

@@ -335,9 +335,9 @@ class TestWebSocket:
                 except Exception:
                     break
         t.join(timeout=5)
-        assert (
-            received
-        ), f"no frame broadcast for HTTP write (err={results.get('error')})"
+        assert received, (
+            f"no frame broadcast for HTTP write (err={results.get('error')})"
+        )
         assert '"cpu"' in received[0]
         assert '"web1"' in received[0]
 

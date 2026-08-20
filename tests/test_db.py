@@ -15,8 +15,7 @@ def db(tmp_path):
 def test_result_fetch_helpers(db):
     with db.connect() as conn:
         conn.executescript(
-            "CREATE TABLE t(x INTEGER, y TEXT);"
-            "INSERT INTO t VALUES (1, 'a'), (2, 'b');"
+            "CREATE TABLE t(x INTEGER, y TEXT);INSERT INTO t VALUES (1, 'a'), (2, 'b');"
         )
         assert conn.execute("SELECT x, y FROM t ORDER BY x").first() == (1, "a")
         assert conn.execute("SELECT x FROM t WHERE x = 2").scalar() == 2

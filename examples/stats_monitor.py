@@ -54,7 +54,7 @@ def main():
             if etype == "conn":
                 if data.get("connected"):
                     print(
-                        f"{ts}  CONNECTED    {data['kind']:>3s}  {data['id']}  {data.get('peer','?')}"
+                        f"{ts}  CONNECTED    {data['kind']:>3s}  {data['id']}  {data.get('peer', '?')}"
                     )
                 else:
                     print(f"{ts}  DISCONNECTED {data['kind']:>3s}  {data['id']}")
@@ -63,10 +63,10 @@ def main():
                 print(f"{ts}  SUB          {data['topic']:20s}  listeners: {subs}")
             elif etype == "report":
                 print(
-                    f"{ts}  REPORT  ws={data.get('ws_connections',0)}  "
-                    f"zmq_subs={data.get('zmq_subscribers',0)}  "
-                    f"topics={data.get('active_topics',0)}  "
-                    f"uptime={data.get('uptime_s',0)}s"
+                    f"{ts}  REPORT  ws={data.get('ws_connections', 0)}  "
+                    f"zmq_subs={data.get('zmq_subscribers', 0)}  "
+                    f"topics={data.get('active_topics', 0)}  "
+                    f"uptime={data.get('uptime_s', 0)}s"
                 )
             else:
                 print(f"{ts}  {etype}: {orjson.dumps(data).decode()}")

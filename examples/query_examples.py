@@ -196,7 +196,8 @@ def multi_agg(endpoint: str, metric: str, funcs: list[str]):
     data = reply.get("data", {})
     print("  Multi-aggregation over 1 hour window:")
     for f in funcs:
-        print(f"    {f:>6s}: {data.get(f, 'N/A'):.2f}")
+        val = data.get(f)
+        print(f"    {f:>6s}: {val:.2f}" if val is not None else f"    {f:>6s}: N/A")
 
 
 def http_query(base: str, metric: str):

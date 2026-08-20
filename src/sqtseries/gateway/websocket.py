@@ -63,6 +63,9 @@ async def subscribe_and_forward(
                     continue
                 topic_bytes = frames[0]
                 payload = frames[1] if len(frames) > 1 else b"{}"
+                # Track activity: receiving data means the connection is alive.
+                if registry is not None:
+                    registry.touch_ws(conn_id)
                 if topic != "*" and not topic_bytes.startswith(topic.encode()):
                     continue
                 if not await _send(
@@ -84,6 +87,9 @@ async def subscribe_and_forward(
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
                     return
+                # Track activity: any inbound frame means the client is alive.
+                if registry is not None:
+                    registry.touch_ws(conn_id)
 
         send_task = asyncio.create_task(send_loop())
         watch_task = asyncio.create_task(watch_disconnect())

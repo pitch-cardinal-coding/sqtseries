@@ -116,8 +116,9 @@
   <li class="l2"><a href="#m-admin">9.6 messaging/admin.py — AdminBroker</a></li>
   <li class="l2"><a href="#m-pubsub">9.7 messaging/pubsub.py — PubSub, SubscriptionTracker</a></li>
   <li class="l2"><a href="#m-registry">9.8 messaging/connection_registry.py — ConnectionRegistry</a></li>
-  <li class="l2"><a href="#m-stats">9.9 messaging/stats_publisher.py — StatsPublisher</a></li>
-  <li class="l2"><a href="#m-worker">9.10 messaging/worker.py — WorkerPool</a></li>
+  <li class="l2"><a href="#m-cache">9.9 messaging/query_cache.py — QueryResultCache</a></li>
+  <li class="l2"><a href="#m-stats">9.10 messaging/stats_publisher.py — StatsPublisher</a></li>
+  <li class="l2"><a href="#m-worker">9.11 messaging/worker.py — WorkerPool</a></li>
   <li class="l1"><a href="#pkg-gateway">10. Package sqtseries.gateway</a></li>
   <li class="l2"><a href="#g-init">10.1 gateway/__init__.py</a></li>
   <li class="l2"><a href="#g-app">10.2 gateway/app.py — create_app</a></li>
@@ -1395,15 +1396,23 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
   <code>first_seen</code> for ZMQ topics).</p>
   <div class="sym"><span class="kind">class</span><br><span class="sig">ConnectionRegistry</span>
   <p class="desc">Internal maps: <code>_ws</code> (conn_id &rarr; entry), <code>_zmq_subs</code> (topic &rarr;
-  count), <code>_zmq_first_seen</code>, <code>_listeners</code>. Methods:
+  count), <code>_zmq_first_seen</code>, <code>_listeners</code>. Constructor takes
+  <code>evasive_timeout_s</code> (default 10.0) and <code>expired_timeout_s</code> (default 30.0)
+  for connection health tracking. Methods:
   <ul>
     <li><span class="sig">on_event(callback) / remove_listener(callback)</span> — subscribe/unsubscribe to
         <code>(event_type, payload)</code> pairs ("conn", "sub"). remove_listener must be paired with
         every on_event or repeated start/stop cycles grow listeners without bound.</li>
     <li><span class="sig">register_ws(conn_id, peer, topic)</span> — record a WS join; emit a "conn" event
-        (<code>connected: True</code>, ttl 60).</li>
+        (<code>connected: True</code>, ttl 60). Sets <code>connected_at</code> and <code>last_activity_at</code>.</li>
     <li><span class="sig">unregister_ws(conn_id)</span> — mark gone; the leave event carries connected_at and
         left_at for duration display.</li>
+    <li><span class="sig">touch_ws(conn_id)</span> — update <code>last_activity_at</code> on every received frame
+        (keepalive ping, client message, etc.). Mirrors <code>zyre_peer_refresh()</code>.
+        Called from the websocket handler on every inbound frame and keepalive.</li>
+    <li><span class="sig">sweep_stale() -> list[dict]</span> — return connections whose <code>last_activity_at</code>
+        is older than <code>expired_timeout_s</code>. Entries include <code>age_s</code> for diagnostics.
+        Does NOT remove connections (caller decides). Mirrors <code>dafka_beacon_clear_dead_peers</code>.</li>
     <li><span class="sig">register_zmq_sub(topic) / unregister_zmq_sub(topic)</span> — increment/decrement
         per-topic counts, emit "sub" events; first_seen set when a topic goes 0 &rarr; 1 (ttl 30 on joins).</li>
     <li><span class="sig">check_connection(conn_id) -> bool</span> — conncheck support.</li>
@@ -1416,6 +1425,28 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
   </ul></p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">new_connection_id() -> str</span>
   <p class="desc"><code>uuid4().hex[:12]</code> — short connection IDs.</p></div>
+</div>
+
+<div class="file" id="m-cache">
+  <div class="file-head"><span class="path">src/sqtseries/messaging/query_cache.py</span><span class="meta">~80 lines</span></div>
+  <p>Query result cache with TTL for deduplicating identical queries. When multiple
+  WebSocket clients subscribe to the same metric and time range, the query engine
+  runs the same query N times. This cache deduplicates those identical queries.
+  Inspired by Dafka's fetch filter (<code>dafka/src/dafka_fetch_filter.c</code>)
+  which suppresses duplicate FETCH requests for the same partition.</p>
+  <div class="sym"><span class="kind">class</span><br><span class="sig">QueryResultCache</span>
+  <p class="desc">Bounded LRU cache with per-entry TTL.
+  <ul>
+    <li><span class="sig">__init__(maxsize=512, ttl_s=5.0)</span> — maxsize caps entries;
+        ttl_s is per-entry time-to-live (default 5s — short enough that stale data
+        from a newly ingested point is quickly visible).</li>
+    <li><span class="sig">get(query) -> dict | None</span> — return cached result if fresh,
+        else None. Keys on (metric, start, end, aggregation, interval, aggregations,
+        limit, order).</li>
+    <li><span class="sig">put(query, result)</span> — cache a query result.</li>
+    <li><span class="sig">clear()</span> — drop all cached entries.</li>
+    <li><span class="sig">stats() -> dict</span> — size, maxsize, hits, misses.</li>
+  </ul></p></div>
 </div>
 
 <div class="file" id="m-stats">
@@ -2005,7 +2036,6 @@ awaits async tests without markers; a 60 s pytest-timeout guards hangs. Run:
         instance (ingest/query/streaming/admin/http/stats).</li>
     <li><span class="sig">@pytest.fixture(autouse=True) _silence_sqtseries_logs</span> — routes
         "sqtseries" stdlib loggers to CRITICAL so background tasks don't flood test output.</li>
-    <li><span class="sig">@pytest.fixture tmp_db_path</span> — <code>tmp_path/data/test.sqlite</code>.</li>
     <li><span class="sig">@pytest.fixture sample_toml / sample_json</span> — sample config files with
         ports in the 14xxx range.</li>
   </ul>

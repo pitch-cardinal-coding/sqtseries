@@ -42,7 +42,7 @@ def write_config(workdir: Path) -> dict[str, int]:
     for name in ("ingest", "query", "streaming", "admin", "http", "stats"):
         ports[name] = free_port()
     (workdir / "config.toml").write_text(f"""[database]
-path = "{workdir / 'custom.sqlite'}"
+path = "{workdir / "custom.sqlite"}"
 
 [ingestion]
 port = {ports["ingest"]}
@@ -138,7 +138,7 @@ def main():
             time.sleep(0.3)
             rows = client.query("demo.cpu")
             assert rows, "no rows returned"
-            print(f"write+query: ok ({len(rows)} row(s), " f"value={rows[0]['value']})")
+            print(f"write+query: ok ({len(rows)} row(s), value={rows[0]['value']})")
         finally:
             client.close()
 

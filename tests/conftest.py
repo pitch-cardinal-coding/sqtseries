@@ -45,16 +45,11 @@ def _silence_sqtseries_logs():
 
 
 @pytest.fixture
-def tmp_db_path(tmp_path: Path) -> str:
-    return str(tmp_path / "data" / "test.sqlite")
-
-
-@pytest.fixture
 def sample_toml(tmp_path: Path) -> Path:
     """Write a sample TOML config file and return its path."""
     path = tmp_path / "config.toml"
     path.write_text(f"""[database]
-path = "{tmp_path / 'db.sqlite'}"
+path = "{tmp_path / "db.sqlite"}"
 batch_size = 500
 
 [ingestion]

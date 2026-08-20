@@ -173,7 +173,7 @@ def stop(ctx: click.Context) -> None:
             return
         time.sleep(0.05)
     click.echo(
-        f"Warning: pid {pid} still running 10s after SIGTERM; " "check the service log",
+        f"Warning: pid {pid} still running 10s after SIGTERM; check the service log",
         err=True,
     )
 
