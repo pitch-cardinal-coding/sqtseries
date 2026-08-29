@@ -110,7 +110,6 @@ header{
   box-shadow:var(--shadow-sm);
 }
 .brand-name{font-size:1.15rem;font-weight:700;letter-spacing:-.01em}
-.brand-tagline{display:none}
 .version-badge{
   font-size:.72rem;font-weight:600;color:var(--text-muted);
   border:1px solid var(--border);background:var(--surface);
@@ -275,12 +274,6 @@ tbody tr:last-child td{border-bottom:none}
 .card p{margin:0;font-size:.9rem;color:var(--text-muted)}
 .card a{color:var(--accent);text-decoration:none;font-weight:600}
 .card a:hover{text-decoration:underline}
-.kbd{
-  display:inline-block;background:var(--surface-2);border:1px solid var(--border);
-  border-bottom-width:2px;border-radius:4px;padding:0 .4rem;
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  font-size:.8rem;color:var(--text);
-}
 
 /* ---------------------------------------------------------------- footer */
 footer{
@@ -373,7 +366,6 @@ footer{
 .file-head{border:1px solid var(--border);border-left:5px solid var(--accent);border-radius:var(--radius-md);background:var(--surface);padding:.65rem 1rem;margin-bottom:.6rem}
 .file-head .path{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;font-size:.95rem;color:var(--text)}
 .file-head .meta{font-size:.78rem;color:var(--text-muted)}
-.file-head .purpose{font-size:.9rem;color:var(--text-muted);margin-top:.15rem}
 
 .sym{margin:.85rem 0 1.05rem}
 .sym .kind{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent)}

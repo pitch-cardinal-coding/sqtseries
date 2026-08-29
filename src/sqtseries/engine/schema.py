@@ -27,6 +27,7 @@ def measurements_ddl(year: int, month: int) -> str:
     """CREATE TABLE DDL for a monthly partition (WITHOUT ROWID + ts index)."""
     name = partition_name(year, month)
     return f"""
+
     CREATE TABLE IF NOT EXISTS {name} (
         series_id INTEGER NOT NULL,
         timestamp_ns INTEGER NOT NULL,

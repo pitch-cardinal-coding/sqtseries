@@ -1,11 +1,57 @@
 /* sqtseries docs — progressive enhancement.
-   Theme toggle, on-this-page TOC, breadcrumbs, code copy buttons,
-   prev/next pagination. All features degrade gracefully. */
+   Theme toggle, dynamic header/nav/footer, on-this-page TOC, breadcrumbs,
+   code copy buttons, prev/next pagination.
+   All features degrade gracefully. */
 
 (function () {
   "use strict";
 
   var STORAGE_KEY = "sqtseries-theme";
+  var VERSION = "v0.1.0";
+
+  /* ------------------------------------------------------------------ */
+  /*  Single source of truth: page order + nav labels.                   */
+  /*  To add a page: append to NAV_ITEMS and add the .html file.         */
+  /* ------------------------------------------------------------------ */
+  var NAV_ITEMS = [
+    { href: "index.html",              label: "Home" },
+    { href: "quickstart.html",         label: "Quick Start" },
+    { href: "configuration.html",      label: "Configuration" },
+    { href: "ingestion.html",          label: "Ingestion" },
+    { href: "queries.html",            label: "Queries" },
+    { href: "streaming.html",          label: "Streaming" },
+    { href: "camera.html",             label: "Camera" },
+    { href: "clients.html",            label: "Client Libraries" },
+    { href: "backup.html",             label: "Backup &amp; Restore" },
+    { href: "systemd.html",            label: "Systemd" },
+    { href: "api.html",                label: "API Reference" },
+    { href: "architecture.html",       label: "Architecture" },
+    { href: "codebase-guide.html",     label: "Codebase Guide" },
+    { href: "examples.html",           label: "Examples" }
+  ];
+
+  var FOOTER_LINKS = [
+    { href: "index.html",      label: "Home" },
+    { href: "quickstart.html", label: "Quick Start" },
+    { href: "api.html",        label: "API Reference" },
+    { href: "examples.html",   label: "Examples" }
+  ];
+
+  var HEADER_HTML =
+    '<a class="brand" href="index.html" aria-label="sqtseries home">' +
+      '<span class="brand-mark" aria-hidden="true">S</span>' +
+      '<span class="brand-name">sqtseries</span>' +
+    '</a>' +
+    '<span class="version-badge">' + VERSION + '</span>' +
+    '<span class="spacer"></span>' +
+    '<button id="theme-toggle" type="button" aria-label="Toggle dark mode">' +
+      '<svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      '<svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>' +
+    '</button>';
+
+  /* ------------------------------------------------------------------ */
+  /*  Helpers                                                            */
+  /* ------------------------------------------------------------------ */
 
   function getInitialTheme() {
     try {
@@ -37,8 +83,64 @@
     }
   }
 
+  /* Detect which page we're on from nav a.here (set in the HTML) or URL */
+  function detectCurrentHref() {
+    var here = document.querySelector('nav[aria-label="Main"] a.here');
+    if (here) return here.getAttribute("href");
+    var path = window.location.pathname;
+    return path.split("/").pop() || "index.html";
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Dynamic header injection                                           */
+  /* ------------------------------------------------------------------ */
+
+  function injectHeader() {
+    var header = document.querySelector("header");
+    if (header) header.innerHTML = HEADER_HTML;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Dynamic nav injection                                              */
+  /* ------------------------------------------------------------------ */
+
+  function injectNav() {
+    var existing = document.querySelector('nav[aria-label="Main"]');
+    if (!existing) return;
+    var current = detectCurrentHref();
+    var html = "";
+    NAV_ITEMS.forEach(function (item) {
+      var cls = item.href === current ? ' class="here"' : "";
+      html += '<a' + cls + ' href="' + item.href + '">' + item.label + '</a>';
+    });
+    existing.innerHTML = html;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Dynamic footer links injection                                     */
+  /* ------------------------------------------------------------------ */
+
+  function injectFooterLinks() {
+    var container = document.querySelector(".footer-links");
+    if (!container) return;
+    var html = "";
+    FOOTER_LINKS.forEach(function (item) {
+      html += '<a href="' + item.href + '">' + item.label + '</a>';
+    });
+    container.innerHTML = html;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Init                                                               */
+  /* ------------------------------------------------------------------ */
+
   onReady(function () {
     applyTheme(getInitialTheme());
+
+    /* ---- inject header/nav/footer from data ---- */
+    injectHeader();
+    injectNav();
+    injectFooterLinks();
 
     /* ---- theme toggle ---- */
     var toggle = document.getElementById("theme-toggle");
@@ -51,8 +153,9 @@
 
     /* ---- breadcrumb ---- */
     var main = document.querySelector("main");
-    var current = document.querySelector('nav a.here');
-    if (main && current) {
+    var currentHref = detectCurrentHref();
+    var navItem = NAV_ITEMS.find(function (n) { return n.href === currentHref; });
+    if (main && navItem) {
       var crumbs = document.createElement("nav");
       crumbs.className = "crumbs";
       crumbs.setAttribute("aria-label", "Breadcrumb");
@@ -63,7 +166,7 @@
       sep.className = "sep";
       sep.textContent = "/";
       var here = document.createElement("span");
-      here.textContent = current.textContent;
+      here.textContent = navItem.label.replace(/&amp;/g, "&");
       crumbs.appendChild(home);
       crumbs.appendChild(sep);
       crumbs.appendChild(here);
@@ -90,7 +193,7 @@
         li.appendChild(a);
         tocList.appendChild(li);
       });
-      /* scroll-spy: highlight the heading currently in view */
+      /* scroll-spy */
       var links = tocList.querySelectorAll("a");
       if (links.length && "IntersectionObserver" in window) {
         var spy = new IntersectionObserver(function (entries) {
@@ -134,40 +237,33 @@
     /* ---- prev / next pagination ---- */
     var footer = document.querySelector("footer");
     if (footer) {
-      var order = ["index.html", "quickstart.html", "configuration.html",
-                   "ingestion.html", "queries.html", "streaming.html",
-                   "camera.html", "clients.html", "backup.html", "systemd.html",
-                   "api.html", "architecture.html", "codebase-guide.html", "examples.html"];
-      var here = document.querySelector('nav a.here');
-      if (here) {
-        var cur = here.getAttribute("href");
-        var idx = order.indexOf(cur);
-        var pag = document.createElement("nav");
-        pag.className = "pagination";
-        pag.setAttribute("aria-label", "Page navigation");
-        if (idx > 0) {
-          var prev = document.createElement("a");
-          prev.href = order[idx - 1];
-          prev.innerHTML = '<span class="dir">Previous</span><span class="page">' +
-                           document.querySelector('nav a[href="' + order[idx - 1] + '"]').textContent +
-                           "</span>";
-          pag.appendChild(prev);
-        } else {
-          var ph = document.createElement("span");
-          ph.hidden = true;
-          pag.appendChild(ph);
-        }
-        if (idx < order.length - 1) {
-          var next = document.createElement("a");
-          next.href = order[idx + 1];
-          next.className = "next";
-          next.innerHTML = '<span class="dir">Next</span><span class="page">' +
-                           document.querySelector('nav a[href="' + order[idx + 1] + '"]').textContent +
-                           "</span>";
-          pag.appendChild(next);
-        }
-        footer.insertBefore(pag, footer.firstChild);
+      var order = NAV_ITEMS.map(function (n) { return n.href; });
+      var idx = order.indexOf(currentHref);
+      var pag = document.createElement("nav");
+      pag.className = "pagination";
+      pag.setAttribute("aria-label", "Page navigation");
+      if (idx > 0) {
+        var prevItem = NAV_ITEMS[idx - 1];
+        var prev = document.createElement("a");
+        prev.href = prevItem.href;
+        prev.innerHTML = '<span class="dir">Previous</span><span class="page">' +
+                         prevItem.label.replace(/&amp;/g, "&") + "</span>";
+        pag.appendChild(prev);
+      } else {
+        var ph = document.createElement("span");
+        ph.hidden = true;
+        pag.appendChild(ph);
       }
+      if (idx < order.length - 1) {
+        var nextItem = NAV_ITEMS[idx + 1];
+        var next = document.createElement("a");
+        next.href = nextItem.href;
+        next.className = "next";
+        next.innerHTML = '<span class="dir">Next</span><span class="page">' +
+                         nextItem.label.replace(/&amp;/g, "&") + "</span>";
+        pag.appendChild(next);
+      }
+      footer.insertBefore(pag, footer.firstChild);
     }
   });
 })();
