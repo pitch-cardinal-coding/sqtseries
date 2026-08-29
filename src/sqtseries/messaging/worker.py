@@ -1,5 +1,4 @@
 """Worker pool: N asyncio workers consuming from ingress and serving queries.
-
 Each worker runs its own loop iteration over ingress + broker. zmq sockets are
 not thread-shared; asyncio tasks *are* safe on the same socket only via the
 mutex-free event loop — so this pool lives on a single loop with cooperative
@@ -18,8 +17,11 @@ class WorkerPool:
     """Run N asyncio worker tasks, each polling the ingress/broker loops.
 
     ``step`` is an async callable that performs one unit of work (e.g. one
+
     drain iteration) and returns True if it did any work. The pool starts
+
     ``size`` tasks; on stop it cancels the workers and awaits their completion.
+
     """
 
     def __init__(self, step: Callable[[], Awaitable[bool]], *, size: int = 1):
@@ -58,6 +60,7 @@ class WorkerPool:
                 # queries stalled under idle load — and it burns CPU. 10ms only
                 # delays the FIRST message after an idle period; once work is
                 # flowing, busy cycles use sleep(0) with no added latency.
+
                 await asyncio.sleep(0 if did_work else 0.01)
         except asyncio.CancelledError:
             pass

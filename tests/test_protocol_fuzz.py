@@ -1,5 +1,4 @@
 """Fuzz-lite protocol tests: arbitrary/malformed inputs must never crash.
-
 The wire format is untrusted input from any client, so every parser must
 either accept or raise a ProtocolError — never an AttributeError/TypeError
 from unexpected shapes.
@@ -66,6 +65,7 @@ def test_parse_admin_never_crashes(raw):
 @given(raw=_any_json)
 def test_ingest_valid_shape_accepted_or_protocol(raw):
     """Even deeply-nested dicts must not raise anything but ProtocolError."""
+
     _only_protocol_error(parse_ingest, raw)
 
 
@@ -93,5 +93,6 @@ def test_dumps_loads_roundtrip(value):
 @given(raw=_any_json)
 def test_query_with_int_bounds(raw):
     """parse_query validates start/end are ints; must not raise non-Protocol."""
+
     if isinstance(raw, dict):
         _only_protocol_error(parse_query, raw)

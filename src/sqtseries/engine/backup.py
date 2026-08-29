@@ -1,5 +1,4 @@
 """Backups via ``VACUUM INTO`` — consistent point-in-time snapshot.
-
 Caveats (sqlite.org/lang_vacuum.html): destination must not exist; cannot
 run inside a transaction; works with any auto_vacuum mode.
 """
@@ -31,9 +30,11 @@ def backup_database(db: Database, backup_dir: str, prefix: str = "sqtseries") ->
     directory = Path(backup_dir).expanduser()
     directory.mkdir(parents=True, exist_ok=True)
     backup_path = directory / f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}.db"
+
     if backup_path.exists():
         raise BackupExistsError(f"Backup already exists: {backup_path}")
     # VACUUM INTO cannot run inside a transaction — use autocommit connect()
+
     with db.connect() as conn:
         conn.exec_driver_sql(f"VACUUM INTO '{backup_path}'")
     return str(backup_path)
@@ -46,11 +47,13 @@ def backup_latest(
     if not directory.is_dir():
         return None
     candidates = sorted(directory.glob(f"{prefix}-*.db"))
+
     return str(candidates[-1]) if candidates else None
 
 
 def _is_fresh(path: str, interval: float) -> bool:
     """True if the backup file is younger than ``interval`` seconds."""
+
     try:
         return time.time() - Path(path).stat().st_mtime < interval
     except OSError:
@@ -61,9 +64,13 @@ class BackupManager:
     """Background task: take a consistent snapshot every ``interval`` seconds.
 
     Wired from ``backup.enabled``; first pass runs immediately (so a fresh
+
     instance gets a snapshot on boot), then every ``interval`` seconds.
+
     Runs in a worker thread so the event loop stays responsive even when the
+
     database is large. A snapshot whose filename already exists (same-second
+
     retry, e.g. after a restart) is skipped rather than raising.
     """
 
@@ -87,6 +94,7 @@ class BackupManager:
     async def start(self) -> None:
         # First pass runs immediately inside the loop task (in a thread), so
         # a fresh install gets a backup on boot without stalling startup.
+
         self._task = asyncio.create_task(self._run(), name="backup-manager")
 
     async def run_once(self) -> None:
@@ -96,6 +104,7 @@ class BackupManager:
             )
             if latest and _is_fresh(latest, self.interval):
                 # snapshot from this interval already exists; count the pass
+
                 self.runs += 1
                 return
             path = await asyncio.to_thread(

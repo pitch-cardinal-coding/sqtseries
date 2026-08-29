@@ -1,5 +1,4 @@
 """Logging configuration tests: console / json / file output.
-
 structlog's config is process-global and loggers are cached on first use, so
 these tests only assert the latest configure call's processors and never
 mutate the stdlib logger registry.
@@ -30,12 +29,14 @@ def test_json_logger():
 def test_file_output(tmp_path):
     logfile = str(tmp_path / "sqtseries.log")
     configure_logging(LoggingSettings(level="INFO", format="json", file=logfile))
+
     root = logging.getLogger()
     handler = root.handlers[-1] if root.handlers else None
     assert isinstance(handler, logging.handlers.RotatingFileHandler)
     try:
         # the autouse conftest fixture silences the sqtseries logger; re-enable
         # it for this test so the message actually reaches the file handler
+
         logging.getLogger("sqtseries").setLevel(logging.INFO)
         logging.getLogger("sqtseries").info("hello world")
         handler.flush()

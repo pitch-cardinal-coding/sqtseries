@@ -1,5 +1,4 @@
 """Stress test: concurrent connections, admin polling, data flow.
-
 Rapid connect/disconnect cycles for ZMQ SUB and admin, verifying the registry
 stays correct under load. Ports are chosen randomly to avoid conflicts.
 """
@@ -61,6 +60,7 @@ class TestStressConcurrent:
             sub.setsockopt(zmq.LINGER, 0)
             sub.connect(f"tcp://127.0.0.1:{port}")
             sub.setsockopt(zmq.SUBSCRIBE, f"r.{client_id % 10}".encode())
+
             await asyncio.sleep(0.03)
             sub.close(linger=0)
             ctx.term()
@@ -73,7 +73,9 @@ class TestStressConcurrent:
 
     async def test_admin_during_churn(self, svc):
         """Admin subscriber count is consistent during rapid subscribe cycles."""
+
         stream_port = svc.settings.streaming.port
+
         admin_port = svc.settings.admin.port
 
         async def probe():
@@ -84,10 +86,12 @@ class TestStressConcurrent:
             s.setsockopt(zmq.LINGER, 100)
             s.connect(f"tcp://127.0.0.1:{admin_port}")
             results = []
+
             for _ in range(10):
                 await s.send(orjson.dumps({"cmd": "subscribers"}))
                 reply_buf = await s.recv()
                 reply = orjson.loads(reply_buf)
+
                 if "error" in reply:
                     results.append(("error", reply))
                     continue
@@ -113,7 +117,9 @@ class TestStressConcurrent:
 
     async def test_stats_immediate_emit(self, svc):
         """Stats emits events synchronously via callback, not just polling."""
+
         reg = svc.connection_registry
+
         received = []
 
         def collector(etype, payload):
@@ -123,6 +129,7 @@ class TestStressConcurrent:
         reg.register_ws("immediate-test", "10.0.0.1:9999", "test")
         assert len(received) == 1
         assert received[0][0] == "conn" and received[0][1]["connected"] is True
+
         assert received[0][1]["kind"] == "ws"
 
         reg.unregister_ws("immediate-test")
@@ -135,7 +142,9 @@ class TestStressConcurrent:
 
     async def test_ingest_with_subscribers(self, svc):
         """Data flows correctly when subscribers and ingestion overlap."""
+
         ingest_port = svc.settings.ingestion.port
+
         stream_port = svc.settings.streaming.port
 
         ctx = zmq.Context()
@@ -149,6 +158,7 @@ class TestStressConcurrent:
             count = 0
             for _ in range(100):
                 events = sub.poll(10, zmq.POLLIN)
+
                 if events:
                     sub.recv_multipart()
                     count += 1
@@ -174,6 +184,7 @@ class TestStressConcurrent:
 
     async def test_conncheck_returns_correctly(self, svc):
         """conncheck admin command returns the correct subset of present IDs."""
+
         reg = svc.connection_registry
         reg.register_ws("keep-a", "peer-a", "t")
         reg.register_ws("keep-b", "peer-b", "t")
@@ -184,10 +195,12 @@ class TestStressConcurrent:
 
         reg.unregister_ws("keep-a")
         reply = svc._admin_handler({"cmd": "conncheck", "ids": ["keep-a", "keep-b"]})
+
         assert reply["present"] == ["keep-b"]
 
     async def test_stats_report_loop_runs(self, svc):
         """The stats publisher's report loop emits 'report' events periodically."""
+
         stats_port = svc.settings.stats.port
 
         ctx = zmq.Context()
@@ -198,9 +211,11 @@ class TestStressConcurrent:
         await asyncio.sleep(0.5)
 
         # Wait for a report cycle (default 10s) — shorten to about 1s for test
+
         found = False
         for _ in range(40):
             events = stats_sub.poll(250, zmq.POLLIN)
+
             if events:
                 found = True
                 break

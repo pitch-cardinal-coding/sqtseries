@@ -13,6 +13,7 @@ from sqtseries.service import Service
 @pytest.fixture
 async def running_service(tmp_path, free_ports):
     """Start a real Service on OS-assigned free ports; tear down after."""
+
     s = Settings(
         database={"path": str(tmp_path / "client.sqlite"), "batch_size": 500},
         ingestion={"port": free_ports["ingest"]},
@@ -63,12 +64,14 @@ def client(running_service):
 
 def _block(coro):
     """Run a sync client call in a thread so the pump loop keeps ticking."""
+
     return asyncio.run_coroutine_threadsafe(coro, asyncio.get_running_loop()).result()
 
 
 class TestClient:
     async def test_write_then_query(self, client):
         await asyncio.to_thread(client.write, "cpu.usage", 0.72, {"host": "web1"})
+
         await asyncio.to_thread(client.write, "cpu.usage", 0.80, {"host": "web1"})
         # let PUSH frames drain into the store
         await asyncio.sleep(0.3)
@@ -94,6 +97,7 @@ class TestClient:
         # drain writes before aggregating
         await asyncio.sleep(0.4)
         result = await asyncio.to_thread(client.aggregate, "temp", funcs=["avg", "max"])
+
         assert result["avg"] == pytest.approx(2.0)
         assert result["max"] == pytest.approx(3.0)
 
@@ -103,6 +107,7 @@ class TestClient:
 
     async def test_subscribe_streams(self, client):
         received = []
+
         stop = threading.Event()
 
         def sub_loop():
@@ -134,6 +139,7 @@ class TestClient:
 
         close(linger=0) would discard it (regression: write-then-close
         delivered 0 of 1 messages); the write socket keeps a flush linger.
+
         """
         svc, s = running_service
         c = Client(ports={"write": s.ingestion.port})
@@ -153,7 +159,9 @@ class TestClient:
         """After a recv timeout the REQ socket must not stay EFSM-broken.
 
         A timed-out recv leaves REQ awaiting a reply; the next send on the same
+
         socket raises EFSM. The client must drop the socket and recreate it so
+
         subsequent calls raise ClientError, not a raw zmq ZMQError.
         """
         import socket as _socket
@@ -167,11 +175,13 @@ class TestClient:
         monkeypatch.setattr("sqtseries.client.RECV_TIMEOUT_MS", 200)
 
         c = Client(host="127.0.0.1", ports={"query": dead_port, "admin": dead_port})
+
         try:
             for _ in range(2):
                 with pytest.raises(ClientError):
                     await asyncio.to_thread(c.query, "anything")
             # admin path uses a separate REQ socket; same recovery required
+
             with pytest.raises(ClientError):
                 await asyncio.to_thread(c.admin, "ping")
         finally:
@@ -219,6 +229,7 @@ class TestAdmin:
     async def test_admin_vacuum(self, client):
         reply = await asyncio.to_thread(client.admin, "vacuum")
         # either succeeds or reports VACUUM_BUSY (running service) — never crashes
+
         assert reply["status"] in ("ok", "error")
         if reply["status"] == "error":
             assert reply["error"]["code"] == "VACUUM_BUSY"

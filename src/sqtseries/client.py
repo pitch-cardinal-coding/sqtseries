@@ -1,10 +1,8 @@
 """High-level Python client for sqtseries (external access).
-
 Wraps the ZeroMQ transports:
 - PUSH (write) on 12501
 - REQ (query) on 12502
 - SUB (subscribe) on 12503
-
 Same JSON wire format as the HTTP gateway (see docs/clients.html).
 """
 
@@ -26,14 +24,12 @@ WRITE_LINGER_MS = 2000
 
 class Client:
     """ZeroMQ client for a running sqtseries service.
-
     Usage::
-
         from sqtseries.client import Client
-
         client = Client()
         client.write("cpu.usage", 0.72, {"host": "web1"})
         # query start/end are epoch NANOSECONDS; rows carry epoch-seconds timestamps
+
         rows = client.query(
             "cpu.usage",
             start=1_691_234_567_000_000_000,
@@ -70,6 +66,7 @@ class Client:
 
     def write_many(self, points: list[dict[str, Any]]) -> None:
         """Send multiple measurements in one loop (still one frame each)."""
+
         sock = self._get_write_sock()
         for point in points:
             sock.send(orjson.dumps(point))
@@ -86,6 +83,7 @@ class Client:
         order: str = "asc",
     ) -> list[dict[str, Any]]:
         """Run a query; returns [{timestamp, value}, ...] (seconds)."""
+
         req: dict[str, Any] = {"type": "query", "metric": metric}
         if start is not None:
             req["start"] = start
@@ -108,6 +106,7 @@ class Client:
             # REQ enforces strict send/recv alternation: a timed-out recv
             # leaves the socket awaiting a reply, so the next send would raise
             # EFSM and permanently break it. Drop it; the next call recreates.
+
             self._reset_sock("_query_sock")
             raise ClientError("query timed out (no reply within 30s)") from None
         if reply.get("status") == "error":
@@ -124,6 +123,7 @@ class Client:
         funcs: list[str] | None = None,
     ) -> dict[str, float]:
         """Compute aggregations over a window; returns {func: value}."""
+
         wanted = ",".join(funcs or ["avg"])
         req: dict[str, Any] = {
             "type": "query",
@@ -148,8 +148,11 @@ class Client:
 
     def admin(self, cmd: str, **kwargs: Any) -> dict[str, Any]:
         """Send an admin command (ping/health/stats/optimize/backup/vacuum,
+
         connections/conncheck/subscribers). Extra keyword arguments become
+
         part of the request, e.g. ``admin("conncheck", ids=["abc"])``."""
+
         sock = self._get_admin_sock()
         sock.send(orjson.dumps({"cmd": cmd, **kwargs}))
         try:
@@ -168,10 +171,15 @@ class Client:
         """Yield live measurement dicts matching ``topic`` (SUB socket).
 
         Polls with a timeout and yields ``None`` as a heartbeat when idle, so
+
         callers can break out of the loop cleanly (e.g. on shutdown) without
+
         blocking forever in recv. Closing the client while the iterator is
+
         blocked would otherwise abort libzmq (context close is not thread-safe
+
         against active recv). Pattern per pyzmq docs: poll then recv NOBLOCK.
+
         """
         sock = self._get_sub_sock()
         if topic != "*":
@@ -215,6 +223,7 @@ class Client:
             sock = self._ctx.socket(zmq.SUB)
             sock.setsockopt(zmq.LINGER, 0)
             sock.connect(f"tcp://{self.host}:{self.ports['subscribe']}")
+
             self._sub_sock = sock
         return self._sub_sock
 
@@ -229,9 +238,10 @@ class Client:
 
     def _reset_sock(self, attr: str) -> None:
         """Close a broken socket so the next call recreates it.
-
         Only REQ sockets need this (their strict send/recv alternation leaves
+
         them unusable after a recv timeout); it is harmless for the others.
+
         """
         sock = getattr(self, attr, None)
         if sock is not None:
@@ -242,6 +252,7 @@ class Client:
         """Close all sockets and the context (idempotent)."""
         # The write socket keeps a flush linger so measurements queued but not
         # yet delivered are still sent; everything else can close immediately.
+
         if self._write_sock is not None:
             self._write_sock.close(linger=WRITE_LINGER_MS)
             self._write_sock = None

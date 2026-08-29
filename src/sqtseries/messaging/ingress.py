@@ -1,5 +1,4 @@
 """Ingress pipeline: ZMQ PULL -> validate -> sink (SQLite write).
-
 There is no app-level write queue: each validated frame is passed straight to
 the ``sink`` (``service._sink`` does a single-row insert) and republished to
 the PUB/SUB bus for live subscribers.
@@ -39,6 +38,7 @@ class Ingress:
             endpoint: ``tcp://127.0.0.1:12501`` (or ipc://).
             sink: callable receiving (metric, tags, value, timestamp_ns) rows.
                   Called synchronously per frame; None skips persistence
+
                   (validation and republish still happen).
             on_publish: callback(bytes_metric, dict) for live subscribers.
         """
@@ -66,6 +66,7 @@ class Ingress:
 
     async def run_once(self, block: bool = True) -> bool:
         """Receive and handle a single message; return True if one was handled."""
+
         if self.socket is None:
             raise RuntimeError("ingress not started")
         try:
@@ -85,6 +86,7 @@ class Ingress:
 
     async def drain(self) -> None:
         """Drain ALL pending messages in a tight loop (for shutdown/tests)."""
+
         while True:
             try:
                 raw = await self.socket.recv(flags=zmq.NOBLOCK)
@@ -116,6 +118,7 @@ class Ingress:
             return
 
         self.recv_count += 1
+
         if self.sink is not None:
             self.sink(metric, tags, value, ts_ns)
         if self.on_publish is not None:

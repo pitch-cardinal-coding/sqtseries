@@ -1,8 +1,8 @@
 """Process-lifecycle regression tests.
-
 Covers the fixes for orphaned/hung sqtseries processes:
 - ``sqtseries run`` must exit promptly after SIGTERM even when a WebSocket
   client connected and disconnected (the connection task used to linger up to
+
   the 30s keepalive window, blocking uvicorn's graceful shutdown).
 - The camera overlay server must terminate on SIGHUP (it used to ignore
   SIGHUP, so ``tmux kill-session`` orphaned it).
@@ -100,6 +100,7 @@ class TestSigtermShutdownPromptness:
     async def _boot_service(self, tmp_path):
         ports = six_ports()
         cfg = write_config(tmp_path, ports)
+
         proc = await asyncio.create_subprocess_exec(
             PYTHON,
             "-m",
@@ -136,7 +137,9 @@ class TestSigtermShutdownPromptness:
 
     async def test_exits_promptly_after_ws_disconnect(self, tmp_path):
         """Regression: a WS client that connected and disconnected left the
+
         connection task blocked in the ZMQ recv for up to 30s, which stalled
+
         uvicorn's graceful shutdown after SIGTERM."""
         import websockets
 
@@ -158,7 +161,9 @@ class TestSigtermShutdownPromptness:
 
     async def test_exits_promptly_with_ws_open_at_sigterm(self, tmp_path):
         """A still-connected client must not stall shutdown either; the server
+
         closes the connection and the watcher ends the task immediately."""
+
         import websockets
 
         proc, ports = await self._boot_service(tmp_path)
@@ -179,11 +184,13 @@ class TestSigtermShutdownPromptness:
 
 class TestStopCommand:
     """`sqtseries stop` is deterministic: waits for exit, removes runtime.json,
+
     leaves ports immediately rebindable."""
 
     async def test_stop_waits_removes_runtime_and_frees_ports(self, tmp_path):
         ports = six_ports()
         cfg = write_config(tmp_path, ports)
+
         proc = await asyncio.create_subprocess_exec(
             PYTHON,
             "-m",
@@ -198,12 +205,15 @@ class TestStopCommand:
         try:
             await wait_for_http(proc, ports["http"])
             rt = tmp_path / "runtime.json"
+
             deadline = time.monotonic() + 5
+
             while time.monotonic() < deadline and not rt.exists():
                 await asyncio.sleep(0.05)
             assert rt.exists(), "runtime.json never appeared"
 
             start = time.monotonic()
+
             stop = await asyncio.to_thread(
                 subprocess.run,
                 [PYTHON, "-m", "sqtseries", "--config", str(cfg), "stop"],
@@ -215,9 +225,11 @@ class TestStopCommand:
             assert stop.returncode == 0, stop.stderr
             assert "Sent SIGTERM" in stop.stdout
             assert not rt.exists(), "runtime.json not removed on clean stop"
+
             assert elapsed < 15, f"stop took too long: {elapsed:.1f}s"
             # the service must exit shortly after stop returns (stop waits on
             # runtime.json removal, which happens after every socket has closed)
+
             await asyncio.wait_for(proc.wait(), timeout=5)
             # all six ports must be immediately rebindable
             for port in ports.values():
@@ -231,6 +243,7 @@ class TestStopCommand:
 
 class TestWsStreamAndRegistry:
     """The websocket handler still streams ZMQ-published frames, tolerates
+
     clients that send data, and unregisters the connection on disconnect."""
 
     def _settings(self, free_ports, tmp_path) -> Settings:
@@ -258,16 +271,20 @@ class TestWsStreamAndRegistry:
                 # client sends data — must not be dropped
                 await ws.send("hello")
                 # allow the SUB socket to finish connecting, then publish
+
                 await asyncio.sleep(0.2)
                 frame = None
                 for _ in range(3):
                     svc._on_publish(b"cpu", {"metric": "cpu", "value": 1.0})
+
                     try:
                         frame = await asyncio.wait_for(ws.recv(), timeout=2)
+
                         break
                     except TimeoutError:
                         continue
                 assert frame is not None, "no frame received from pubsub"
+
                 assert '"cpu"' in frame
             # disconnect must promptly unregister the connection
             for _ in range(100):
@@ -280,6 +297,7 @@ class TestWsStreamAndRegistry:
 
     async def test_graceful_shutdown_timeout_configured(self, free_ports, tmp_path):
         """The belt-and-suspenders backstop: uvicorn must be told to cancel
+
         stragglers so a stop always completes."""
         svc = Service(self._settings(free_ports, tmp_path))
         await svc.start()
@@ -291,6 +309,7 @@ class TestWsStreamAndRegistry:
 
 class TestOverlaySignals:
     """The camera overlay server must terminate like a normal server on SIGHUP
+
     (it used to ignore SIGHUP, which orphaned it under ``tmux kill-session``)."""
 
     async def _boot_overlay(self) -> tuple[asyncio.subprocess.Process, int]:
@@ -303,10 +322,13 @@ class TestOverlaySignals:
             stderr=asyncio.subprocess.STDOUT,
         )
         port = None
+
         deadline = time.monotonic() + 15
+
         while time.monotonic() < deadline:
             line = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
             text = line.decode()
+
             if "WebSocket: ws://localhost:" in text:
                 port = int(
                     text.split("WebSocket: ws://localhost:")[1].split("/ws/metrics")[0]
@@ -317,6 +339,7 @@ class TestOverlaySignals:
 
     async def test_sighup_terminates_overlay(self, tmp_path):
         """A direct SIGHUP (what tmux sends on kill-session) must terminate it."""
+
         proc, _ = await self._boot_overlay()
         try:
             proc.send_signal(signal.SIGHUP)
@@ -328,6 +351,7 @@ class TestOverlaySignals:
 
     async def test_overlay_dies_when_tmux_session_killed(self, tmp_path):
         """End-to-end: killing the controlling tmux session stops the overlay
+
         instead of leaving it as an orphaned process."""
         if shutil.which("tmux") is None:
             pytest.skip("tmux not available")
@@ -335,7 +359,9 @@ class TestOverlaySignals:
         if ss is None:
             pytest.skip("ss not available")
         session = f"sqt-lc-{os.getpid()}"
+
         log = tmp_path / "overlay.log"
+
         tmux = shutil.which("tmux")
         subprocess.run(
             [
@@ -352,7 +378,9 @@ class TestOverlaySignals:
         )
         try:
             port = None
+
             deadline = time.monotonic() + 15
+
             while time.monotonic() < deadline:
                 if log.exists():
                     text = log.read_text()

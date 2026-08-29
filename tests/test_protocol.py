@@ -86,6 +86,7 @@ class TestParseIngest:
 class TestParseQuery:
     def test_valid(self):
         q = parse_query({"type": "query", "metric": "cpu", "start": 1, "end": 2})
+
         assert q["metric"] == "cpu"
 
     def test_type_required_value(self):

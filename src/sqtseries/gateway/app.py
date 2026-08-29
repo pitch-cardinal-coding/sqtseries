@@ -1,5 +1,4 @@
 """REST + WebSocket gateway over FastAPI.
-
 Bridges HTTP to the engine directly (single-process architecture: same
 write/query engine, no ZMQ hop). CORS + request-ID middleware.
 """
@@ -29,12 +28,12 @@ def create_app(
     query_timeout_s: float | None = None,
 ) -> FastAPI:
     """Create the FastAPI application.
-
     Args:
         store: StorageEngine instance.
         tsdb: query facade (created from store if None).
         settings: HTTP settings.
         pubsub: PubSub instance for live WebSocket streaming (optional).
+
         ingestion: IngestionSettings — used to enforce the client timestamp
             skew guard on the HTTP write path (same as the ZMQ path).
         query_timeout_s: cap for one HTTP read/aggregate (None disables);
@@ -49,6 +48,7 @@ def create_app(
     # FastAPI serializes JSON directly via Pydantic (Rust-backed, same speed
     # class as orjson) when a response model / return type is declared — the
     # recommended path per FastAPI docs. No custom response class needed.
+
     app = FastAPI(title="sqtseries", version="0.1.0")
 
     app.state.tsdb = tsdb
@@ -70,6 +70,7 @@ def create_app(
     # rate limiter, then CORS nearest the router. Both CORSMiddleware and
     # RateLimitMiddleware short-circuit non-HTTP scopes, so CORS does not gate
     # WebSockets: /ws/subscribe accepts before any CORS or rate-limit check.
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -83,6 +84,7 @@ def create_app(
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next) -> Response:
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
@@ -97,10 +99,12 @@ def create_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
         response.headers["Permissions-Policy"] = (
             "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
         )
         response.headers["Content-Security-Policy"] = "default-src 'self'"
+
         return response
 
     app.include_router(api_router)
@@ -111,6 +115,7 @@ def create_app(
 
         store = app.state.store
         db_ok = store is not None and is_ready(store.db)
+
         return {"status": "ok" if db_ok else "degraded", "version": "0.1.0"}
 
     @app.websocket("/ws/subscribe")
@@ -118,11 +123,13 @@ def create_app(
         await websocket.accept()
         if not _ws_slot_available(app):
             await websocket.close(code=1013, reason="too many connections")
+
             return
         try:
             pubsub = app.state.pubsub
             if pubsub is None:
                 await websocket.close(code=1008, reason="streaming disabled")
+
                 return
             registry = app.state.registry
             await subscribe_and_forward(
@@ -136,19 +143,25 @@ def create_app(
         """Push live connection/subscription state to a monitoring client.
 
         Sends a ``{"type":"snapshot", ...}`` on connect, then one frame per
+
         registry change (``{"type":"conn", ...}`` / ``{"type":"sub", ...}``) as
+
         it happens — no polling. The registry's ``on_event`` callbacks may fire
+
         from any thread, so events are marshalled onto this loop via
         ``call_soon_threadsafe`` into a bounded queue drained by a sender task.
+
         """
         await websocket.accept()
         if not _ws_slot_available(app):
             await websocket.close(code=1013, reason="too many connections")
+
             return
         try:
             registry = app.state.registry
             if registry is None:
                 await websocket.close(code=1008, reason="registry unavailable")
+
                 return
 
             loop = asyncio.get_running_loop()
@@ -177,6 +190,7 @@ def create_app(
                         item = await queue.get()
                         # A stalled client must not grow memory without bound:
                         # drop to a bounded backlog instead of accumulating.
+
                         while queue.qsize() > 500:
                             try:
                                 queue.get_nowait()
@@ -191,6 +205,7 @@ def create_app(
                             return
 
                 send_task = asyncio.create_task(sender())
+
                 watch_task = asyncio.create_task(watch_disconnect())
                 _done, pending = await asyncio.wait(
                     {send_task, watch_task}, return_when=asyncio.FIRST_COMPLETED
@@ -208,8 +223,8 @@ def create_app(
 
 def _ws_slot_available(app: FastAPI) -> bool:
     """Reserve a WebSocket slot if the connection cap hasn't been hit.
-
     Single-threaded event loop: the check-and-increment is atomic (no await
+
     between them), so concurrent handlers cannot overshoot the cap.
     """
     if app.state.ws_count >= app.state.ws_max_connections:

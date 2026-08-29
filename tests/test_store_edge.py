@@ -29,6 +29,7 @@ def store(tmp_path):
 class TestBoundaries:
     def test_month_boundary_split(self, store):
         # Exact integer math: int(timestamp()) is exact for whole seconds.
+
         boundary = (
             int(datetime(2026, 1, 1, 0, 0, tzinfo=UTC).timestamp()) * 1_000_000_000
         )
@@ -37,7 +38,9 @@ class TestBoundaries:
         # 2026-01-01 00:00:00.000000001
         jan = boundary + 1
         store.insert_many([("cpu", None, 1.0, dec), ("cpu", None, 2.0, jan)])
+
         names = [t for t in store.db.get_table_names() if t.startswith("measurements")]
+
         assert "measurements_2025_12" in names
         assert "measurements_2026_01" in names
 
@@ -65,6 +68,7 @@ class TestValues:
     def test_nan_value_rejected_at_insert(self, store):
         # SQLite stores NaN as NULL, violating value NOT NULL -> IntegrityError.
         # The service swallows this in _sink (logged); captured as a benign bug.
+
         import sqlite3
 
         with pytest.raises(sqlite3.IntegrityError):
@@ -72,6 +76,7 @@ class TestValues:
 
     def test_inf_value(self, store):
         store.insert_many([("cpu", None, float("inf"), 1_700_000_000_000_000_000)])
+
         rows = list(
             store.query_time_range(series_ids=store.series_ids_for_metric("cpu"))
         )
@@ -107,6 +112,7 @@ class TestSeries:
 class TestInsertPaths:
     def test_no_auto_create_partition(self, store):
         # inserting into a non-existent partition without auto-create fails
+
         with pytest.raises(sqlite3.OperationalError):
             store.insert_many(
                 [("cpu", None, 1.0, _ns(datetime(2020, 5, 1, tzinfo=UTC)))],
@@ -122,6 +128,7 @@ class TestInsertPaths:
             ]
         )
         # resolving the first series again must work (cache re-populates)
+
         with small.db.connect() as conn:
             sid = small.resolve_series(conn, "m", {"i": "0"})
         assert sid > 0
@@ -160,6 +167,7 @@ class TestQueryRange:
 
     def test_start_gt_end_returns_empty(self, store):
         rows = [("cpu", None, 1.0, 1_700_000_000_000_000_000 + i) for i in range(3)]
+
         store.insert_many(rows)
         out = list(
             store.query_time_range(

@@ -1,5 +1,4 @@
 """Tests for documented behaviors that lacked coverage (validated via docs audit).
-
 Each test backs a specific claim made in docs/*.html so a regression would
 catch both a code bug and a doc lie.
 """
@@ -72,6 +71,7 @@ class TestTimeUnits:
         base = f"http://127.0.0.1:{s.http.port}"
         async with httpx.AsyncClient(base_url=base) as c:
             now = time.time()
+
             r = await c.post(
                 "/api/v1/write",
                 json={"metric": "cpu", "value": 1.0, "timestamp": now - 5},
@@ -85,6 +85,7 @@ class TestTimeUnits:
             data = r.json()["data"]
             assert len(data) == 1
             # returned timestamps are in seconds (1.7e9-ish, not 1.7e18)
+
             assert data[0]["timestamp"] < 2e9
 
     async def test_client_query_uses_nanoseconds(self, client):
@@ -92,8 +93,11 @@ class TestTimeUnits:
         now_ns = time.time_ns()
         # small buffer: int(epoch_s * 1e9) can round a stored ts a hair above
         # the exact ns boundary (float precision), so end must not equal it
+
         await asyncio.to_thread(client.write, "cpu", 1.0, timestamp=now_ns / 1e9 - 5)
+
         await asyncio.to_thread(client.write, "cpu", 2.0, timestamp=now_ns / 1e9 - 4)
+
         await asyncio.sleep(0.3)
         rows = await asyncio.to_thread(
             client.query, "cpu", start=now_ns - 10 * 1e9, end=now_ns + 1e9
@@ -106,6 +110,7 @@ class TestTimeUnits:
 class TestErrorCodes:
     async def test_invalid_query_code(self, client, running_service):
         """Bad aggregation with data -> INVALID_QUERY (not INTERNAL_ERROR)."""
+
         import orjson
         import zmq
 
@@ -120,6 +125,7 @@ class TestErrorCodes:
 
         def raw_query():
             # blocking recv must run in a thread so the async pump can reply
+
             sock.send(
                 orjson.dumps({"type": "query", "metric": "cpu", "aggregation": "bogus"})
             )
@@ -150,6 +156,7 @@ class TestConfigEnv:
 
     def test_rate_limit_env_var(self, monkeypatch):
         monkeypatch.setenv("SQT_SERIES_HTTP__RATE_LIMIT_PER_MINUTE", "42")
+
         assert Settings.load(None).http.rate_limit_per_minute == 42
 
 
@@ -216,15 +223,19 @@ class TestClientSurface:
 class TestCliRunningState:
     def test_status_shows_running(self, tmp_path, monkeypatch):
         """sqtseries status prints running details when the pid is alive."""
+
         from click.testing import CliRunner
 
         import sqtseries.cli as cli_mod
         from sqtseries.cli import main
 
         monkeypatch.setattr(cli_mod, "_pid_is_sqtseries", lambda pid: True)
+
         cfg = tmp_path / "c.toml"
+
         db = tmp_path / "db.sqlite"
         cfg.write_text(f'[database]\npath = "{db}"\n\n[ports]\nauto_detect = false\n')
+
         rt = tmp_path / "runtime.json"
         rt.write_text(
             json.dumps(

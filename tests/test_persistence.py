@@ -45,6 +45,7 @@ def test_backup_is_restorable(tmp_path):
     eng = create_sqlite_engine(path)
     initialize_schema(eng)
     store = StorageEngine(eng)
+
     base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
     store.insert_many(
         [("m", None, float(i), base + i * 1_000_000_000) for i in range(10)]
@@ -70,11 +71,13 @@ def test_backup_consistent_while_writing(tmp_path):
     eng = create_sqlite_engine(path)
     initialize_schema(eng)
     store = StorageEngine(eng)
+
     stop = threading.Event()
 
     def writer():
         i = 0
         base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         while not stop.is_set():
             store.insert_many([("w", None, float(i), base + i)])
             i += 1
@@ -97,6 +100,7 @@ def test_backup_consistent_while_writing(tmp_path):
         rows = list(bstore.query_time_range(metric="w"))
         bstore.close()
         # snapshot reflects some committed prefix of writes (order preserved)
+
         assert rows == sorted(rows, key=lambda r: r[0])
     finally:
         beng.dispose()

@@ -6,6 +6,7 @@ from sqtseries.runtime import RuntimeState
 class TestRuntimeState:
     def test_write_read_roundtrip(self, tmp_path):
         rt = RuntimeState(str(tmp_path / "runtime.json"))
+
         db = str(tmp_path / "db.sqlite")
         rt.write(pid=1234, ports={"ingest": 12501}, db_path=db)
         data = rt.read()

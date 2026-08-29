@@ -30,6 +30,7 @@ async def context():
 class TestPubSub:
     async def test_slow_joiner_loses_early_messages(self, context):
         """PUB/SUB drops messages published before the subscriber joins."""
+
         port = free_tcp_port()
         ps = PubSub(f"tcp://127.0.0.1:{port}", context=context)
         await ps.start()
@@ -46,6 +47,7 @@ class TestPubSub:
             for _ in range(20):
                 if sub.getsockopt(zmq.EVENTS) & zmq.POLLIN:
                     frames = await asyncio.wait_for(sub.recv_multipart(), timeout=2)
+
                     got.append(frames[1])
                 else:
                     break
@@ -63,6 +65,7 @@ class TestPubSub:
         from sqtseries.messaging import QueryBroker
 
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -135,7 +138,9 @@ class TestXpubSubscriberTracking:
     """Registry counts must reflect every subscriber, even on shared topics.
 
     A non-verbose XPUB only reports a topic once (first subscribe / last
+
     unsubscribe); PubSub must set XPUB_VERBOSER so the registry sees every
+
     join/leave (regression: 2 subscribers on "cpu" reported as 1).
     """
 
@@ -143,8 +148,10 @@ class TestXpubSubscriberTracking:
         from sqtseries.messaging import ConnectionRegistry
 
         port = free_tcp_port()
+
         reg = ConnectionRegistry()
         ps = PubSub(f"tcp://127.0.0.1:{port}", registry=reg, context=context)
+
         await ps.start()
         subs = []
         try:

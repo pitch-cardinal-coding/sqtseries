@@ -1,5 +1,4 @@
 """Concurrency tests: concurrent writers/readers on raw sqlite3.
-
 SQLite single-writer + busy_timeout=5000 — concurrent writers must serialize
 without corruption; concurrent readers must never block writers (WAL).
 """
@@ -33,14 +32,18 @@ def _write(store: StorageEngine, wid: int, n: int) -> int:
 class TestConcurrency:
     def test_concurrent_writers_no_loss(self, engine):
         store = StorageEngine(engine)
+
         writers = 4
+
         per = 50
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=writers) as ex:
             futs = [ex.submit(_write, store, w, per) for w in range(writers)]
             counts = [f.result() for f in futs]
         assert sum(counts) == writers * per
 
         total = 0
+
         with engine.connect() as conn:
             rows = conn.exec_driver_sql(
                 "SELECT name FROM sqlite_master WHERE name LIKE 'measurements_%'"
@@ -69,11 +72,14 @@ class TestConcurrency:
 
     def test_wal_reader_during_write(self, engine):
         store = StorageEngine(engine)
+
         stop = threading.Event()
 
         def writer():
             i = 0
+
             base = 1_700_000_000_000_000_000
+
             while not stop.is_set():
                 store.insert_many([("w", None, float(i), base + i)])
                 i += 1
@@ -85,6 +91,7 @@ class TestConcurrency:
 
         with concurrent.futures.ThreadPoolExecutor(2) as ex:
             wf = ex.submit(writer)
+
             rf = ex.submit(reader)
             time.sleep(0.2)
             stop.set()

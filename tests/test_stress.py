@@ -1,5 +1,4 @@
 """Stress/short-soak test: sustained writes + integrity, no fd leaks.
-
 Kept short (a few seconds) so CI stays live; the long soak lives in
 scripts/stress.py and scripts/benchmark.py (run in tmux).
 """
@@ -44,6 +43,7 @@ class TestStress:
         if not fd_dir.is_dir():
             pytest.skip("no /proc")
         before = len(list(fd_dir.iterdir()))
+
         for _ in range(20):
             with store.db.connect() as conn:
                 conn.exec_driver_sql("SELECT 1").scalar()

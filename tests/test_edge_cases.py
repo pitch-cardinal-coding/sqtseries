@@ -22,6 +22,7 @@ class TestEdgeCases:
     def test_partition_drop_during_query(self, store, tmp_path):
         # Insert data into two partitions (Jan 2024 + Nov 2024)
         jan1 = 1_704_067_200_000_000_000
+
         nov1 = 1_730_419_200_000_000_000
         store.insert_many([("cpu", None, 1.0, jan1)])
         store.insert_many([("cpu", None, 2.0, nov1)])

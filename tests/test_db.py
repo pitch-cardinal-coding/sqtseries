@@ -18,9 +18,13 @@ def test_result_fetch_helpers(db):
             "CREATE TABLE t(x INTEGER, y TEXT);INSERT INTO t VALUES (1, 'a'), (2, 'b');"
         )
         assert conn.execute("SELECT x, y FROM t ORDER BY x").first() == (1, "a")
+
         assert conn.execute("SELECT x FROM t WHERE x = 2").scalar() == 2
+
         assert conn.execute("SELECT x FROM t WHERE x = 99").first() is None
+
         assert conn.execute("SELECT x FROM t WHERE x = 99").scalar() is None
+
         res = conn.execute("SELECT x FROM t ORDER BY x")
         # __getitem__ fetches the next row and returns row[idx]
         # row 1, column 0
@@ -35,6 +39,7 @@ def test_result_fetch_helpers(db):
 def test_result_iter(db):
     with db.connect() as conn:
         conn.executescript("CREATE TABLE t(x); INSERT INTO t VALUES (1),(2),(3)")
+
         assert list(conn.execute("SELECT x FROM t ORDER BY x")) == [(1,), (2,), (3,)]
 
 
@@ -67,12 +72,15 @@ def test_executemany_error_path(db):
 
 def test_connect_is_reader_writes_dont_persist(db):
     """connect() is a reader connection: DML is rolled back on close."""
+
     with db.connect() as conn:
         conn.executescript("CREATE TABLE t(x)")
         conn.execute("INSERT INTO t VALUES (1)")
     with db.connect() as conn:
         # DDL autocommitted, but the INSERT (implicit txn) was rolled back
+
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='t'").first()
+
         assert conn.execute("SELECT COUNT(*) FROM t").scalar() == 0
 
 

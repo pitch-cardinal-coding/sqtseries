@@ -95,6 +95,7 @@ class TestClientBranches:
         import time
 
         await asyncio.to_thread(client.write, "cpu", 1.0, timestamp=time.time())
+
         await asyncio.sleep(0.3)
         rows = await asyncio.to_thread(client.query, "cpu")
         assert len(rows) == 1
@@ -104,6 +105,7 @@ class TestClientBranches:
             await asyncio.to_thread(client.write, "cpu", float(i))
         await asyncio.sleep(0.3)
         rows = await asyncio.to_thread(client.query, "cpu", limit=2, order="desc")
+
         assert len(rows) == 2
 
 
@@ -119,6 +121,7 @@ class TestStoreSeriesMeta:
         eng = create_sqlite_engine(str(tmp_path / "s.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         with pytest.raises(SeriesNotFoundError):
             store.get_series_meta(12345)
         store.close()

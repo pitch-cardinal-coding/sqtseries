@@ -62,12 +62,16 @@ class TestService:
 
     async def test_starts_with_configured_logging(self, settings):
         """Regression: `sqtseries run` configures logging before starting the
+
         service. The service used plain stdlib loggers with structlog-style
+
         kwargs, which crashed with TypeError once INFO level was enabled."""
+
         from sqtseries.config import LoggingSettings
         from sqtseries.logging import configure_logging
 
         configure_logging(LoggingSettings(level="INFO", format="console"))
+
         svc = Service(settings)
         await svc.start()
         assert svc.store is not None
@@ -75,6 +79,7 @@ class TestService:
 
     async def test_http_gateway_is_served(self, settings):
         """The service must serve the REST + WebSocket gateway on http.port."""
+
         import httpx
 
         svc = Service(settings)
@@ -94,6 +99,7 @@ class TestService:
                 assert r.json()["written"] == 1
                 await asyncio.sleep(0.3)
                 r = await c.get("/api/v1/read", params={"metric": "cpu"})
+
                 assert r.status_code == 200
                 assert len(r.json()["data"]) == 1
         finally:
@@ -111,6 +117,7 @@ class TestService:
 
     async def test_rollup_serves_aggregates(self, settings):
         """Historical data in a completed hour is answered from the rollup
+
         fast path after a rollup pass, matching the raw result."""
         from datetime import UTC, datetime
 
@@ -120,7 +127,9 @@ class TestService:
             return int(dt.timestamp() * 1_000_000_000)
 
         base = ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         hour = 3_600_000_000_000
+
         svc = Service(settings)
         await svc.start()
         try:
@@ -138,6 +147,7 @@ class TestService:
             assert result[0][1] == pytest.approx(15.0)
 
             buckets = svc.ts.query("cpu", aggregation="sum", interval="1h")
+
             assert buckets[0][1] == pytest.approx(15.0)
         finally:
             await svc.shutdown()

@@ -31,6 +31,7 @@ class TestRecovery:
     def test_recover_wal(self, engine):
         store = StorageEngine(engine)
         store.insert_many([("a", None, 1.0, 1_700_000_000_000_000_000)])
+
         recover_wal(engine)
         assert check_integrity_on_startup(engine) == 0
 

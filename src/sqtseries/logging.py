@@ -1,5 +1,4 @@
 """Structured logging via structlog.
-
 - JSON output for production, pretty console for development.
 - Optional rotating file output alongside stderr.
 """
@@ -22,6 +21,7 @@ def _json_serializer(obj: Any, **_: Any) -> str:
 
 def configure_logging(settings: LoggingSettings) -> structlog.stdlib.BoundLogger:
     """Configure structlog + stdlib logging; return the bound logger."""
+
     level = getattr(logging, settings.level.upper(), logging.INFO)
 
     processors: list[Any] = [
@@ -51,6 +51,7 @@ def configure_logging(settings: LoggingSettings) -> structlog.stdlib.BoundLogger
         root = logging.getLogger()
         # avoid duplicate handlers on repeated configure_logging (e.g. tests,
         # reloads): skip if a RotatingFileHandler already targets this file
+
         existing = any(
             isinstance(h, logging.handlers.RotatingFileHandler)
             and h.baseFilename == str(log_path)

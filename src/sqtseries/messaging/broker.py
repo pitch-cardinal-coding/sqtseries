@@ -1,5 +1,4 @@
 """Query broker: REP socket serving query/aggregate requests.
-
 The spec targets ROUTER/DEALER for async multi-client; Phase 5 wires the
 lifecycle. The broker here provides the REP/ROUTER query responder with a pluggable
 handler. For v1 simple REP reply; ROUTER supported when ``use_router=True``.
@@ -21,7 +20,6 @@ log = structlog.get_logger(__name__)
 
 class QueryBroker:
     """Serve query requests over a REP (or ROUTER) socket.
-
     ``handler(query_dict) -> dict``  (synchronous result) or
     ``handler_async(query_dict) -> awaitable``  (async handler).
     """
@@ -49,6 +47,7 @@ class QueryBroker:
         from zmq.asyncio import Context as AContext
 
         ctx = self._ctx or AContext.instance()
+
         sock_type = zmq.ROUTER if self.use_router else zmq.REP
         self.socket = ctx.socket(sock_type)
         from .context import apply_options, socket_options
@@ -61,6 +60,7 @@ class QueryBroker:
 
     async def run_once(self, block: bool = True) -> bool:
         """Handle one request; return True if one was handled (used by the pump)."""
+
         if self.socket is None:
             raise RuntimeError("broker not started")
         try:
@@ -84,6 +84,7 @@ class QueryBroker:
             result = await self._dispatch(query)
         except TimeoutError:
             self.errors += 1
+
             result = {
                 "status": "error",
                 "error": {
@@ -128,6 +129,7 @@ class QueryBroker:
             result = await self._dispatch(query)
         except TimeoutError:
             self.errors += 1
+
             result = {
                 "status": "error",
                 "error": {
@@ -151,11 +153,13 @@ class QueryBroker:
 
     async def _dispatch(self, query: dict[str, Any]) -> dict[str, Any]:
         """Run the handler, honoring ``handler_timeout_s`` when set.
-
         The default (no timeout) executes synchronously inline, exactly as
+
         before. With a timeout, the blocking handler moves to a worker
         thread so a slow query never stalls the event loop; if it exceeds
+
         the budget the client gets a ``QUERY_TIMEOUT`` error instead of
+
         hanging.
         """
         self.requests += 1
@@ -163,6 +167,7 @@ class QueryBroker:
             raise ProtocolError("no query handler installed")
         if self.handler_timeout_s is None or self.handler_timeout_s <= 0:
             # None or <= 0 disables the budget (runs synchronously inline)
+
             return self.handler(query)
         return await asyncio.wait_for(
             asyncio.to_thread(self.handler, query), self.handler_timeout_s

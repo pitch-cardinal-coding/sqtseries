@@ -16,8 +16,8 @@ REPORT_INTERVAL = 10.0
 
 class StatsPublisher:
     """PUB socket that emits ``conn``, ``sub``, and ``report`` events.
-
     Consumers subscribe with prefix filters (e.g. ``conn``, ``sub``, or ``""``
+
     for all) using a standard ZMQ SUB socket.
     """
 
@@ -59,6 +59,7 @@ class StatsPublisher:
         if self.socket is None:
             return
         frame = orjson.dumps(payload, default=str)
+
         topic = event_type.encode()
         await self.socket.send_multipart([topic, frame])
 
@@ -72,9 +73,11 @@ class StatsPublisher:
 
     async def _report_loop(self) -> None:
         """Publish a ``report`` event every ``report_interval`` seconds."""
+
         while True:
             await asyncio.sleep(self.report_interval)
             snapshot = self.registry.snapshot()
+
             report = {
                 "uptime_s": round(time.time() - self._started_at, 1),
                 "ws_connections": snapshot["ws_connections"],
@@ -92,6 +95,7 @@ class StatsPublisher:
     async def stop(self) -> None:
         if self._event_hook is not None:
             # unhook BEFORE draining, so no new per-event tasks are spawned
+
             self.registry.remove_listener(self._event_hook)
             self._event_hook = None
         if self._task is not None:
@@ -101,7 +105,9 @@ class StatsPublisher:
             self._task = None
         if self._publish_tasks:
             # drain in-flight event-forward tasks (they no-op on a closed socket)
+
             await asyncio.gather(*self._publish_tasks, return_exceptions=True)
+
             self._publish_tasks.clear()
         if self.socket is not None:
             self.socket.close(linger=0)

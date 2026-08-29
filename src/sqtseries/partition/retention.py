@@ -1,5 +1,4 @@
 """Retention policy enforcement: drop partitions older than a TTL.
-
 Retention drops entire monthly partitions (fast DROP TABLE) when the last
 day of a partition falls before the retention horizon. Dropping a partition
 also removes its rows from the hourly rollup, so deleted data leaves no
@@ -36,6 +35,7 @@ def parse_ttl(ttl: str) -> timedelta:
     if not match:
         raise ValueError(f"invalid TTL: {ttl!r} (use e.g. 30d, 12h, 4w)")
     amount = int(match.group(1))
+
     return amount * UNITS[match.group(2)]
 
 
@@ -51,6 +51,7 @@ class RetentionPolicy:
     ):
         self.engine = engine
         self.manager = manager or PartitionManager(engine)
+
         if isinstance(ttl, str):
             ttl = parse_ttl(ttl)
         self.ttl = ttl
@@ -84,10 +85,13 @@ class RetentionPolicy:
 
     def _drop_rollup_rows(self, year: int, month: int) -> None:
         """Remove this partition's hours from the rollup table (if it exists)."""
+
         if ROLLUP_TABLE not in self.engine.get_table_names():
             return
         start_ns = _month_start_ns(year, month)
+
         end_ns = _month_end_ns(year, month)
+
         with self.engine.begin() as conn:
             conn.exec_driver_sql(
                 f"DELETE FROM {ROLLUP_TABLE} "  # noqa: S608 - constant table name
@@ -119,6 +123,7 @@ class RetentionManager:
     async def start(self) -> None:
         # First pass runs immediately inside the loop task (in a thread), so
         # expired partitions are cleaned up on boot without stalling startup.
+
         self._task = asyncio.create_task(self._run(), name="retention-manager")
 
     async def run_once(self) -> None:
@@ -135,6 +140,7 @@ class RetentionManager:
         )
         policy = RetentionPolicy(self.engine, self.ttl, manager=manager)
         dropped = policy.run()
+
         if dropped:
             self.dropped_total += len(dropped)
             # Defensive; on_change also fires

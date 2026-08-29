@@ -1,5 +1,4 @@
 """Service manager: startup sequence, main event loop, graceful shutdown.
-
 Startup: WAL recovery, port acquisition, runtime state, background
 managers. Shutdown: drain-on-shutdown, TRUNCATE checkpoint at the end.
 """
@@ -88,6 +87,7 @@ class Service:
 
     async def start(self) -> None:
         """Start the service; on partial failure, clean up what started."""
+
         try:
             await self._start()
         except BaseException:
@@ -97,6 +97,7 @@ class Service:
     async def _start(self) -> None:
         db_path = self.settings.db_path_expanded()
         self.engine = create_sqlite_engine(db_path, self.settings.database)
+
         run_migrations(self.engine)
         check_integrity_on_startup(self.engine, strict=False)
         recover_wal(self.engine)
@@ -154,6 +155,7 @@ class Service:
         # the auto-detected ingest port must not collide with the fixed ports
         # (stats included: a missed reservation lets the detector pick 12506 for
         # ingest and the StatsPublisher bind then fails -> service won't start)
+
         allocator.reserved = {
             self.settings.query.port,
             self.settings.streaming.port,
@@ -244,7 +246,9 @@ class Service:
         """Run the FastAPI REST + WebSocket gateway (uvicorn) in-process.
 
         Serves port 12505 (http.port) sharing the event loop: the gateway reads
+
         the engine, query facade, and pubsub directly via ``app.state``.
+
         """
         import uvicorn
 
@@ -286,6 +290,7 @@ class Service:
         # `install_signal_handlers` config option), but run()'s
         # loop.add_signal_handler() then replaces them, so should_exit is only
         # ever set here in shutdown() — never by uvicorn's own handle_exit.
+
         self.http_server = uvicorn.Server(config)
         self.http_task = asyncio.create_task(self.http_server.serve())
         # Wait up to ~5s for the socket to bind
@@ -295,6 +300,7 @@ class Service:
             await asyncio.sleep(0.01)
         # server failed to bind (e.g. port in use); uvicorn exits with
         # SystemExit(3) inside the task — surface a clean error instead
+
         try:
             await self.http_task
         except BaseException as exc:
@@ -307,10 +313,12 @@ class Service:
 
     def _sink(self, metric: str, tags: Any, value: float, ts_ns: int) -> None:
         """Persist an ingested measurement immediately.
-
         Writes are serialized by SQLite itself (single-writer + BEGIN IMMEDIATE
+
         in ``Database.begin()`` + busy_timeout), so a separate app-level write
+
         queue would only add flush latency without correctness benefit.
+
         """
         if self.store is not None:
             try:
@@ -345,10 +353,13 @@ class Service:
         if cached is not None:
             return cached
         metric = query.get("metric")
+
         start = query.get("start")
+
         end = query.get("end")
         try:
             limit = query.get("limit")
+
             if limit is not None and (
                 not isinstance(limit, int) or isinstance(limit, bool) or limit < 1
             ):
@@ -356,6 +367,7 @@ class Service:
             aggs = query.get("aggregations")
             if aggs:
                 funcs = [f.strip() for f in str(aggs).split(",") if f.strip()]
+
                 result = {
                     "status": "ok",
                     "data": self.ts.aggregate(
@@ -387,6 +399,7 @@ class Service:
 
     def _admin_handler(self, query: dict[str, Any]) -> dict[str, Any]:
         """Serve admin commands over the admin REP socket (port 12504)."""
+
         if self.engine is None:
             return {
                 "status": "error",
@@ -462,6 +475,7 @@ class Service:
         if self.backup_manager is not None:
             payload["backup_runs"] = self.backup_manager.runs
             payload["backups_created"] = self.backup_manager.backups_created
+
             if self.backup_manager.last_backup:
                 payload["last_backup"] = self.backup_manager.last_backup
         if self.pubsub is not None:
@@ -498,24 +512,30 @@ class Service:
 
     def health(self) -> dict[str, Any]:
         """Return a health payload (sync-friendly for the HTTP layer)."""
+
         return collect_health(self.engine, started_at=self.started_at)
 
     async def run(self) -> None:
         """Run until a shutdown signal (SIGINT/SIGTERM), then return cleanly.
 
         Uses an asyncio.Event instead of ``loop.stop()``: stopping the loop
+
         mid-run makes ``asyncio.run`` raise (exit code 1), which systemd's
+
         ``Restart=on-failure`` treats as a crash and restarts a service that
+
         was deliberately stopped.
         """
 
         loop = asyncio.get_running_loop()
+
         shutdown_event = asyncio.Event()
 
         def _signal(signum: int | None = None, frame: Any = None) -> None:
             loop.call_soon_threadsafe(shutdown_event.set)
 
         # Non-main thread: add_signal_handler is not available, fall back
+
         try:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(sig, shutdown_event.set)
@@ -549,11 +569,13 @@ class Service:
             self.http_server.should_exit = True
             if self.http_task is not None:
                 await asyncio.gather(self.http_task, return_exceptions=True)
+
                 self.http_task = None
         # drain in-flight publishes BEFORE stopping pubsub, so they aren't
         # dropped by a stopped socket
         if self._publish_tasks:
             await asyncio.gather(*self._publish_tasks, return_exceptions=True)
+
             self._publish_tasks.clear()
         if self.pubsub is not None:
             await self.pubsub.stop()

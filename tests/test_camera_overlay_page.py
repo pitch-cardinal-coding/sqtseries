@@ -1,11 +1,9 @@
 """Playwright tests for the live camera dashboard page.
-
 ``examples/camera/overlay.html`` is served by the overlay simulator
 (``examples/camera/overlay_server.py``) and streams camera metrics over the
 same-origin WebSocket at ``/ws/metrics``. These tests boot the simulator as a
 subprocess and drive a real headless Chromium through Playwright to verify the
 page connects, renders live values, and recovers when the server restarts.
-
 The module skips when ``playwright`` (or its Chromium browser) is unavailable,
 so the rest of the suite never depends on it.
 """
@@ -96,9 +94,13 @@ class SqtseriesProc:
         self.http_port = ports["http"]
         self.stream_port = ports["streaming"]
         self.base_url = f"http://127.0.0.1:{self.http_port}"
+
         cfg = tmp_path / "sqtseries.toml"
+
         db = tmp_path / "sqtseries.sqlite"
+
         sections = "".join(f"[{name}]\nport = {ports[name]}\n\n" for name in ports)
+
         cfg.write_text(
             f'[database]\npath = "{db}"\nbatch_size = 500\n\n{sections}'
             "[ports]\nauto_detect = false\n"
@@ -210,6 +212,7 @@ class TestLiveDashboard:
         assert _value(page, "overlay-status") == "ON"
 
         # a live value is present and keeps changing (0.25s push interval)
+
         first = _value(page, "people-current-n")
         assert first not in ("", "—")
         page.wait_for_function(
@@ -247,6 +250,7 @@ class TestLiveDashboard:
         )
 
         # restart on the same port: the page must recover and resume streaming
+
         overlay.start()
         _wait_connected(page, timeout=20000)
         before = _value(page, "people-current-n")
@@ -258,6 +262,7 @@ class TestLiveDashboard:
 
     def test_subscribes_to_sqtseries(self, overlay, sqtseries, page):
         """With ?sqtseries= the page also streams readings the time-series DB
+
         publishes — an HTTP write must appear in the DB card."""
         page.goto(_db_page_url(overlay, sqtseries))
         page.wait_for_function(
@@ -269,6 +274,7 @@ class TestLiveDashboard:
         assert page.is_visible("#db-footer")
 
         # a write published by sqtseries over HTTP must show up in the card
+
         sqtseries.write("testdb.foo", 42.0, {"camera_id": "cam_x"})
         page.wait_for_function(
             "() => document.getElementById('db-body').textContent.includes('testdb.foo')",
@@ -280,6 +286,7 @@ class TestLiveDashboard:
         assert int(page.text_content("#db-frames")) >= 1
 
         # without ?sqtseries= the DB card stays idle (no connection attempts)
+
         page.goto(overlay.base_url + "/overlay.html")
         page.wait_for_function(
             "() => document.getElementById('db-conn-state-text').textContent === 'idle'",
@@ -304,6 +311,7 @@ class TestLiveDashboard:
         )
 
         # restart on the same ports: the page must recover and resume streaming
+
         sqtseries.start()
         page.wait_for_function(
             "() => document.getElementById('db-conn-state-text').textContent "
@@ -319,7 +327,9 @@ class TestLiveDashboard:
 
     def test_connected_clients_live(self, overlay, sqtseries, page):
         """The DB card's connected-clients react instantly on BOTH connection
+
         and disconnection, via the /ws/connections push (no polling), and the
+
         activity log records each join/leave."""
         import threading
 
@@ -341,6 +351,7 @@ class TestLiveDashboard:
 
         # open a second subscriber that stays until told to close
         connected = threading.Event()
+
         close = threading.Event()
 
         def second_client():
@@ -381,6 +392,7 @@ class TestLiveDashboard:
 
     def test_conn_validate_script(self, sqtseries):
         """examples/camera/conn_validate.py passes against a real instance:
+
         every join/leave is pushed live with the exact figures."""
         res = subprocess.run(
             [
@@ -403,4 +415,5 @@ class TestLiveDashboard:
             cwd=REPO_ROOT,
         )
         assert res.returncode == 0, f"stdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+
         assert "OK: every join/leave figure correct and pushed live" in res.stdout

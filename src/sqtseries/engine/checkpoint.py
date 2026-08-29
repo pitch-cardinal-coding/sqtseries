@@ -1,5 +1,4 @@
 """Background WAL checkpoint manager.
-
 Drives checkpointing to prevent WAL file indefinite growth. Also monitors
 the WAL and detects long-running readers that block checkpoints (a reader
 holding a read lock prevents TRUNCATE from freeing disk;
@@ -61,11 +60,13 @@ class CheckpointManager:
 
     async def _checkpoint_if_needed(self) -> None:
         """Run TRUNCATE checkpoint if WAL exceeds threshold; track reader locks."""
+
         wal_path = Path(self.db.path + "-wal")
         if not wal_path.exists():
             self.wal_bytes = 0
             return
         self.wal_bytes = wal_path.stat().st_size
+
         if self.wal_bytes < self.max_wal_bytes:
             return
 
@@ -84,6 +85,7 @@ class CheckpointManager:
 
         if busy > 0:
             # A reader is holding a read lock, blocking the checkpoint.
+
             self.busy_runs += 1
             if self.busy_runs >= _BUSY_WARN_RUNS:
                 log.warning(
@@ -122,6 +124,7 @@ class CheckpointManager:
 
 def _parse_result(result: str) -> tuple[int, int, int]:
     """Parse ``PRAGMA wal_checkpoint`` -> (busy, log, checkpointed) frames."""
+
     parts = [int(x) for x in result.split(",") if x.strip()]
     if len(parts) != 3:
         return (0, 0, 0)

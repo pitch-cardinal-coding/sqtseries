@@ -1,5 +1,4 @@
 """Message protocol: framing and validation for ZMQ messages.
-
 Messages are JSON via orjson. A single-part frame holds the whole object for
 ingest/query/admin; pubsub uses two-part frames: [topic, json-payload].
 """
@@ -30,6 +29,7 @@ class IngestMessage:
 
         ts = self.timestamp if self.timestamp is not None else time.time()
         ts_ns = int(ts * 1_000_000_000)
+
         return (self.metric, self.tags, self.value, ts_ns)
 
 
@@ -50,9 +50,10 @@ def parse_ingest(
     raw: Any, reject_client_timestamp_skew_s: float | None = None
 ) -> IngestMessage:
     """Validate an ingest message dict into an IngestMessage.
-
     ``reject_client_timestamp_skew_s`` (seconds): when > 0, timestamps whose
+
     skew from the server clock exceeds this are rejected (clock-skew guard).
+
     """
     if not isinstance(raw, dict):
         raise ProtocolError("ingest message must be an object")
@@ -60,6 +61,7 @@ def parse_ingest(
     if not isinstance(metric, str) or not metric:
         raise ProtocolError("metric must be a non-empty string")
     value = raw.get("value")
+
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ProtocolError("value must be a number")
     if isinstance(value, float) and not math.isfinite(value):

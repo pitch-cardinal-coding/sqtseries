@@ -1,5 +1,4 @@
 """Runtime state file: PID, ports, start time, database path.
-
 Written after startup, removed on shutdown. Clients use it to discover
 the service's active ports.
 """

@@ -11,14 +11,23 @@ Sample = tuple[int, float]
 
 class AggregationFunction(StrEnum):
     AVG = "avg"
+
     SUM = "sum"
+
     MIN = "min"
+
     MAX = "max"
+
     COUNT = "count"
+
     FIRST = "first"
+
     LAST = "last"
+
     MEDIAN = "median"
+
     P95 = "p95"
+
     P99 = "p99"
 
 
@@ -42,7 +51,9 @@ def _percentile(values: list[float], q: float) -> float:
     sorted_vals = sorted(values)
     rank = (len(sorted_vals) - 1) * q
     upper = math.ceil(rank)
+
     lower = math.floor(rank)
+
     if lower == upper:
         return sorted_vals[int(rank)]
     return sorted_vals[lower] * (upper - rank) + sorted_vals[upper] * (rank - lower)
@@ -67,14 +78,18 @@ def aggregate_series(
     func: str | AggregationFunction,
 ) -> float:
     """Aggregate a list of (timestamp_ns, value) samples over a whole window."""
+
     name = func.value if isinstance(func, AggregationFunction) else func
+
     agg: Callable[[list[float]], float] = AGGREGATORS.get(name.lower())
+
     if agg is None:
         raise ValueError(f"unsupported aggregation: {name}")
     vals = [v for _, v in samples]
     if not vals:
         # Empty window: count/sum are naturally 0.0; the rest are undefined
         # (nan), consistent with min/max. Never raise StatisticsError/IndexError.
+
         if name in ("count", "sum"):
             return 0.0
         return float("nan")
@@ -91,12 +106,15 @@ INTERVAL_UNITS: dict[str, int] = {
 
 def parse_interval(interval: str) -> int:
     """Parse an interval string (e.g. '5m', '10s', '1h', '1d') into seconds."""
+
     text = interval.strip().lower()
     if not text:
         raise ValueError("empty interval")
     unit = text[-1]
+
     if text[0].isdigit() and unit in INTERVAL_UNITS:
         num = int(text[:-1])
+
         if num < 1:
             raise ValueError(f"interval must be >= 1: {interval}")
         return num * INTERVAL_UNITS[unit]
@@ -109,8 +127,10 @@ def downsample(
     func: str | AggregationFunction = "avg",
 ) -> list[Sample]:
     """Bucket samples into ``interval`` bins and aggregate each bucket."""
+
     seconds = parse_interval(interval)
     bucket_ns = seconds * 1_000_000_000
+
     agg = _aggfn(func)
 
     buckets: dict[int, list[float]] = {}
@@ -119,6 +139,7 @@ def downsample(
         buckets.setdefault(bkey, []).append(value)
 
     out = []
+
     for bkey in sorted(buckets):
         vals = buckets[bkey]
         out.append((bkey * bucket_ns, agg(vals)))
@@ -134,11 +155,13 @@ def downsample_to_intervals(
     """Downsample and optionally emit empty buckets (value=nan) for gaps.
 
     ``start_ns``/``end_ns`` semantics handled by caller when ``fill_missing``.
+
     """
     if not fill_missing:
         return downsample(samples, interval, func)
     seconds = parse_interval(interval)
     bucket_ns = seconds * 1_000_000_000
+
     agg = _aggfn(func)
 
     buckets: dict[int, list[float]] = {}
@@ -161,6 +184,7 @@ def downsample_to_intervals(
 def _aggfn(func: str | AggregationFunction) -> Callable[[list[float]], float]:
     name = func.value if isinstance(func, AggregationFunction) else func
     agg = AGGREGATORS.get(name.lower())
+
     if agg is None:
         raise ValueError(f"unsupported aggregation: {func}")
     return agg
@@ -170,6 +194,7 @@ def gap_fill_linear(samples: list[Sample], max_gap_ns: int) -> list[Sample]:
     """Linearly interpolate between samples, filling gaps <= max_gap_ns.
 
     Samples must be sorted ascending by timestamp. Gaps larger than the
+
     threshold remain unfilled.
     """
     if len(samples) < 2:
@@ -186,6 +211,7 @@ def gap_fill_linear(samples: list[Sample], max_gap_ns: int) -> list[Sample]:
         if 0 < gap <= max_gap_ns:
             # insert halfway point (linear step)
             mid_ts = ts + gap // 2
+
             mid_val = (val + nval) / 2.0
             out.append((mid_ts, mid_val))
     return out

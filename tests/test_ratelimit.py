@@ -35,8 +35,10 @@ def test_rejects_over_limit():
 
 def test_window_resets(monkeypatch):
     """A new 60s window restores the full allowance (fixed-window reset)."""
+
     clock = {"t": 1_700_000_000.0}
     monkeypatch.setattr(ratelimit_mod.time, "time", lambda: clock["t"])
+
     c = TestClient(_app(limit=1))
     assert c.get("/ping").status_code == 200
     assert c.get("/ping").status_code == 429
@@ -54,10 +56,12 @@ def test_different_clients_independent():
 
 def test_xff_header_does_not_bypass_limit():
     """The X-Forwarded-For header is NOT trusted: a client can't rotate it to
+
     evade the per-peer limit."""
     c = TestClient(_app(limit=2))
     assert c.get("/ping").status_code == 200
     assert c.get("/ping", headers={"X-Forwarded-For": "10.0.0.99"}).status_code == 200
+
     assert c.get("/ping", headers={"X-Forwarded-For": "10.0.0.100"}).status_code == 429
 
 
@@ -93,7 +97,9 @@ def test_hits_table_bounded_within_single_window():
     """IP churn inside one 60s window must not grow _hits past the cap.
 
     The stale sweep only removes keys from *other* windows, so without a hard
+
     cap a flood of distinct clients within one window grew _hits without
+
     bound despite _max_keys=10000.
     """
     import asyncio

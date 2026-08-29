@@ -24,6 +24,7 @@ async def test_maintenance_runs_analyze_after_interval(tmp_path, monkeypatch):
 
     calls = []
     monkeypatch.setattr(maint, "run_analyze_once", lambda db: calls.append(1))
+
     mgr = MaintenanceManager(eng, interval=0.05)
     await mgr.start()
     # first pass waits one interval (startup already analyzed)
@@ -39,12 +40,14 @@ async def test_maintenance_runs_analyze_after_interval(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_checkpoint_detects_blocked_readers(tmp_path, monkeypatch):
     """Consecutive busy checkpoints are tracked and cleared on success."""
+
     from pathlib import Path
 
     eng = create_sqlite_engine(str(tmp_path / "cp.sqlite"))
     initialize_schema(eng)
     # A non-empty WAL file (SQLite removes it when the last connection closes,
     # so fabricate one to exercise the monitoring path deterministically).
+
     wal_path = Path(eng.path + "-wal")
     wal_path.write_bytes(b"\x00" * 64)
 
@@ -52,6 +55,7 @@ async def test_checkpoint_detects_blocked_readers(tmp_path, monkeypatch):
 
     # busy
     monkeypatch.setattr(chk, "wal_checkpoint", lambda db, mode: "1,10,0")
+
     mgr = CheckpointManager(eng, interval=60.0, max_wal_bytes=0)
     await mgr._checkpoint_if_needed()
     assert mgr.busy_runs == 1
@@ -62,6 +66,7 @@ async def test_checkpoint_detects_blocked_readers(tmp_path, monkeypatch):
 
     # success
     monkeypatch.setattr(chk, "wal_checkpoint", lambda db, mode: "0,10,10")
+
     await mgr._checkpoint_if_needed()
     assert mgr.busy_runs == 0
     assert mgr.checkpoints == 1

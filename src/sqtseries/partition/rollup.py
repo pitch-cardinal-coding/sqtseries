@@ -1,14 +1,11 @@
 """Rollup aggregation: pre-aggregate measurements into hourly tables.
-
 Rollups trade storage for query speed: ``rollup_hourly`` stores per-series
 per-hour aggregates (count/sum/min/max, so avg is derived as sum/count).
-
 Only *completed* hours are ever rolled up: an hour ``H`` is complete once the
 clock passes it, so the current hour is always served from the raw partitions.
 A ``last_hour`` watermark in ``rollup_meta`` records how far the rollup has
 advanced, so each run scans only the data accrued since the previous run and
 ``INSERT OR REPLACE`` keeps re-runs idempotent.
-
 Assumption (documented): in-order ingestion for completed hours. A write
 backfilled into an already-rolled past hour is not picked up until that
 partition is rebuilt with ``replace=True``.
@@ -45,6 +42,7 @@ def _safe_partition(name: str) -> str:
 
 def completed_hour_ns(now_ns: int | None = None) -> int:
     """Start of the current, still-in-progress hour (a full-hour boundary)."""
+
     now = time.time_ns() if now_ns is None else now_ns
     return (now // HOUR_NS) * HOUR_NS
 
@@ -73,6 +71,7 @@ def ensure_rollup_table(db: Database) -> None:
 
 def rollup_watermark(db: Database) -> int:
     """Return the next hour to roll (all earlier hours are rolled). 0 if none."""
+
     if ROLLUP_META not in db.get_table_names():
         return 0
     with db.connect() as conn:
@@ -91,15 +90,20 @@ def rollup_partition(
     cutoff_ns: int | None = None,
 ) -> int:
     """Aggregate a measurements partition into the hourly rollup.
-
     Rolls the partition's completed hours in ``[watermark, cutoff_ns)``.
+
     With ``replace=True`` the whole partition's month is rebuilt (its rollup
+
     rows are cleared first) — used for backfill recovery. The global watermark
+
     is advanced by :func:`rollup_new_hours`, not here. Returns rows written.
+
     """
     ensure_rollup_table(db)
     partition = _safe_partition(partition)
+
     cutoff = completed_hour_ns() if cutoff_ns is None else cutoff_ns
+
     if replace:
         start_ns, _ = _month_bounds(partition)
     else:
@@ -143,20 +147,27 @@ def rollup_new_hours(
     """Roll every partition's newly-completed hours and advance the watermark.
 
     Only hours that ended at least ``skew_s`` before "now" are rolled. This
+
     keeps the fast path exact under the client clock-skew guard: a write
+
     arriving up to ``skew_s`` late can never land in an hour that has already
+
     been rolled. Idempotent: safe to call repeatedly and after an interrupted
+
     run. Returns the number of rollup rows written this call.
     """
     ensure_rollup_table(db)
     now = time.time_ns() if now_ns is None else now_ns
     completed = completed_hour_ns(int(now - skew_s * 1_000_000_000))
+
     watermark = rollup_watermark(db)
+
     if watermark >= completed:
         return 0
-
     partitions = _partitions_for_range(db, watermark, completed)
+
     total = 0
+
     for name in partitions:
         total += rollup_partition(db, name, cutoff_ns=completed)
     with db.begin() as conn:
@@ -179,22 +190,29 @@ def query_rollup_partial(
     """Partial aggregates from the rollup, for the query fast path.
 
     Returns ``[(bucket_start_ns, count, sum, min, max)]`` (bucket_start_ns is
+
     None for the whole-window form when ``bucket_ns`` is None). Empty when no
+
     rollup rows match. Bound semantics: ``[start_ns, end_ns)``.
     """
     if not series_ids:
         return []
     ids = [int(s) for s in series_ids]
     placeholders = ",".join("?" for _ in ids)
+
     if bucket_ns is None:
         cols = "SUM(count), SUM(sum), MIN(min), MAX(max)"
+
         group = ""
         params: list[Any] = [*ids]
     else:
         cols = "(hour_start_ns / ?) * ? AS b, SUM(count), SUM(sum), MIN(min), MAX(max)"
+
         group = " GROUP BY 1"
+
         params = [bucket_ns, bucket_ns, *ids]
     sql = f"SELECT {cols} FROM {ROLLUP_TABLE} WHERE series_id IN ({placeholders})"  # noqa: S608 - constant table name
+
     if start_ns is not None:
         sql += " AND hour_start_ns >= ?"
         params.append(start_ns)
@@ -202,6 +220,7 @@ def query_rollup_partial(
         sql += " AND hour_start_ns < ?"
         params.append(end_ns)
     sql += group
+
     with db.connect() as conn:
         rows = conn.exec_driver_sql(sql, params).fetchall()
     if bucket_ns is None:
@@ -217,6 +236,7 @@ def query_rollup_partial(
 
 def _partitions_for_range(db: Database, start_ns: int, end_ns: int) -> list[str]:
     """Measurement partitions whose month intersects [start_ns, end_ns)."""
+
     out = []
     for name in db.get_table_names():
         if not _PARTITION_RE.match(name):
@@ -244,7 +264,9 @@ class RollupManager:
 
     ``skew_s`` is the client clock-skew window (``ingestion.
     reject_client_timestamp_skew_s``): hours are only rolled once they are at
+
     least that far past completion, so late writes can never hit a rolled hour.
+
     """
 
     def __init__(self, db: Database, *, interval: float = 300.0, skew_s: float = 0.0):
@@ -257,6 +279,7 @@ class RollupManager:
         # No blocking warm-up on boot: the first pass runs inside the loop task
         # immediately, so a large catch-up (e.g. first boot on an old database)
         # happens in a thread and never stalls service startup or the event loop.
+
         self._task = asyncio.create_task(self._run(), name="rollup-manager")
 
     async def run_once(self) -> None:

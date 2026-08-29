@@ -25,6 +25,7 @@ def _fd_count():
 
 def test_no_resource_warnings_from_db_api(engine):
     """Using the Database API must never leak an open sqlite3 connection."""
+
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         for _ in range(40):
@@ -36,6 +37,7 @@ def test_no_resource_warnings_from_db_api(engine):
             engine.execute("SELECT 1")
         gc.collect()
     # other tests' GC'd connections may warn too; only flag warnings tied to this db
+
     leaked = [
         w
         for w in caught
@@ -46,9 +48,12 @@ def test_no_resource_warnings_from_db_api(engine):
 
 def test_fd_stable_across_operations(engine):
     store = StorageEngine(engine)
+
     before = _fd_count()
+
     for i in range(100):
         store.insert_many([("m", None, float(i), 1_700_000_000_000_000_000 + i)])
+
         list(store.query_time_range(metric="m"))
         store.series_ids_for_metric("m")
     gc.collect()

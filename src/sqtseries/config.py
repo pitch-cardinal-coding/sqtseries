@@ -1,5 +1,4 @@
 """Configuration management for sqtseries.
-
 Supports TOML, YAML, JSON files and environment variables.
 Environment variables take precedence over file values.
 """
@@ -84,6 +83,7 @@ class LoggingSettings(BaseModel):
     """Structured logging configuration."""
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+
     format: Literal["json", "console"] = "console"
     file: str | None = None
 
@@ -100,8 +100,8 @@ class RetentionSettings(BaseModel):
 
 class RollupSettings(BaseModel):
     """Hourly rollup pre-aggregation configuration.
-
     ``interval`` is how often the background task rolls newly-completed hours
+
     into ``rollup_hourly`` (a duration like ``5m`` or ``1h``).
     """
 
@@ -111,8 +111,8 @@ class RollupSettings(BaseModel):
 
 class MaintenanceSettings(BaseModel):
     """Periodic maintenance configuration.
-
     ``analyze_interval`` is how often ``ANALYZE`` refreshes query-planner
+
     statistics (a duration like ``1h`` or ``6h``).
     """
 
@@ -139,10 +139,10 @@ class PortsSettings(BaseModel):
 
 class Settings(BaseSettings):
     """Top-level settings. Env prefix: SQT_SERIES_.
-
     Load order (lowest to highest precedence):
     1. Defaults
     2. Config file (TOML/YAML/JSON) — ``SQT_SERIES_CONFIG_FILE`` or ``--config``
+
     3. Environment variables (``SQT_SERIES_*``)
     """
 
@@ -187,12 +187,16 @@ class Settings(BaseSettings):
         2. Config file values (TOML/YAML/JSON)
         3. Environment variables (SQT_SERIES_*)
         4. Explicit overrides passed as keyword args (CLI)
-
         Implementation note: pydantic-settings gives init kwargs precedence over
+
         env, so we cannot pass file values as init args (that would let a file
+
         shadow an env var). Instead we instantiate twice: first with env applied
+
         (no init kwargs), then merge only the file keys that the environment did
+
         **not** set, and rebuild with those as init kwargs. Env values always win.
+
         """
         if config_file is None:
             env_config_file = os.environ.get("SQT_SERIES_CONFIG_FILE")
@@ -207,13 +211,16 @@ class Settings(BaseSettings):
             file_values = _read_config_file(path)
 
         # Instance with env applied (env source active, no init overrides).
+
         env_settings = cls(config_file=config_file)
 
         # Determine which leaf config paths the environment actually set, by
         # scanning the env prefix. File values for those paths are skipped.
+
         env_paths = _enviro_leaf_paths()
 
         # Only the file values whose paths were NOT set by the environment survive.
+
         file_override: dict[str, Any] = {}
         for path, value in _iter_leaf_paths(file_values):
             # A top-level "config_file" key would collide as a kwarg
@@ -235,20 +242,25 @@ def _enviro_leaf_paths() -> set[tuple[str, ...]]:
     """Return the set of leaf config paths set via ``SQT_SERIES_*`` env vars.
 
     Converts ``SQT_SERIES_DATABASE__BATCH_SIZE`` -> ``("database", "batch_size")``.
+
     Also normalizes the root ``SQT_SERIES_CONFIG_FILE`` special key out.
+
     Matching is case-insensitive, mirroring pydantic-settings
     ``case_sensitive=False`` (so ``sqt_series_database__path`` is honored).
+
     """
     paths: set[tuple[str, ...]] = set()
     prefix = "SQT_SERIES_"
     for key in os.environ:
         upper = key.upper()
+
         if not upper.startswith(prefix):
             continue
         rest = upper[len(prefix) :]
         if not rest or rest == "CONFIG_FILE":
             continue
         parts = tuple(p.lower() for p in rest.split("__") if p)
+
         if parts:
             paths.add(parts)
     return paths

@@ -35,6 +35,7 @@ async def context():
 class TestIngress:
     async def test_ingest_roundtrip(self, context):
         port = free_tcp_port()
+
         received = []
 
         def sink(metric, tags, value, ts_ns):
@@ -53,6 +54,7 @@ class TestIngress:
             import orjson
 
             pub.send(orjson.dumps({"metric": "cpu", "value": 0.5, "tags": {"h": "a"}}))
+
             await asyncio.sleep(0.2)
             await ing.drain()
         finally:
@@ -67,6 +69,7 @@ class TestIngress:
     async def test_invalid_json_counted(self, context):
         port = free_tcp_port()
         ing = Ingress(f"tcp://127.0.0.1:{port}", IngestionSettings(), context=context)
+
         await ing.start()
         try:
             pub = context.socket(zmq.PUSH)
@@ -84,6 +87,7 @@ class TestPubSub:
     async def test_publish_delivery(self, context):
         port = free_tcp_port()
         ps = PubSub(f"tcp://127.0.0.1:{port}")
+
         sub = context.socket(zmq.SUB)
         sub.connect(f"tcp://127.0.0.1:{port}")
         sub.setsockopt(zmq.SUBSCRIBE, b"cpu")
@@ -92,10 +96,12 @@ class TestPubSub:
         try:
             await ps.start()
             # slow-joiner: PUB drops messages sent before sub ready; send a few
+
             for i in range(3):
                 await ps.publish("cpu", {"value": float(i)})
                 await asyncio.sleep(0.1)
             topic, _ = await asyncio.wait_for(sub.recv_multipart(), timeout=2)
+
             assert topic == b"cpu"
         finally:
             sub.close(linger=0)
@@ -118,6 +124,7 @@ class TestPubSub:
 class TestQueryBroker:
     async def test_rep_query(self, context):
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -163,6 +170,7 @@ class TestQueryBroker:
             client.connect(f"tcp://127.0.0.1:{port}")
             client.send(b'{"metric":"x"}')
             resp = None
+
             for _ in range(100):
                 await broker.run_once(block=False)
                 await asyncio.sleep(0.01)

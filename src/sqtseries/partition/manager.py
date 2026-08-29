@@ -63,6 +63,7 @@ class PartitionManager:
 
     def current_partition(self, now_ns: int | None = None) -> str:
         """Return the partition name active at ``now_ns`` (default: now)."""
+
         import time
 
         dt_utc = datetime.fromtimestamp((now_ns or time.time_ns()) / 1e9, tz=UTC)

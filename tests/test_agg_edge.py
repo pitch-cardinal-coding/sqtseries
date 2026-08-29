@@ -42,6 +42,7 @@ class TestAggregateSeries:
 
     def test_empty_window_safe_values(self):
         # empty window must not raise: avg/min/max/... -> nan, count/sum -> 0
+
         assert math.isnan(aggregate_series([], "avg"))
         assert math.isnan(aggregate_series([], "median"))
         assert math.isnan(aggregate_series([], "first"))
@@ -87,11 +88,13 @@ class TestDownsampleToIntervals:
         out = downsample_to_intervals(samples, "5s", "sum", fill_missing=True)
         # buckets: 0, 5, 10 (three buckets, middle empty -> nan)
         assert [b for b, _ in out] == [0, 5_000_000_000, 10_000_000_000]
+
         assert math.isnan(out[1][1])
 
     def test_fill_missing_no_gap(self):
         samples = [(0, 1.0), (1_000_000_000, 2.0)]
         out = downsample_to_intervals(samples, "1s", "sum", fill_missing=True)
+
         assert [b for b, _ in out] == [0, 1_000_000_000]
         assert [v for _, v in out] == [1.0, 2.0]
 
@@ -113,6 +116,7 @@ class TestGapFill:
 
     def test_short_samples_unchanged(self):
         assert gap_fill_linear([(0, 1.0)], max_gap_ns=100) == [(0, 1.0)]
+
         assert gap_fill_linear([], max_gap_ns=100) == []
 
 

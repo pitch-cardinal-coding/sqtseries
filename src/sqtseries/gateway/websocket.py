@@ -1,5 +1,4 @@
 """WebSocket subscription handler.
-
 Proxies live measurements from the pubsub XPUB socket to the WebSocket client
 and tracks connection state in the registry.
 """
@@ -30,7 +29,9 @@ async def subscribe_and_forward(
     registry: object | None = None,
 ) -> None:
     """Subscribe to the pubsub endpoint and stream frames to the WS client."""
+
     conn_id = new_connection_id()
+
     peer = (
         f"{websocket.client.host}:{websocket.client.port}"
         if websocket.client
@@ -45,6 +46,7 @@ async def subscribe_and_forward(
         # connection handshake. Setting it after connect() leaves a (tiny) race
         # where a measurement published between connect completing and the
         # subscription reaching the XPUB is dropped for this subscriber.
+
         sock.setsockopt(zmq.SUBSCRIBE, b"")
         sock.connect(pubsub.endpoint)
         log.info("websocket subscribed", endpoint=pubsub.endpoint)
@@ -55,6 +57,7 @@ async def subscribe_and_forward(
             while True:
                 # The SUB socket has no RCVTIMEO, so recv never raises
                 # zmq.Again; only the wait_for timeout fires (keepalive).
+
                 try:
                     frames = await asyncio.wait_for(sock.recv_multipart(), timeout=30)
                 except TimeoutError:
@@ -62,8 +65,10 @@ async def subscribe_and_forward(
                         return
                     continue
                 topic_bytes = frames[0]
+
                 payload = frames[1] if len(frames) > 1 else b"{}"
                 # Track activity: receiving data means the connection is alive.
+
                 if registry is not None:
                     registry.touch_ws(conn_id)
                 if topic != "*" and not topic_bytes.startswith(topic.encode()):
@@ -83,15 +88,18 @@ async def subscribe_and_forward(
             # data is intentionally ignored — this stream is push-only.
             # ``receive()`` returns the disconnect as a plain message (only the
             # ``receive_text()`` helpers raise), so check the type explicitly.
+
             while True:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
                     return
                 # Track activity: any inbound frame means the client is alive.
+
                 if registry is not None:
                     registry.touch_ws(conn_id)
 
         send_task = asyncio.create_task(send_loop())
+
         watch_task = asyncio.create_task(watch_disconnect())
         done, pending = await asyncio.wait(
             {send_task, watch_task}, return_when=asyncio.FIRST_COMPLETED
@@ -99,6 +107,7 @@ async def subscribe_and_forward(
         for task in pending:
             task.cancel()
         await asyncio.gather(send_task, watch_task, return_exceptions=True)
+
         for task in done:
             exc = task.exception()
             if exc is not None and not isinstance(exc, WebSocketDisconnect):
@@ -111,8 +120,10 @@ async def subscribe_and_forward(
 
 async def _send(websocket: WebSocket, text: str, what: str) -> bool:
     """Send one frame; return False if the client is stuck (evict it)."""
+
     try:
         await asyncio.wait_for(websocket.send_text(text), timeout=SEND_TIMEOUT)
+
         return True
     except TimeoutError:
         log.warning("websocket slow consumer, closing", what=what)

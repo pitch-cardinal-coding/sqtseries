@@ -31,6 +31,7 @@ class TestPartialStartup:
             raise RuntimeError("disk full")
 
         monkeypatch.setattr(svc_mod, "create_sqlite_engine", failing_create)
+
         svc = Service(settings)
         with pytest.raises(RuntimeError, match="disk full"):
             await svc.start()
@@ -99,11 +100,13 @@ class TestQueryLimitValidation:
         eng = create_sqlite_engine(str(tmp_path / "q.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         svc = Service(settings)
         svc.store = store
         svc.ts = TimeSeriesDB(store)
         try:
             # a negative limit would silently drop the last row via rows[:-1]
+
             reply = svc._query_handler({"metric": "m", "limit": -5})
             assert reply["status"] == "error"
             assert reply["error"]["code"] == "INVALID_QUERY"
@@ -133,6 +136,7 @@ class TestAdminErrors:
         await svc.start()
         try:
             # hold a read lock, then VACUUM cannot get exclusive access
+
             with svc.engine.connect() as conn:
                 conn.exec_driver_sql("SELECT COUNT(*) FROM series")
                 reply = svc._admin_handler({"cmd": "vacuum"})

@@ -1,5 +1,4 @@
 """Storage engine on raw sqlite3.
-
 Benchmark-validated 2026-08-07: ~1.2x faster bulk inserts and ~6.7x faster
 point lookups than alternatives on these exact hot paths.
 """
@@ -90,13 +89,14 @@ class StorageEngine:
         create_if_missing: bool = True,
     ) -> int:
         """Resolve a metric+tags combo to a series_id.
-
         Uses the UNIQUE(metric, tags) index (verified SEARCH plan). With
+
         ``create_if_missing``, inserts the new series row when absent.
         """
         tags_json = _tags_to_json(tags)
         key = (metric, tags_json)
         cached = self._series_cache.get(key)
+
         if cached is not None:
             return cached
 
@@ -163,6 +163,7 @@ class StorageEngine:
         """Insert (metric, tags, value, timestamp_ns) rows; returns count.
 
         Resolves series in one transaction, then inserts measurements per
+
         partition. Timestamps are nanosecond epoch (server-side).
         """
         if not rows:
@@ -170,15 +171,19 @@ class StorageEngine:
 
         by_partition: dict[str, list[tuple[int, int, float]]] = {}
         existing = set(self.db.get_table_names()) if auto_create_partition else set()
+
         inserted = 0
+
         with self.db.begin() as conn:
             # Series resolution, partition DDL, and measurement inserts all run
             # in ONE transaction: a failure rolls everything back (no orphan
             # series rows survive a failed insert).
             for metric, tags, value, ts_ns in rows:
                 sid = self.resolve_series(conn, metric, tags, create_if_missing=True)
+
                 pkey = month_partition_key(ts_ns)
                 # Validates the name before it is used in DDL interpolation
+
                 parse_partition_name(pkey)
                 by_partition.setdefault(pkey, []).append((sid, ts_ns, value))
 
@@ -193,8 +198,10 @@ class StorageEngine:
 
             for pname, part_rows in by_partition.items():
                 # Validates the name before it is used in DDL interpolation
+
                 parse_partition_name(pname)
                 sql = f"INSERT INTO {pname}(series_id, timestamp_ns, value) VALUES (?, ?, ?)"  # noqa: S608 - pname validated above
+
                 res = conn.executemany(
                     sql,
                     [(sid, ts, v) for sid, ts, v in part_rows],
@@ -218,9 +225,13 @@ class StorageEngine:
         """Yield (timestamp_ns, value) rows over a time range (streamed).
 
         Filtering by series_id uses the clustered PRIMARY KEY (SEARCH plan).
+
         ``order`` applies globally across partitions (partitions are iterated
+
         newest-first for ``desc``) and ``limit`` is enforced globally, not per
+
         partition. A partition dropped concurrently (retention) is skipped
+
         rather than raising "no such table".
         """
         if series_ids is None:
@@ -228,6 +239,7 @@ class StorageEngine:
                 raise ValueError("either metric or series_ids must be given")
             series_ids = self.series_ids_for_metric(metric)
         series_ids = list(series_ids)
+
         if not series_ids:
             return
 
@@ -235,8 +247,10 @@ class StorageEngine:
         if order == "desc":
             partitions = list(reversed(partitions))
         remaining = limit
+
         for pname in partitions:
             # Validates the name before it is used in SQL interpolation
+
             parse_partition_name(pname)
             sql = (
                 f"SELECT timestamp_ns, value FROM {pname} "  # noqa: S608 - pname validated above
@@ -250,6 +264,7 @@ class StorageEngine:
                 sql += " AND timestamp_ns <= ?"
                 params.append(end_ns)
             sql += f" ORDER BY timestamp_ns {'ASC' if order == 'asc' else 'DESC'}"
+
             if remaining is not None:
                 sql += " LIMIT ?"
                 params.append(remaining)
@@ -265,6 +280,7 @@ class StorageEngine:
                                 return
             except sqlite3.OperationalError as exc:
                 # retention dropped this partition after we cached its name
+
                 if "no such table" in str(exc):
                     self.invalidate_partitions()
                     continue
@@ -279,6 +295,7 @@ class StorageEngine:
         """Return the first (ascending) sample timestamp in range, or None.
 
         Used by the rollup fast path to report the whole-window aggregate's
+
         anchor timestamp exactly as the raw path does.
         """
         if not series_ids:
@@ -287,6 +304,7 @@ class StorageEngine:
         placeholders = ",".join("?" for _ in series_ids)
         for pname in self._partitions_for_range(start_ns, end_ns):
             # Validates the name before it is used in SQL interpolation
+
             parse_partition_name(pname)
             sql = (
                 f"SELECT timestamp_ns FROM {pname} "  # noqa: S608 - pname validated above
@@ -300,6 +318,7 @@ class StorageEngine:
                 sql += " AND timestamp_ns <= ?"
                 params.append(end_ns)
             sql += " ORDER BY timestamp_ns ASC LIMIT 1"
+
             with self.db.connect() as conn:
                 row = conn.execute(sql, params).first()
             if row is not None and (first is None or int(row[0]) < first):
@@ -312,6 +331,7 @@ class StorageEngine:
         """Partition names intersecting the requested [start, end] window.
 
         The partition list is cached briefly (TTL) to avoid a sqlite_master
+
         scan on every query; partition creation/drop are rare.
         """
         all_parts = self._all_partitions()
@@ -328,6 +348,7 @@ class StorageEngine:
             return (int(first.timestamp() * 1e9), int(nxt.timestamp() * 1e9) - 1)
 
         out = []
+
         for name in all_parts:
             lo, hi = _month_bounds(name)
             if start_ns is not None and hi < start_ns:
@@ -349,10 +370,12 @@ class StorageEngine:
         )
         self._parts_cache = parts
         self._parts_cache_at = now
+
         return parts
 
     def invalidate_partitions(self) -> None:
         """Drop the cached partition list (call after create/drop partition)."""
+
         self._parts_cache = None
 
     def close(self) -> None:
@@ -365,6 +388,7 @@ def _tags_to_json(tags: dict[str, str] | None) -> str | None:
     if tags is None:
         return None
     # OPT_SORT_KEYS matches json.dumps(sort_keys=True): stable UNIQUE(metric, tags)
+
     return orjson.dumps(tags, option=orjson.OPT_SORT_KEYS).decode()
 
 

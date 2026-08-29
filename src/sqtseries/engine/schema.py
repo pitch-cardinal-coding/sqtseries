@@ -1,5 +1,4 @@
 """Schema DDL and partition-name helpers.
-
 Schema (verified 2026-08-07 via EXPLAIN QUERY PLAN):
 - ``series``: metric + JSON tags -> integer series_id, UNIQUE(metric, tags).
 - ``measurements_YYYY_MM``: partitioned, WITHOUT ROWID, PK (series_id, timestamp_ns),
@@ -16,6 +15,7 @@ CREATE TABLE IF NOT EXISTS series (
     series_id INTEGER PRIMARY KEY AUTOINCREMENT,
     metric TEXT NOT NULL,
     tags TEXT,                      -- JSON-encoded TEXT (NOT SQLite JSON type)
+
     CONSTRAINT ck_tags_json CHECK (tags IS NULL OR json_valid(tags))
 );
 
@@ -25,6 +25,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_series_metric_tags ON series(metric, tags);
 
 def measurements_ddl(year: int, month: int) -> str:
     """CREATE TABLE DDL for a monthly partition (WITHOUT ROWID + ts index)."""
+
     name = partition_name(year, month)
     return f"""
 
@@ -50,6 +51,7 @@ def month_partition_key(ts_ns: int) -> str:
     # Integer math only: ts_ns / 1e9 is float division, which loses precision
     # beyond 2^53 ns and can round the last nanoseconds of a month up into the
     # next month (verified 2026-08: 2025-12-31 23:59:59.999999999 -> Jan).
+
     dt_utc = dt.datetime(1970, 1, 1, tzinfo=dt.UTC) + dt.timedelta(
         microseconds=ts_ns // 1000
     )
