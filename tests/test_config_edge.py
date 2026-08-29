@@ -47,6 +47,7 @@ class TestFileFormats:
 class TestValidation:
     def test_batch_size_over_limit(self):
         errs = validate_settings(Settings(database={"batch_size": 10000}))
+
         assert any("batch_size" in e for e in errs)
 
     def test_hwm_below_one(self):
@@ -55,24 +56,29 @@ class TestValidation:
 
     def test_pending_max_below_one(self):
         errs = validate_settings(Settings(ingestion={"pending_max": 0}))
+
         assert any("pending_max" in e for e in errs)
 
     def test_invalid_rollup_interval(self):
         errs = validate_settings(Settings(rollup={"interval": "nope"}))
+
         assert any("rollup" in e for e in errs)
 
     def test_invalid_retention_ttl(self):
         errs = validate_settings(Settings(retention={"default_ttl": "nope"}))
+
         assert any("retention" in e for e in errs)
 
     def test_invalid_maintenance_interval(self):
         errs = validate_settings(Settings(maintenance={"analyze_interval": "x"}))
+
         assert any("maintenance" in e for e in errs)
 
     def test_stats_port_collision_reported(self):
         # stats.port is bound at startup; it must be uniqueness-checked like
         # the other five ports
         errs = validate_settings(Settings(query={"port": 12502}, stats={"port": 12502}))
+
         assert any("must be unique" in e for e in errs)
 
     def test_stats_port_range_reported(self):

@@ -1,10 +1,8 @@
 """WebSocket resilience & functionality edge-case tests.
-
 Covers the gateway's live sockets (/ws/subscribe, /ws/connections) against a
 real in-process Service, guided by RFC 6455 / MDN server guidance: keepalive,
 close codes, payload size limits, malformed/fragmented client data, concurrency,
 slow-consumer isolation, churn, topic-prefix filtering, and message ordering.
-
 Authentication/security tests are intentionally omitted (none is implemented).
 """
 
@@ -68,6 +66,7 @@ async def _publish_http(ports, metric: str, value: float, tags=None) -> None:
 class TestSubscribeFunctionality:
     async def test_topic_prefix_filtering(self, running_service):
         """metric=cpu. delivers cpu.load but not mem.load; * delivers both."""
+
         svc, ports = running_service
         async with websockets.connect(_ws_url(ports, "cpu.")) as ws:
             await asyncio.sleep(0.5)  # let the subscription register
@@ -78,6 +77,7 @@ class TestSubscribeFunctionality:
                 b"mem.load", {"metric": "mem.load", "tags": None, "value": 2.0}
             )
             msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+
             assert msg["metric"] == "cpu.load"
             with pytest.raises(asyncio.TimeoutError):
                 await asyncio.wait_for(ws.recv(), timeout=1.5)
@@ -91,28 +91,36 @@ class TestSubscribeFunctionality:
                 b"mem.load", {"metric": "mem.load", "tags": None, "value": 2.0}
             )
             seen = set()
+
             deadline = time.monotonic() + 5
+
             while time.monotonic() < deadline and seen != {"cpu.load", "mem.load"}:
                 msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+
                 seen.add(msg["metric"])
             assert seen == {"cpu.load", "mem.load"}
 
     async def test_http_write_reaches_subscriber(self, running_service):
         """An HTTP write is broadcast to live subscribers (camera pump path)."""
+
         _, ports = running_service
         async with websockets.connect(_ws_url(ports, "edge.")) as ws:
             await asyncio.sleep(0.5)
             await _publish_http(ports, "edge.http", 42.5, {"camera_id": "cam"})
+
             msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+
             assert msg["metric"] == "edge.http"
             assert msg["value"] == 42.5
             assert msg["tags"] == {"camera_id": "cam"}
 
     async def test_keepalive_ping_after_idle(self, running_service):
         """After ~30s idle the server sends {"type":"ping"} (RFC keepalive)."""
+
         _, ports = running_service
         async with websockets.connect(_ws_url(ports)) as ws:
             msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=35))
+
             assert msg == {"type": "ping"}
 
     async def test_message_order_preserved(self, running_service):
@@ -125,9 +133,12 @@ class TestSubscribeFunctionality:
                     b"order.x", {"metric": "order.x", "tags": None, "value": float(i)}
                 )
             values = []
+
             deadline = time.monotonic() + 10
+
             while len(values) < 100 and time.monotonic() < deadline:
                 msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+
                 values.append(msg["value"])
             assert values == [float(i) for i in range(100)]
 
@@ -141,6 +152,7 @@ class TestSubscribeFunctionality:
             await asyncio.sleep(0.5)
             await _publish_http(ports, "big.blob", 1.0, {"blob": big})
             msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+
             assert msg["metric"] == "big.blob"
             assert msg["tags"]["blob"] == big
 
@@ -148,6 +160,7 @@ class TestSubscribeFunctionality:
 class TestSubscribeResilience:
     async def test_malformed_client_data_does_not_break_stream(self, running_service):
         """Garbage text / binary from a read-only client is ignored; the
+
         stream keeps flowing for everyone."""
         svc, ports = running_service
         async with websockets.connect(_ws_url(ports, "robust.")) as ws:
@@ -159,10 +172,12 @@ class TestSubscribeResilience:
                 b"robust.ok", {"metric": "robust.ok", "tags": None, "value": 7.0}
             )
             msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+
             assert msg["metric"] == "robust.ok"
 
     async def test_abrupt_client_disconnect_others_unaffected(self, running_service):
         """A client that drops the transport without a close frame must not
+
         affect other subscribers."""
         svc, ports = running_service
         async with websockets.connect(_ws_url(ports, "abrupt.")) as good:
@@ -177,6 +192,7 @@ class TestSubscribeResilience:
                 b"abrupt.ok", {"metric": "abrupt.ok", "tags": None, "value": 3.0}
             )
             msg = json.loads(await asyncio.wait_for(good.recv(), timeout=5))
+
             assert msg["metric"] == "abrupt.ok"
             # server-side registry cleaned the dead connection
             await asyncio.sleep(0.2)
@@ -184,9 +200,11 @@ class TestSubscribeResilience:
 
     async def test_oversized_inbound_frame_closes_connection(self, running_service):
         """A client frame beyond ws_max_size (16 MiB) is rejected (1009) and
+
         the server stays healthy for others."""
         svc, ports = running_service
         victim = await websockets.connect(_ws_url(ports, "bigin."))
+
         good = await websockets.connect(_ws_url(ports, "bigin."))
         await asyncio.sleep(0.5)
         try:
@@ -203,15 +221,19 @@ class TestSubscribeResilience:
             b"bigin.ok", {"metric": "bigin.ok", "tags": None, "value": 5.0}
         )
         msg = json.loads(await asyncio.wait_for(good.recv(), timeout=5))
+
         assert msg["metric"] == "bigin.ok"
         await good.close()
 
     async def test_slow_subscriber_does_not_block_others(self, running_service):
         """A non-reading subscriber must not stall a reading one (HWM drop,
+
         not blocking)."""
         svc, ports = running_service
         reader = await websockets.connect(_ws_url(ports, "iso."))
+
         slow = await websockets.connect(_ws_url(ports, "iso."))  # never reads
+
         await asyncio.sleep(0.5)
 
         async def pump():
@@ -226,7 +248,9 @@ class TestSubscribeResilience:
         await asyncio.sleep(0.5)
 
         got = 0
+
         deadline = time.monotonic() + 5
+
         while time.monotonic() < deadline:
             try:
                 await asyncio.wait_for(reader.recv(), timeout=1)
@@ -236,11 +260,13 @@ class TestSubscribeResilience:
         await reader.close()
         await slow.close()
         # the reader received the bulk of the burst despite the slow peer
+
         assert got >= 2500, f"reader only got {got}/3000"
         assert svc.connection_registry.ws_count == 0
 
     async def test_rapid_churn_registry_and_listeners_converge(self, running_service):
         """Rapid connect/disconnect leaves no registry or listener residue."""
+
         svc, ports = running_service
         baseline_listeners = len(svc.connection_registry._listeners)
         for _ in range(15):
@@ -250,24 +276,30 @@ class TestSubscribeResilience:
         await asyncio.sleep(0.3)
         assert svc.connection_registry.ws_count == 0
         # no listener growth from the churn (stats publisher is the baseline)
+
         assert len(svc.connection_registry._listeners) == baseline_listeners
 
     async def test_many_concurrent_subscribers(self, running_service):
         """Every subscriber receives the same published frame."""
         svc, ports = running_service
         subs = [await websockets.connect(_ws_url(ports, "fan.")) for _ in range(15)]
+
         await asyncio.sleep(0.7)  # let all subscriptions register
         try:
             got = [False] * len(subs)
 
             async def collect(i, ws):
                 msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+
                 got[i] = msg["metric"] == "fan.x"
 
             tasks = [asyncio.create_task(collect(i, ws)) for i, ws in enumerate(subs)]
             # keep publishing until every subscriber has received (slow-joiner-safe)
+
             deadline = time.monotonic() + 8
+
             n = 0
+
             while not all(got) and time.monotonic() < deadline:
                 await svc.pubsub.publish(
                     b"fan.x", {"metric": "fan.x", "tags": None, "value": float(n)}
@@ -284,6 +316,7 @@ class TestSubscribeResilience:
 class TestStreamingDisabledCloseCode:
     async def test_close_1008_when_no_pubsub(self, tmp_path):
         """/ws/subscribe closes 1008 'streaming disabled' without a pubsub."""
+
         from fastapi.testclient import TestClient
 
         from sqtseries.engine import (
@@ -298,6 +331,7 @@ class TestStreamingDisabledCloseCode:
         store = StorageEngine(eng)
         app = create_app(store=store)  # no pubsub, no registry
         client = TestClient(app)
+
         with client.websocket_connect("/ws/subscribe?metric=*") as ws:
             msg = ws.receive()
             assert msg["type"] == "websocket.close"
@@ -307,7 +341,9 @@ class TestStreamingDisabledCloseCode:
 class TestConnectionCap:
     async def test_cap_closes_overflow_with_1013(self, tmp_path):
         """Beyond http.max_websocket_connections, new WebSocket connections
+
         are accepted then closed with 1013 ('try again later'), and slots are
+
         released when a connection ends."""
         import socket as _socket
 

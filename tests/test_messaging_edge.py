@@ -30,6 +30,7 @@ async def context():
 class TestBrokerErrors:
     async def test_run_once_before_start_raises(self, context):
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -42,6 +43,7 @@ class TestBrokerErrors:
 
     async def test_no_handler_returns_invalid_request(self, context):
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}", QuerySettings(), context=context
         )
@@ -67,6 +69,7 @@ class TestBrokerErrors:
 
     async def test_invalid_request_reply(self, context):
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -95,6 +98,7 @@ class TestBrokerErrors:
 
     async def test_handler_error_reply(self, context):
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -124,6 +128,7 @@ class TestBrokerErrors:
 
     async def test_router_mode_with_dealer(self, context):
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -155,6 +160,7 @@ class TestBrokerErrors:
 
     async def test_router_missing_payload(self, context):
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -188,6 +194,7 @@ class TestIngressEdge:
     async def test_invalid_message_counted(self, context):
         port = free_tcp_port()
         ing = Ingress(f"tcp://127.0.0.1:{port}", IngestionSettings(), context=context)
+
         await ing.start()
         try:
             pub = context.socket(zmq.PUSH)
@@ -210,6 +217,7 @@ class TestIngressEdge:
 
     async def test_skew_rejected(self, context):
         port = free_tcp_port()
+
         ing = Ingress(
             f"tcp://127.0.0.1:{port}",
             IngestionSettings(reject_client_timestamp_skew_s=5.0),
@@ -235,8 +243,11 @@ class TestIngressEdge:
         """A huge finite float timestamp must be counted invalid, not crash.
 
         With the clock-skew guard disabled, ``timestamp: 1e308`` passes
+
         validation but overflows the int conversion in ``to_rows``. It must
+
         be dropped as invalid (not escape as OverflowError from _handle).
+
         """
         ing = Ingress(
             "inproc://overflow",
@@ -244,11 +255,13 @@ class TestIngressEdge:
             context=context,
         )
         ing._handle(b'{"metric": "m", "value": 1.0, "timestamp": 1e308}')
+
         assert ing.invalid_count == 1
         assert ing.recv_count == 0
 
     async def test_recv_error_counted(self, context):
         port = free_tcp_port()
+
         received = []
 
         def sink(metric, tags, value, ts_ns):

@@ -26,6 +26,7 @@ def engine(tmp_path):
 class TestBackup:
     def test_backup_creates_valid_file(self, engine, tmp_path):
         store = StorageEngine(engine)
+
         now = time.time_ns()
         store.insert_many(
             [
@@ -49,6 +50,7 @@ class TestBackup:
             partition = "measurements_" + time.strftime("%Y_%m")
             assert partition in tables
             count = con.execute(f"SELECT COUNT(*) FROM {partition}").fetchone()[0]
+
             assert count == 2
         finally:
             con.close()

@@ -29,6 +29,7 @@ class TestWorkerPool:
         from sqtseries.messaging import WorkerPool
 
         started = asyncio.Event()
+
         stopped = asyncio.Event()
 
         async def step():
@@ -72,8 +73,11 @@ class TestManagers:
         eng = create_sqlite_engine(str(tmp_path / "m.sqlite"))
         initialize_schema(eng)
         rollup = RollupManager(eng, interval=60.0)
+
         maintenance = MaintenanceManager(eng, interval=60.0)
+
         retention = RetentionManager(eng, object(), ttl="400d", interval=60.0)
+
         for mgr in (rollup, maintenance, retention):
             await mgr.start()
             await mgr.stop()
@@ -97,10 +101,13 @@ class TestCleanupNoLingeringTasks:
         from sqtseries.messaging.pubsub import PubSub
 
         ps = PubSub(f"tcp://127.0.0.1:{free_port()}", registry=ConnectionRegistry())
+
         await ps.start()
         assert "pubsub-xpub-reader" in await self._pending_task_names()
+
         await ps.stop()
         # the reader task must be gone, not merely scheduled for cancellation
+
         assert "pubsub-xpub-reader" not in await self._pending_task_names()
 
     async def test_stats_publisher_stop_awaits_and_drains(self):
@@ -111,6 +118,7 @@ class TestCleanupNoLingeringTasks:
 
         reg = ConnectionRegistry()
         pub = StatsPublisher(f"tcp://127.0.0.1:{free_port()}", registry=reg)
+
         await pub.start()
         assert "stats-publisher" in await self._pending_task_names()
 
@@ -125,26 +133,31 @@ class TestCleanupNoLingeringTasks:
         assert len(pub._publish_tasks) >= 1
         await pub.stop()
         assert "stats-publisher" not in await self._pending_task_names()
+
         assert pub._publish_tasks == set()
         assert reg._listeners == []
 
     async def test_subscription_lingering_bounded_without_publishes(self):
         """_linger_until must not grow forever when no data is ever published."""
+
         from conftest import free_port
 
         from sqtseries.messaging.pubsub import PubSub
 
         ps = PubSub(f"tcp://127.0.0.1:{free_port()}", linger_seconds=1.0)
+
         await ps.start()
         tracker = ps.tracker
         try:
             # churn unique topics through the tracker (as a real SUB client would)
+
             for i in range(5000):
                 topic = f"churn.{i:06d}"
                 tracker.subscribe(topic)
                 tracker.unsubscribe(topic)
             assert len(tracker._linger_until) == 5000
             # idle reader loop sweeps expired entries without any publish()
+
             await asyncio.sleep(2.0)
             assert len(tracker._linger_until) == 0
         finally:
@@ -183,8 +196,11 @@ class TestServiceCleanup:
         """Repeated start/shutdown must not accumulate registry listeners.
 
         Regression: StatsPublisher registered a new listener on every start()
+
         and never unhooked it on stop(), so N cycles left N dead listeners
+
         (keeping N dead publisher objects alive) on the shared registry.
+
         """
         from sqtseries.service import Service
 

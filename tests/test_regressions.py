@@ -29,10 +29,12 @@ def store(tmp_path):
 
 def test_sigterm_exits_zero(tmp_path):
     """SIGTERM must produce exit code 0 (not 1), so systemd Restart=on-failure
+
     doesn't restart a deliberately stopped service."""
     from conftest import free_port
 
     db = tmp_path / "db.sqlite"
+
     env = dict(
         os.environ,
         SQT_SERIES_DATABASE__PATH=str(db),
@@ -129,6 +131,7 @@ class TestDroppedPartitionResilience:
             # warm a stale cache
         ]
         pm = PartitionManager(store.db, on_change=store.invalidate_partitions)
+
         pm.drop_partition(2026, 1)
         # querying the full range must not raise "no such table"
         rows = list(store.query_time_range(metric="m"))
@@ -142,7 +145,9 @@ class TestAtomicInsert:
         eng = create_sqlite_engine(str(tmp_path / "a.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         ts = int(datetime(2020, 5, 1, tzinfo=UTC).timestamp() * 1_000_000_000)
+
         with pytest.raises(sqlite3.OperationalError):
             store.insert_many(
                 [("newmetric", None, 1.0, ts)],
@@ -155,6 +160,7 @@ class TestAtomicInsert:
 
 class TestRollupFreshness:
     """A write arriving within the clock-skew window must never land in an
+
     already-rolled hour, so the rollup fast path stays exact."""
 
     def test_late_write_within_skew_is_served_correctly(self, tmp_path):
@@ -168,7 +174,9 @@ class TestRollupFreshness:
         eng = create_sqlite_engine(str(tmp_path / "rf.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         HOUR = 3_600_000_000_000
+
         base = ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
         store.insert_many(
             [("m", None, 1.0, base), ("m", None, 2.0, base + HOUR)]
@@ -178,6 +186,7 @@ class TestRollupFreshness:
         skew_s = 3600.0
 
         # first rollup at 12:00 with skew 1h -> only hours < 11:00 are safe
+
         rollup_new_hours(
             eng, now_ns=ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)), skew_s=skew_s
         )
@@ -198,6 +207,7 @@ class TestRollupFreshness:
         )
 
         tsdb = TimeSeriesDB(store)
+
         end_ns = ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
         stats = tsdb.aggregate("m", end=end_ns, funcs=["count", "sum"])
         # 10:00, 11:00, 11:30
@@ -207,6 +217,7 @@ class TestRollupFreshness:
 
     def test_skew_cutoff_excludes_fresh_hours(self, tmp_path):
         """With skew, hours that haven't been safely closed are not rolled."""
+
         from datetime import UTC, datetime
 
         from sqtseries.partition import rollup_new_hours, rollup_watermark
@@ -217,6 +228,7 @@ class TestRollupFreshness:
         eng = create_sqlite_engine(str(tmp_path / "rf2.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         base = ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
         store.insert_many([("m", None, 1.0, base)])
         # hour 11 is current
@@ -224,6 +236,7 @@ class TestRollupFreshness:
         rollup_new_hours(eng, now_ns=now, skew_s=300.0)
         wm = rollup_watermark(eng)
         # hour 11 (in progress, or fresh-ended within skew) must NOT be rolled
+
         assert wm <= ns(datetime(2026, 1, 1, 11, 0, tzinfo=UTC))
         store.close()
 
@@ -231,6 +244,7 @@ class TestRollupFreshness:
 class TestBatchWriteAtomicity:
     def test_invalid_item_rejects_whole_batch(self, tmp_path):
         """A bad item in /write array must not persist the valid ones."""
+
         from fastapi.testclient import TestClient
 
         from sqtseries.gateway import create_app
@@ -264,14 +278,19 @@ class TestAggregateAnchor:
         eng = create_sqlite_engine(str(tmp_path / "a.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         base = ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         HOUR = 3_600_000_000_000
         store.insert_many([("m", None, 1.0, base), ("m", None, 2.0, base + HOUR)])
+
         ensure_rollup_table(eng)
         rollup_new_hours(eng, now_ns=ns(datetime(2026, 1, 1, 13, 0, tzinfo=UTC)))
+
         tsdb = TimeSeriesDB(store)
         # raw path: anchor is the OLDEST sample regardless of order
         asc = tsdb.query("m", aggregation="sum", order="asc")
+
         desc = tsdb.query("m", aggregation="sum", order="desc")
         assert asc[0][0] == base
         # same anchor, not the newest
@@ -291,6 +310,7 @@ class TestConfigEnvEdge:
         cfg.write_text("[database]\npath = '/file/value.sqlite'\n")
         monkeypatch.setenv("SQT_SERIES_CONFIG_FILE", str(cfg))
         monkeypatch.setenv("sqt_series_database__path", "/env/value.sqlite")
+
         s = Settings.load(None)
         # env wins
         assert s.db_path_expanded() == "/env/value.sqlite"
@@ -315,6 +335,7 @@ class TestPortAllocatorReserved:
             PortAllocator, "_is_available", staticmethod(fake_available)
         )
         allocator = PortAllocator(start=12500, end=12700, reserved={12500, 12502})
+
         assert allocator.alloc(auto_detect=True) == 12501
 
 

@@ -28,6 +28,7 @@ pytest.importorskip("fastapi")
 
 def _ws_recv(ws, timeout: float = 5):
     """Receive one WebSocket message with a hard timeout (receive_text blocks)."""
+
     import threading as _t
 
     result: dict = {}
@@ -54,6 +55,7 @@ def client(tmp_path):
     initialize_schema(eng)
     store = StorageEngine(eng)
     app = create_app(store=store)
+
     return TestClient(app)
 
 
@@ -61,6 +63,7 @@ def client(tmp_path):
 def populated_client(client):
     now = time.time_ns()
     base = now - 10 * 1_000_000_000
+
     for i in range(10):
         tsdb = client.app.state.tsdb
         tsdb.insert(
@@ -104,11 +107,13 @@ class TestWrite:
 class TestRead:
     def test_read_empty(self, populated_client):
         r = populated_client.get("/api/v1/read", params={"metric": "bogus"})
+
         assert r.status_code == 200
         assert r.json()["data"] == []
 
     def test_read_data(self, populated_client):
         r = populated_client.get("/api/v1/read", params={"metric": "cpu.usage"})
+
         assert r.status_code == 200
         body = r.json()
         assert len(body["data"]) == 10
@@ -215,9 +220,11 @@ class TestWebSocket:
             return p
 
         port = free_port()
+
         eng = create_sqlite_engine(str(tmp_path / "ws.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         ps = PubSub(f"tcp://127.0.0.1:{port}")
         app = create_app(store=store, pubsub=ps)
 
@@ -236,7 +243,9 @@ class TestWebSocket:
                 # publish continuously for 4s so the slow-joining WS SUB
                 # eventually catches a message
                 end = asyncio.get_running_loop().time() + 4.0
+
                 i = 0
+
                 while asyncio.get_running_loop().time() < end:
                     await ps.publish("cpu", {"value": float(i)})
                     i += 1
@@ -254,7 +263,9 @@ class TestWebSocket:
         t.start()
 
         client = TestClient(app)
+
         received = []
+
         with client.websocket_connect("/ws/subscribe?metric=cpu") as ws:
             import time as _t
 
@@ -274,6 +285,7 @@ class TestWebSocket:
 
     def test_http_write_publishes_to_ws(self, tmp_path):
         """HTTP /api/v1/write must broadcast to live WS subscribers, matching
+
         the ZMQ ingest path (the camera pump writes over HTTP)."""
         import socket as _socket
         import threading
@@ -286,9 +298,11 @@ class TestWebSocket:
             return p
 
         port = free_port()
+
         eng = create_sqlite_engine(str(tmp_path / "ws_http.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         ps = PubSub(f"tcp://127.0.0.1:{port}")
         app = create_app(store=store, pubsub=ps)
 
@@ -318,11 +332,16 @@ class TestWebSocket:
         t.start()
 
         client = TestClient(app)
+
         received = []
+
         with client.websocket_connect("/ws/subscribe?metric=cpu") as ws:
             # publish repeatedly so the slow-joining SUB eventually catches one
+
             deadline = time.monotonic() + 4
+
             i = 0
+
             while time.monotonic() < deadline and not received:
                 r = client.post(
                     "/api/v1/write",
@@ -343,12 +362,14 @@ class TestWebSocket:
 
     def test_ws_connections_push(self, tmp_path):
         """/ws/connections pushes a snapshot then one frame per registry
+
         change (conn/sub), live — not a poll."""
         import json as j
 
         from sqtseries.messaging import ConnectionRegistry
 
         registry = ConnectionRegistry()
+
         eng = create_sqlite_engine(str(tmp_path / "conns.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
@@ -388,11 +409,15 @@ class TestWebSocket:
 
     def test_ws_connections_no_listener_leak(self, tmp_path):
         """Repeated connect/disconnect to /ws/connections must not grow the
+
         registry's listener list (each handler unhooks its listener)."""
+
         from sqtseries.messaging import ConnectionRegistry
 
         registry = ConnectionRegistry()
+
         eng = create_sqlite_engine(str(tmp_path / "conns_leak.sqlite"))
+
         initialize_schema(eng)
         store = StorageEngine(eng)
         app = create_app(store=store, registry=registry)
@@ -406,6 +431,7 @@ class TestWebSocket:
 
 class TestQueryDoesNotBlockLoop:
     """A slow HTTP read/aggregate must run off the event loop so health,
+
     WS streaming, and other requests stay responsive (found via py-spy)."""
 
     async def test_slow_aggregate_does_not_stall_health(self, tmp_path):
@@ -440,11 +466,15 @@ class TestQueryDoesNotBlockLoop:
                     c.get("/api/v1/aggregate", params={"metric": "x", "funcs": "avg"})
                 )
                 await asyncio.sleep(0.2)  # let the aggregate enter the slow path
+
                 t0 = time.monotonic()
+
                 health = await c.get("/api/v1/health")
+
                 elapsed = time.monotonic() - t0
                 assert health.status_code == 200
                 assert elapsed < 0.5, f"health took {elapsed:.2f}s — event loop blocked"
+
                 r = await slow
                 assert r.status_code == 200
                 assert "aggregations" in r.json()

@@ -10,9 +10,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 class RateLimitMiddleware:
     """Reject requests exceeding ``limit`` per fixed minute window.
-
     Keyed by the client peer address. The ``X-Forwarded-For`` header is NOT
+
     trusted (it is client-controlled and would let anyone rotate it to bypass
+
     the limit); use a trusted proxy's header rewriting if you need it.
     """
 
@@ -20,6 +21,7 @@ class RateLimitMiddleware:
         self.app = app
         self.limit = limit_per_minute
         self._hits: dict[str, tuple[int, int]] = defaultdict(lambda: (0, 0))
+
         self._max_keys = 10_000
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -42,6 +44,7 @@ class RateLimitMiddleware:
             for k in stale:
                 del self._hits[k]
             excess = len(self._hits) - self._max_keys
+
             if excess > 0:
                 for k in list(self._hits)[:excess]:
                     del self._hits[k]

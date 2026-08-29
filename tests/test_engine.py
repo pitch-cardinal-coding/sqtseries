@@ -94,6 +94,7 @@ class TestInsertion:
     def test_insert_many_returns_count(self, store):
         now = time.time_ns()
         n = store.insert_many([("a", None, 1.0, now), ("b", None, 2.0, now + 1)])
+
         assert n == 2
 
     def test_insert_empty(self, store):
@@ -104,7 +105,9 @@ class TestInsertion:
         from datetime import datetime
 
         start = datetime(2026, 1, 29, tzinfo=UTC)
+
         rows = []
+
         for i in range(6):
             # +3 days each
             ts = int((start.timestamp() + i * 86400 * 3) * 1e9)

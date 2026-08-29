@@ -16,17 +16,21 @@ def unit_template_contents(
     config_file: str | None = None,
 ) -> str:
     """Render the systemd unit file. Uses `python -m sqtseries run`."""
+
     cmd_parts = [python, "-m", "sqtseries"]
     if config_file:
         cmd_parts += ["--config", str(config_file)]
     cmd_parts.append("run")
     cmd = shlex.join(cmd_parts)
+
     writable = [str(Path(db_path).expanduser().parent)]
+
     if backup_path:
         writable.append(str(Path(backup_path).expanduser()))
     # unique, in order
     writable = list(dict.fromkeys(writable))
     read_write = " ".join(writable)
+
     return f"""\
 [Unit]
 Description=sqtseries time-series database
@@ -78,7 +82,9 @@ def install_systemd_unit(
     config_file: str | None = None,
 ) -> Path:
     """Write and enable the sqtseries unit; returns the unit file path."""
+
     python = python or sys.executable
+
     db_path = db_path or str(Path("~/.sqtseries/data/db.sqlite").expanduser())
 
     path = _unit_path(system)
@@ -93,6 +99,7 @@ def install_systemd_unit(
 
 def uninstall_systemd_unit(*, system: bool = False) -> Path:
     """Disable and remove the sqtseries unit; returns the unit file path."""
+
     prefix: list[str] = [] if system else ["--user"]
     path = _unit_path(system)
     _systemctl([*prefix, "disable", "--now", UNIT_NAME])

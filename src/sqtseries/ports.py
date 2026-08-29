@@ -1,5 +1,4 @@
 """Port allocation within a range (12500-12700 default, auto-detect).
-
 Binds a socket to find a free port, then closes it. Race-tolerant.
 """
 
@@ -40,6 +39,7 @@ class PortAllocator:
         """Allocate a free port. With ``auto_detect`` false, use ``start``.
 
         Returns the first free port found that isn't already taken and isn't in
+
         ``reserved`` (ports bound to other fixed services).
         """
         base = self.start + self.offset

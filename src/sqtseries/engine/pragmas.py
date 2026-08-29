@@ -1,5 +1,4 @@
 """SQLite PRAGMA helpers on the raw Database layer.
-
 Two classes (research-verified):
 - **One-time**: page_size, auto_vacuum — only on a fresh file, before tables.
 - **Per-connection**: WAL etc. — applied by ``Database._open`` on every connect.
@@ -10,12 +9,14 @@ from .db import Database
 
 def run_optimize(db: Database) -> None:
     """PRAGMA optimize — update query-planner statistics (shutdown/periodic)."""
+
     with db.connect() as conn:
         conn.exec_driver_sql("PRAGMA optimize")
 
 
 def wal_checkpoint(db: Database, mode: str = "PASSIVE") -> str:
     """PRAGMA wal_checkpoint. TRUNCATE is shutdown-only (corruption risk)."""
+
     mode = mode.upper()
     if mode not in ("PASSIVE", "FULL", "RESTART", "TRUNCATE"):
         raise ValueError(f"Invalid checkpoint mode: {mode}")
@@ -43,5 +44,6 @@ def incremental_vacuum(db: Database, pages: int = 100) -> None:
 
 def run_analyze_once(db: Database) -> None:
     """Run ANALYZE once to refresh query-planner statistics (startup/periodic)."""
+
     with db.connect() as conn:
         conn.exec_driver_sql("ANALYZE")

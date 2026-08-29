@@ -1,5 +1,4 @@
 """ZeroMQ context and socket helpers.
-
 Socket defaults derived from measured benchmarks:
 - LINGER must be set BEFORE bind/connect (pyzmq#1407).
 - Server sockets: LINGER 500ms (clean shutdown drain).
@@ -32,7 +31,6 @@ def socket_options(
     immediate: bool = True,
 ) -> dict[int, Any]:
     """Return socket options to apply before bind/connect.
-
     LINGER is set here (before bind) per pyzmq#1407 guidance.
     """
     opts: dict[int, Any] = {

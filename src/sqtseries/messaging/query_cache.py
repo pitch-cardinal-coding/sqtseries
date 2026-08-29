@@ -1,9 +1,7 @@
 """Query result cache with TTL for deduplicating identical queries.
-
 When multiple WebSocket clients subscribe to the same metric and time range,
 the query engine runs the same query N times.  This cache deduplicates those
 identical queries by keying on ``(metric, start, end, aggregation, interval)``.
-
 Inspired by dafka's fetch filter (dafka/src/dafka_fetch_filter.c) which
 suppresses duplicate FETCH requests for the same partition.  Implemented as
 a bounded LRU with per-entry TTL, similar to ``_LRUCache`` in engine/store.py.
@@ -16,11 +14,14 @@ from typing import Any
 
 class QueryResultCache:
     """Bounded LRU cache with per-entry TTL for query results.
-
     ``maxsize`` caps the number of cached entries (default 512 — enough for
+
     typical dashboard queries without excessive memory).  ``ttl_s`` is the
+
     time-to-live for each entry (default 5.0s — short enough that stale data
+
     from a newly ingested point is quickly visible, long enough to deduplicate
+
     a burst of identical subscribe-then-query calls).
     """
 
@@ -28,6 +29,7 @@ class QueryResultCache:
 
     def __init__(self, maxsize: int = 512, ttl_s: float = 5.0):
         self._data: OrderedDict[tuple, tuple[float, Any]] = OrderedDict()
+
         self._maxsize = maxsize
         self._ttl_s = ttl_s
         self.hits = 0
@@ -35,9 +37,10 @@ class QueryResultCache:
 
     def _make_key(self, query: dict[str, Any]) -> tuple:
         """Build a hashable cache key from a query dict.
-
         ``aggregations`` may be a list (from the query handler) which is not
+
         hashable — convert to a frozenset for stable ordering and hashability.
+
         """
         aggs = query.get("aggregations")
         if isinstance(aggs, list):
@@ -57,8 +60,10 @@ class QueryResultCache:
         """Return cached result if fresh, else None."""
         key = self._make_key(query)
         entry = self._data.get(key)
+
         if entry is None:
             self.misses += 1
+
             return None
         ts, result = entry
         if time.monotonic() - ts > self._ttl_s:

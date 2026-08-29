@@ -15,6 +15,7 @@ def isolated(monkeypatch, tmp_path):
         lambda system: tmp_path / ("system" if system else "user") / sd.UNIT_NAME,
     )
     monkeypatch.setattr(sd, "_systemctl", lambda args: calls.append(args))
+
     return calls
 
 
@@ -63,9 +64,11 @@ def test_uninstall_system(isolated, tmp_path):
 
 def test_template_quotes_python_with_spaces():
     unit = sd.unit_template_contents("/opt/my env/bin/python3", "/data/db.sqlite")
+
     assert "ExecStart='/opt/my env/bin/python3' -m sqtseries run" in unit
 
 
 def test_template_defaults():
     unit = sd.unit_template_contents("/usr/bin/python3", "~/.sqtseries/data/db.sqlite")
+
     assert "ReadWritePaths=/home/" in unit or "/sqtseries/data" in unit

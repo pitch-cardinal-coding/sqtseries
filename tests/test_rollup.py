@@ -19,7 +19,9 @@ def _make_engine(tmp_path):
 def test_rollup_aggregates(tmp_path):
     engine = _make_engine(tmp_path)
     store = StorageEngine(engine)
+
     base = datetime(2026, 3, 1, 10, 0, tzinfo=UTC)
+
     rows = [
         ("cpu", None, 1.0, _ns(base)),
         # same hour
@@ -42,6 +44,7 @@ def test_rollup_aggregates(tmp_path):
     finally:
         con.close()
     # 2 hours: hour 10 has 2 rows (sum 3, min 1, max 2); hour 11 has 1 row
+
     assert len(hours) == 2
     hour_map = {h[0]: h for h in hours}
     h10 = hour_map[
@@ -61,6 +64,7 @@ def test_rollup_aggregates(tmp_path):
 def test_rollup_replace(tmp_path):
     engine = _make_engine(tmp_path)
     store = StorageEngine(engine)
+
     base = datetime(2026, 4, 1, 0, 0, tzinfo=UTC)
     store.insert_many(
         [("m", None, 3.0, _ns(base)), ("m", None, 7.0, _ns(base) + 10 * 1e9)]
@@ -68,6 +72,7 @@ def test_rollup_replace(tmp_path):
     ensure_rollup_table(engine)
     rollup_partition(engine, "measurements_2026_04")
     n2 = rollup_partition(engine, "measurements_2026_04", replace=True)
+
     import sqlite3
 
     con = sqlite3.connect(str(tmp_path / "rollup.sqlite"))

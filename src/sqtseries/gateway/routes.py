@@ -38,14 +38,19 @@ def _to_ns(seconds: float | None) -> int | None:
 async def write(request: Request, payload: Any = _WRITE_BODY) -> dict[str, Any]:
     """Ingest one or many measurements."""
     tsdb = _tsdb(request)
+
     ingestion = getattr(request.app.state, "ingestion", None)
+
     pubsub = getattr(request.app.state, "pubsub", None)
+
     max_skew = getattr(ingestion, "reject_client_timestamp_skew_s", None)
+
     if isinstance(payload, list):
         # validate the WHOLE batch first, so a bad item rejects the batch
         # without partially persisting the earlier ones (retry-safe)
         validated = [_validate_row(item, max_skew) for item in payload]
         written = _insert_validated_batch(tsdb, validated)
+
         if pubsub is not None:
             await _broadcast(pubsub, validated)
         return {
@@ -58,6 +63,7 @@ async def write(request: Request, payload: Any = _WRITE_BODY) -> dict[str, Any]:
         )
     validated = _validate_row(payload, max_skew)
     written = _insert_validated(tsdb, validated)
+
     if pubsub is not None:
         await _broadcast(pubsub, [validated])
     return {
@@ -72,6 +78,7 @@ async def _broadcast(
     """Republish HTTP writes to live subscribers, like the ZMQ ingest path.
 
     Best-effort: the write is already persisted; a failing broadcast (e.g.
+
     during shutdown) must not turn a successful write into a 500.
     """
     for metric, value, tags, _ts_ns in rows:
@@ -87,6 +94,7 @@ def _validate_row(
     row: Any, max_skew: float | None
 ) -> tuple[str, float, dict | None, int | None]:
     """Validate a write body into (metric, value, tags, ts_ns); 400 on bad input."""
+
     import time
 
     if not isinstance(row, dict):
@@ -142,6 +150,7 @@ def _validate_row(
             ) from None
         # same clock-skew guard as the ZMQ ingest path: keeps the rollup's
         # in-order assumption (a late write must never land in a rolled hour)
+
         if max_skew and abs(time.time() - ts_f) > max_skew:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST,
@@ -169,14 +178,16 @@ def _insert_validated_batch(
     tsdb: TimeSeriesDB, rows: list[tuple[str, float, dict | None, int | None]]
 ) -> int:
     """Persist a validated batch in ONE transaction.
-
     Rows without a timestamp get server time. Timestamp-less rows must each
+
     get a distinct ns, or two rows for the same series would collide on the
+
     clustered PRIMARY KEY (series_id, timestamp_ns).
     """
     import time
 
     now = time.time_ns()
+
     prepared = [
         (metric, tags, value, now + i if ts_ns is None else ts_ns)
         for i, (metric, value, tags, ts_ns) in enumerate(rows)
@@ -186,13 +197,16 @@ def _insert_validated_batch(
 
 async def _run_query(request: Request, fn: Any) -> Any:
     """Run a (blocking) query off the event loop so a slow aggregate can't
-    stall WS streaming, pings, admin, or other HTTP requests.
 
+    stall WS streaming, pings, admin, or other HTTP requests.
     Mirrors the ZMQ broker path (asyncio.to_thread + wait_for). The timeout
+
     comes from query.timeout_s (default 30s); the abandoned thread finishes in
+
     the background and its result is discarded.
     """
     timeout = getattr(request.app.state, "query_timeout_s", _DEFAULT_QUERY_TIMEOUT_S)
+
     try:
         if timeout is None:
             return await asyncio.to_thread(fn)
@@ -246,6 +260,7 @@ async def aggregate(
     funcs: str = Query("avg", description="comma-separated, e.g. avg,min,max,p95"),
 ) -> dict[str, Any]:
     tsdb = _tsdb(request)
+
     wanted = [f.strip() for f in funcs.split(",") if f.strip()]
     try:
         result = await _run_query(
@@ -272,6 +287,7 @@ async def stats(request: Request) -> dict[str, Any]:
 @router.get("/connections")
 async def connections(request: Request) -> dict[str, Any]:
     """Live list of active WebSocket connections (kind/peer/topic/connected_at)."""
+
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
         return {"status": "ok", "data": []}
@@ -285,6 +301,7 @@ async def subscribers(request: Request) -> dict[str, Any]:
     if registry is None:
         return {"status": "ok", "zmq_subscribers": 0, "subscriptions": []}
     snap = registry.snapshot()
+
     return {
         "status": "ok",
         "zmq_subscribers": snap["zmq_subscribers"],

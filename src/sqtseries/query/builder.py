@@ -24,9 +24,10 @@ class QueryError(Exception):
 
 class TimeSeriesDB:
     """High-level query facade over a StorageEngine.
-
     Provides the spec's API: insert / query / query_stream / aggregate /
+
     downsample. Aggregations and downsampling run in Python over streamed
+
     samples (partition tables are queried per-partition by the store).
     """
 
@@ -41,6 +42,7 @@ class TimeSeriesDB:
         timestamp_ns: int | None = None,
     ) -> int:
         """Insert a single measurement (server-side timestamp by default)."""
+
         if timestamp_ns is None:
             timestamp_ns = time.time_ns()
         return self.store.insert_many([(metric, tags, value, timestamp_ns)])
@@ -59,7 +61,6 @@ class TimeSeriesDB:
         fill_gaps_ns: int | None = None,
     ) -> list[tuple[int, float]]:
         """Return (timestamp_ns, value) pairs.
-
         - ``start``/``end`` are nanosecond epoch.
         - With ``aggregation``+``interval``: downsample into buckets.
         - With ``aggregation`` alone: one value over the whole window.
@@ -89,6 +90,7 @@ class TimeSeriesDB:
                 val = aggregate_series(rows, aggregation)
                 # anchor at the oldest sample in the window, matching the
                 # rollup fast path (first_sample_ts), regardless of order
+
                 anchor = rows[0][0] if order != "desc" else rows[-1][0]
                 rows = [(anchor, val)]
             else:
@@ -125,6 +127,7 @@ class TimeSeriesDB:
         funcs: list[str | AggregationFunction] | None = None,
     ) -> dict[str, float]:
         """Compute aggregations over the whole window; returns {func: value}."""
+
         funcs = funcs or ["avg"]
         raw_rows: list[tuple[int, float]] | None = None
         result: dict[str, float] = {}
@@ -194,10 +197,11 @@ class TimeSeriesDB:
         interval: str | None,
     ) -> bool:
         """Whether a query can be answered from the hourly rollup.
-
         Requires: an aggregation expressible from count/sum/min/max; a
         whole-window aggregate or a whole-hour-multiple interval; and rollup
+
         coverage such that every fully-inside hour is already rolled and the
+
         window's tail is at most the current hour.
         """
         if aggregation is None:
@@ -214,9 +218,13 @@ class TimeSeriesDB:
                 return False
         now_ns = time.time_ns()
         eff_end = end if end is not None else now_ns
+
         start_hour = (start // HOUR_NS) * HOUR_NS if start is not None else 0
+
         end_hour = (eff_end // HOUR_NS) * HOUR_NS
+
         watermark = rollup_watermark(self.store.db)
+
         if watermark <= 0:
             return False
         # Requires at least one fully-inside hour (span >= 2 hours) and a tail
@@ -241,11 +249,16 @@ class TimeSeriesDB:
         """Serve an eligible query from rollup_hourly plus the raw edges.
 
         Fully-inside hours come from the rollup; the partial edge hours (and
+
         any un-rolled tail up to ``end``) come from the raw partitions; results
+
         are merged by bucket. The window is split so the sources never overlap.
+
         """
         name = _name(aggregation).lower()
+
         series_ids = self._resolve_series_ids(metric, series_ids)
+
         if not series_ids:
             return []
         bucket_ns = (
@@ -272,6 +285,7 @@ class TimeSeriesDB:
         if not series_ids:
             return aggregate_series([], name)
         merged = self._rollup_window_partials(series_ids, start, end, None)
+
         if not merged:
             return aggregate_series([], name)
         cnt, sm, mn, mx = merged[None]
@@ -287,17 +301,23 @@ class TimeSeriesDB:
         """Merged per-bucket partials for [start, end] from rollup + raw edges.
 
         The window is split into three disjoint sources so nothing is counted
+
         twice: the first edge hour and the last (partial) hour come from the
+
         raw partitions; the fully-inside, already-rolled hours come from the
+
         rollup table.
         """
         now_ns = time.time_ns()
         eff_end = end if end is not None else now_ns
+
         start_hour = (start // HOUR_NS) * HOUR_NS if start is not None else 0
+
         end_hour = (eff_end // HOUR_NS) * HOUR_NS
 
         left: list[tuple[int, float]] = []
         left_end_incl = min(start_hour + HOUR_NS - 1, eff_end)
+
         if left_end_incl >= (start if start is not None else 0):
             left = list(
                 self.store.query_time_range(
@@ -348,6 +368,7 @@ def _bucket_partials(
     """Partial aggregates over raw samples, matching the rollup's shape.
 
     With ``bucket_ns`` None returns one whole-window partial; otherwise one
+
     (bucket_start_ns, count, sum, min, max) per epoch-aligned bucket.
     """
     if bucket_ns is None:
@@ -359,6 +380,7 @@ def _bucket_partials(
     for ts, val in samples:
         bucket_key = ts // bucket_ns
         bucket_stats = buckets.get(bucket_key)
+
         if bucket_stats is None:
             buckets[bucket_key] = [1, val, val, val]
         else:
@@ -394,6 +416,7 @@ def _finalize_buckets(
     merged: dict[int | None, list[float]], name: str, limit: int | None
 ) -> list[tuple[int, float]]:
     """Emit (bucket_start_ns, value) ascending, honoring limit (first N)."""
+
     out: list[tuple[int, float]] = []
     for bucket in sorted(merged):
         cnt, sm, mn, mx = merged[bucket]

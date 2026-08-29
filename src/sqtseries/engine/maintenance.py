@@ -1,5 +1,4 @@
 """Periodic maintenance: refresh query-planner statistics with ANALYZE.
-
 SQLite's query planner uses statistics collected by ``ANALYZE``; over time
 those go stale as data changes. ``MaintenanceManager`` re-runs ``ANALYZE`` on
 a schedule (default hourly) in a worker thread so the event loop stays
@@ -44,6 +43,7 @@ class MaintenanceManager:
     async def _run(self) -> None:
         while True:
             # ANALYZE already ran at startup; first pass is after one interval.
+
             await asyncio.sleep(self.interval)
             await self.run_once()
 

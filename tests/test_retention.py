@@ -24,7 +24,9 @@ def engine(tmp_path):
 def filled(engine):
     """Create partitions across several months and insert data."""
     pm = PartitionManager(engine)
+
     store = StorageEngine(engine)
+
     months = [
         (2025, 11),
         (2025, 12),
@@ -55,6 +57,7 @@ class TestRetention:
         #   keep: Jan 31, Feb 28 (and future current-month partition)
         #   drop: Nov 30, Dec 31 (both < Jan 16)
         now = datetime(2026, 2, 20, tzinfo=UTC)
+
         rp = RetentionPolicy(filled, ttl="35d")
         keep = rp.partitions_to_retain(now)
         assert "measurements_2026_02" in keep
@@ -64,6 +67,7 @@ class TestRetention:
 
     def test_run_drops(self, filled):
         now = datetime(2026, 2, 20, tzinfo=UTC)
+
         rp = RetentionPolicy(filled, ttl="35d")
         dropped = rp.run(now)
         assert "measurements_2025_12" in dropped
@@ -74,15 +78,19 @@ class TestRetention:
 
     def test_no_drop_when_within_ttl(self, filled):
         now = datetime(2026, 2, 20, tzinfo=UTC)
+
         rp = RetentionPolicy(filled, ttl="400d")
         assert rp.run(now) == []
 
     def test_drop_removes_rollup_rows(self, engine):
         """Dropping a partition also removes its hours from rollup_hourly."""
+
         from sqtseries.partition import ensure_rollup_table, rollup_partition
 
         pm = PartitionManager(engine)
+
         store = StorageEngine(engine)
+
         for y, m in [(2025, 11), (2026, 1)]:
             pm.ensure_partition(y, m)
             dt = datetime(y, m, 15, tzinfo=UTC)
@@ -109,7 +117,9 @@ class TestRetention:
         assert rows
         # no rolled hour falls inside 2025-11
         nov_start = int(datetime(2025, 11, 1, tzinfo=UTC).timestamp() * 1e9)
+
         dec_start = int(datetime(2025, 12, 1, tzinfo=UTC).timestamp() * 1e9)
+
         assert all(r[0] < nov_start or r[0] >= dec_start for r in rows)
 
     def test_drop_rollup_when_no_rollup_table(self, filled):
@@ -123,7 +133,9 @@ class TestRetentionManager:
         from sqtseries.partition import RetentionManager
 
         store = StorageEngine(engine)
+
         pm = PartitionManager(engine)
+
         for y, m in [(2025, 11), (2026, 2)]:
             pm.ensure_partition(y, m)
             dt = datetime(y, m, 15, tzinfo=UTC)
@@ -133,7 +145,9 @@ class TestRetentionManager:
 
         # Real "now" is far past 2026-02, so use a TTL that retains it:
         # horizon = now - 200d lands in Jan 2026 -> keep 2026_02, drop 2025_11.
+
         mgr = RetentionManager(engine, store, ttl="200d", interval=3600.0)
+
         assert mgr.ttl == "200d"
         await mgr.run_once()
         pm = PartitionManager(engine)
@@ -150,6 +164,7 @@ class TestRetentionManager:
 
         store = StorageEngine(engine)
         mgr = RetentionManager(engine, store, ttl="400d", interval=0.05)
+
         await mgr.start()
         await asyncio.sleep(0.12)
         await mgr.stop()

@@ -66,6 +66,7 @@ class TestAdvancedQuestionExamples:
 
     async def run_advanced(self):
         """Run the advanced example script against the test service."""
+
         import sys
         from pathlib import Path
 
@@ -92,6 +93,7 @@ class TestAdvancedQuestionExamples:
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+
         return proc.returncode, stdout.decode(), stderr.decode()
 
     async def test_advanced_catalog_runs(self):
@@ -167,6 +169,7 @@ class TestAdvancedQuestionExamples:
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+
         assert proc.returncode == 0, f"exit {proc.returncode}: {stderr.decode()}"
 
         out = stdout.decode()
@@ -174,10 +177,12 @@ class TestAdvancedQuestionExamples:
         assert "skipped (needs --db)" in out or "needs --db" in out
         # Questions 4-10 should still run and have ANSWER lines
         answer_count = sum(1 for line in out.splitlines() if "ANSWER:" in line)
+
         assert answer_count >= 7  # questions 4-10 = 7 answers
 
     async def test_per_series_with_db_works(self):
         """Per-series questions produce answers when --db is provided."""
+
         rc, out, err = await self.run_advanced()
         assert rc == 0, f"exit {rc}: {err}"
         assert "busiest_host" in out

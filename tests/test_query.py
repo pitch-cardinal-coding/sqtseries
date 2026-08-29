@@ -29,6 +29,7 @@ def tsdb(tmp_path):
 def populated(tsdb):
     now = time.time_ns()
     base = now - 20 * 1_000_000_000
+
     for i in range(20):
         tsdb.insert(
             "cpu.usage",
@@ -68,6 +69,7 @@ class TestAggregations:
 
     def test_aggregate_multiple(self, tsdb, populated):
         vals = tsdb.aggregate("cpu.usage", funcs=["min", "max", "sum", "count"])
+
         assert vals["min"] == 0.0
         assert vals["max"] == 19.0
         assert vals["sum"] == 190.0
@@ -85,12 +87,14 @@ class TestDownsample:
         rows = tsdb.downsample("cpu.usage", interval="5s")
         # 20 samples at 1s spacing; buckets are epoch-aligned, so count is
         # ceil(span/5s) ± 1 depending on alignment — never more than samples
+
         assert 1 <= len(rows) <= 20
         # buckets are ascending and non-overlapping
         assert all(rows[i][0] < rows[i + 1][0] for i in range(len(rows) - 1))
 
     def test_interval_avg(self, tsdb, populated):
         rows = tsdb.query("cpu.usage", aggregation="avg", interval="10s")
+
         assert 1 <= len(rows) <= 20
         for _, v in rows:
             assert 0.0 <= v <= 19.0
@@ -122,6 +126,7 @@ class TestStandalone:
         samples = [(0, 0.0), (10, 10.0), (1000, 20.0)]
         filled = gap_fill_linear(samples, max_gap_ns=100)
         # gap of 10ns <= 100 -> insert midpoint (5,5); gap of 990 -> nothing
+
         assert len(filled) == 4
         assert (5, 5.0) in filled
 
@@ -148,6 +153,7 @@ class TestEdge:
         tsdb.insert("x", 1.0, None, timestamp_ns=now)
         # query far in the past
         rows = tsdb.query("x", start=now - 1_000_000_000_000, end=now - 500_000_000_000)
+
         assert rows == []
 
     def test_limit(self, tsdb, populated):

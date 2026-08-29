@@ -123,6 +123,7 @@ class TestFlatten:
 
         msg = dict(SAMPLE_MESSAGE)
         del msg["current_visible_people"]  # missing numeric -> skipped
+
         points = flatten(msg)
         metrics = {p["metric"] for p in points}
         assert "traffic.people.current" not in metrics
@@ -134,7 +135,9 @@ class TestFlatten:
         from examples.camera.camera_feed import flatten
 
         # simulator error messages have no camera_id / metrics -> empty
+
         points = flatten({"status": "error", "message": "simulated unavailable"})
+
         assert points == []
 
 
@@ -183,6 +186,7 @@ class TestAskSparseData:
 
     async def test_ask_after_real_pump(self, running_service):
         """Write a batch of realistic points, then ask: answers appear."""
+
         svc, _s, ports = running_service
         from examples.camera.camera_feed import flatten
 
@@ -221,6 +225,7 @@ class TestAskSparseData:
         for i in range(10):
             msg = dict(SAMPLE_MESSAGE)
             msg["system_metrics"]["batteryPercent"] = 50.0 + i * 5.0  # rising
+
             for p in flatten(msg):
                 svc.ts.insert(
                     p["metric"],
@@ -245,6 +250,7 @@ class TestAskSparseData:
 class TestOverlayServer:
     async def _boot_overlay(self) -> tuple[asyncio.subprocess.Process, int]:
         """Start overlay_server.py on a random port; return (proc, port)."""
+
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
             str(EXAMPLES / "camera" / "overlay_server.py"),
@@ -254,10 +260,13 @@ class TestOverlayServer:
             stderr=asyncio.subprocess.STDOUT,
         )
         port = None
+
         deadline = time.monotonic() + 15
+
         while time.monotonic() < deadline:
             line = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
             text = line.decode()
+
             if "WebSocket: ws://localhost:" in text:
                 port = int(
                     text.split("WebSocket: ws://localhost:")[1].split("/ws/metrics")[0]
@@ -283,6 +292,7 @@ class TestOverlayServer:
 
     async def test_random_port_mode(self, tmp_path):
         """overlay_server.py --port 0 picks a random free port and serves
+
         the WebSocket metrics endpoint."""
         import websockets
 
@@ -324,9 +334,11 @@ class TestOverlayServer:
                 for path in ("/", "/overlay.html"):
                     r = await c.get(path)
                     assert r.status_code == 200, f"{path} -> {r.status_code}"
+
                     body = r.text
                     assert "<title>Camera Analytics — Live</title>" in body
                     # the page must target the same-origin metrics WebSocket
+
                     assert "/ws/metrics" in body
                     assert "camera_id" in body or "current_visible_people" in body
         finally:

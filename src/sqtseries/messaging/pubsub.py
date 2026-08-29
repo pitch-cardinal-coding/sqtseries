@@ -1,5 +1,4 @@
 """PUB/SUB live-subscription bus with subscriber tracking via XPUB.
-
 The socket is an XPUB (not plain PUB) so the service receives subscription and
 unsubscription events directly. A background reader task decodes those events
 and updates the registry, making ZMQ SUB subscriber counts exact at all times.
@@ -37,6 +36,7 @@ class SubscriptionTracker:
     def cleanup(self) -> None:
         now = time.monotonic()
         expired = [t for t, until in self._linger_until.items() if now >= until]
+
         for topic in expired:
             del self._linger_until[topic]
 
@@ -52,7 +52,9 @@ class PubSub:
     """XPUB socket + subscription tracker: publish + know who is subscribed.
 
     The XPUB socket publishes measurements normally; a background reader task
+
     decodes ``\\x01topic`` (subscribe) and ``\\x00topic`` (unsubscribe) events
+
     and updates the optional ``registry`` callback in real time.
     """
 
@@ -88,8 +90,10 @@ class PubSub:
         # transitions. Without this, a second subscriber to an already-known
         # topic generates no event (verified on libzmq 4.3.5: 2 subscribers on
         # "cpu" reported as 1) so per-connection counts would be wrong.
+
         self.socket.setsockopt(zmq.XPUB_VERBOSER, 1)
         # Unlimited inbound subscriptions; re-subscribe after disconnect
+
         self.socket.setsockopt(zmq.RCVHWM, 0)
         self.socket.immediate = 1
         self.socket.setsockopt(zmq.LINGER, 500)
@@ -112,6 +116,7 @@ class PubSub:
 
     async def _read_subscriptions(self) -> None:
         """Decode XPUB subscription messages and update registry + tracker."""
+
         while self.socket is not None:
             try:
                 event = await asyncio.wait_for(self._recv_one(), timeout=0.5)
@@ -143,6 +148,7 @@ class PubSub:
         """Read one subscription event from the XPUB socket, non-blocking.
 
         Returns ``(event_type, topic)`` where ``event_type`` is 1 (subscribe)
+
         or 0 (unsubscribe), or ``None`` if no event is available.
         """
         if self.socket is None:
@@ -151,6 +157,7 @@ class PubSub:
         if not events:
             return None
         frame = await self.socket.recv()
+
         if not frame:
             return None
         event_type = frame[0]

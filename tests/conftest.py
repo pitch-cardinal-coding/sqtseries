@@ -9,8 +9,8 @@ import pytest
 
 def free_port() -> int:
     """Ask the OS for a currently-free port (never a hardcoded one).
-
     Hardcoded port ranges cause intermittent CI failures the moment any
+
     other process (a demo service, a parallel test run, a left-over
     instance) happens to hold one. Binding to port 0 hands the OS the
     choice, so fixtures can never clash.
@@ -23,6 +23,7 @@ def free_port() -> int:
 @pytest.fixture
 def free_ports() -> dict[str, int]:
     """Six distinct OS-assigned free ports for one service instance."""
+
     return {
         name: free_port()
         for name in ("ingest", "query", "streaming", "admin", "http", "stats")
@@ -34,7 +35,9 @@ def _silence_sqtseries_logs():
     """Keep test output quiet: route sqtseries loggers to a null handler.
 
     Module loggers are structlog-backed proxies over stdlib logging; silencing
+
     the stdlib names prevents the background tasks (rollup, retention, etc.)
+
     from flooding test output.
     """
     logger = logging.getLogger("sqtseries")

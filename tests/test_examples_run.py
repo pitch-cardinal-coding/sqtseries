@@ -1,11 +1,9 @@
 """Run the example scripts for real, against a live in-process service.
-
 The examples in examples/ are the canonical "how do I do X" reference,
 so they must work against a running service, not just import. Each test
 boots the service the way a user would (with the clock-skew guard raised,
 since several examples backfill history) and executes the script as a
 subprocess — exactly the command the README and docs tell users to run.
-
 Ports are allocated dynamically (bind port 0) so parallel/leftover
 processes can never break the run.
 """
@@ -84,6 +82,7 @@ async def run_example(script: str, *args: str) -> subprocess.CompletedProcess:
 
 def parse_answers(stdout: str) -> dict[str, float]:
     """Pull machine-readable 'ANSWER: key = value' lines from the output."""
+
     return {
         m.group(1): float(m.group(2))
         for line in stdout.splitlines()
@@ -110,6 +109,7 @@ class TestQuestionExamples:
 
     async def test_answers_all_four_readme_questions(self, running_service):
         res = await run_example("question_examples.py", *_args(running_service))
+
         assert res.returncode == 0, (
             f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
         )
@@ -133,6 +133,7 @@ class TestQuestionExamples:
         assert "busiest_day" in res.stdout
 
         # 11. the staleness probe must be >= 0s (seed covers the window)
+
         assert answers["no_data_for_s"] >= 0
 
         # 12. all-time stats must be internally consistent
@@ -140,6 +141,7 @@ class TestQuestionExamples:
         assert m, "alltime answer missing"
         stats = dict(p.split("=") for p in m.group(1).split())
         assert float(stats["min"]) <= float(stats["avg"]) <= float(stats["max"])
+
         assert float(stats["count"]) >= 24
 
         # multi-agg stats_3days must be internally consistent
@@ -147,11 +149,13 @@ class TestQuestionExamples:
         assert m, "stats_3days answer missing"
         stats = dict(p.split("=") for p in m.group(1).split())
         assert float(stats["min"]) <= float(stats["avg"]) <= float(stats["max"])
+
         assert float(stats["median"]) <= float(stats["p99"])
         assert float(stats["p95"]) <= float(stats["p99"])
 
     async def test_all_answer_lines_present(self, running_service):
         res = await run_example("question_examples.py", *_args(running_service))
+
         assert res.returncode == 0, res.stderr
         for key in (
             "avg_cpu_last_hour",
@@ -227,6 +231,7 @@ class TestOtherExamples:
 
     async def test_query_examples_every_query_type(self, running_service):
         res = await run_example("query_examples.py", *_args(running_service))
+
         assert res.returncode == 0, (
             f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
         )
@@ -242,6 +247,7 @@ class TestOtherExamples:
 
     async def test_tags_examples(self, running_service):
         """tags_examples.py: tagged writes, whole-metric merge, validation."""
+
         _, _, ports = running_service
         res = await run_example(
             "tags_examples.py",
@@ -269,7 +275,9 @@ class TestOtherExamples:
 
     async def test_run_custom_lifecycle(self, tmp_path):
         """run_custom.py starts its own instance (own ports, own db)."""
+
         res = await run_example("run_custom.py", "--workdir", str(tmp_path / "custom"))
+
         assert res.returncode == 0, (
             f"exit {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
         )

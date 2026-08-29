@@ -10,6 +10,7 @@ from sqtseries.cli import main
 def _config(tmp_path, db_path):
     p = tmp_path / "config.toml"
     p.write_text(f'[database]\npath = "{db_path}"\n\n[ports]\nauto_detect = false\n')
+
     return str(p)
 
 

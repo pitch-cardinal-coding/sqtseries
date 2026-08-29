@@ -71,6 +71,7 @@ def _pid_is_sqtseries(pid: int) -> bool:
 @click.pass_context
 def main(ctx: click.Context, config_file: str | None, db_path: str | None) -> None:
     """sqtseries — embedded time-series database on SQLite + ZeroMQ."""
+
     ctx.ensure_object(dict)
     ctx.obj["config_file"] = config_file
     ctx.obj["db_path"] = db_path
@@ -85,6 +86,7 @@ def run(ctx: click.Context) -> None:
     db = settings.db_path_expanded()
 
     rt_state = _load_runtime(config_file, db_path)
+
     if (
         rt_state is not None
         and "pid" in rt_state
@@ -141,11 +143,13 @@ def stop(ctx: click.Context) -> None:
     if rt_state is None or "pid" not in rt_state:
         raise click.ClickException("Service is not running")
     pid = rt_state["pid"]
+
     if not _pid_is_sqtseries(pid):
         raise click.ClickException(f"pid {pid} is not a sqtseries process")
     rt_db = rt_state.get("db_path")
     if rt_db:
         settings = _load(ctx.obj["config_file"], ctx.obj["db_path"])
+
         if Path(rt_db).expanduser() != Path(settings.db_path_expanded()):
             raise click.ClickException(
                 f"Runtime points to database {rt_db!r} but this invocation "
@@ -162,8 +166,11 @@ def stop(ctx: click.Context) -> None:
     # Clean shutdown removes runtime.json as its last step, so watch that file;
     # os.kill(pid, 0) alone is not enough because a not-yet-reaped zombie still
     # answers to signal 0. Also bail early if the pid disappears outright.
+
     rt_path = Path(rt_db).parent / "runtime.json" if rt_db else None
+
     deadline = time.monotonic() + 10
+
     while time.monotonic() < deadline:
         if rt_path is not None and not rt_path.exists():
             return
@@ -201,6 +208,7 @@ def status(ctx: click.Context) -> None:
     rt_db = rt_state.get("db_path")
     if rt_db:
         settings = _load(ctx.obj["config_file"], ctx.obj["db_path"])
+
         if Path(rt_db).expanduser() != Path(settings.db_path_expanded()):
             click.echo(
                 f"Warning: running instance uses {rt_db!r}, but this config "

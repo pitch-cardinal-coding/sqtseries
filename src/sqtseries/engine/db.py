@@ -1,10 +1,8 @@
 """Raw sqlite3 layer for sqtseries.
-
 Why raw sqlite3: benchmark-validated 2026-08-07 — ~6.7x faster on point
 lookups and 1.2x on bulk inserts than alternatives (see
 sqtseries-research-2026.md §8). aiosqlite is slower sequentially (thread
 hops) — rejected.
-
 API: ``connect()`` (reader), ``begin()`` (writer, BEGIN IMMEDIATE),
 ``execute()``, ``exec_driver_sql()``, ``scalar()/fetchall()/fetchone()/first()``,
 ``lastrowid``, ``dispose()``.
@@ -152,6 +150,7 @@ class Database:
     def __init__(self, path: str):
         self.path = str(Path(path).expanduser())
         parent = Path(self.path).parent
+
         if str(parent):
             parent.mkdir(parents=True, exist_ok=True)
 
@@ -175,11 +174,16 @@ class Database:
         """Yield a WRITER transaction connection (owns WAL checkpointing).
 
         Uses ``BEGIN IMMEDIATE``: takes the write lock up front (busy_timeout
+
         waits for it). Plain ``BEGIN`` is deferred — it takes a read snapshot,
+
         and the later read->write lock upgrade returns SQLITE_BUSY immediately
+
         under WAL (deadlock avoidance), which busy_timeout cannot retry.
+
         """
         raw = self._open(apply_pragmas=True, autocheckpoint=WRITER_AUTOCHECKPOINT)
+
         raw.execute("BEGIN IMMEDIATE")
         conn = Connection(self, raw, transaction=True)
         try:
@@ -193,6 +197,7 @@ class Database:
 
     def dispose(self) -> None:
         """No persistent handles to close (connections are per-use)."""
+
         return
 
     def get_table_names(self) -> list[str]:
@@ -204,10 +209,10 @@ class Database:
 
     def execute(self, sql: str, params: Any = None) -> Result:
         """Execute SQL in a committed writer transaction.
-
         Writes and DDL persist (the old implementation used a reader
         connection, so writes were silently rolled back on close). The
         returned Result is best used for ``rowcount``/``lastrowid``; for
+
         reading rows use ``scalar()`` or a ``connect()`` session.
         """
         with self.begin() as conn:
@@ -236,9 +241,13 @@ def create_sqlite_engine(
     """Create a Database for a SQLite file (API-compatible with old engine).
 
     On a fresh file, one-time file-level PRAGMAs (page_size, auto_vacuum)
+
     are applied BEFORE the per-connection pragmas (WAL). Per sqlite.org
+
     (lang_vacuum.html): auto_vacuum/page_size can only be changed after file
+
     creation when NOT in WAL mode — so the bootstrap connection skips WAL.
+
     """
     db = Database(path)
     if not Path(db.path).exists():

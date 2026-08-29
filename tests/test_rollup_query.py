@@ -20,11 +20,15 @@ def _ns(dt: datetime) -> int:
 @pytest.fixture
 def rollup_env(tmp_path):
     """A DB with data in completed hours 10..18, rolled up to 20:00."""
+
     eng = create_sqlite_engine(str(tmp_path / "r.sqlite"))
     initialize_schema(eng)
     store = StorageEngine(eng)
+
     base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
     rows = []
+
     t = base
     # hours 10..18, 6 points/hour
     for h in range(9):
@@ -33,12 +37,14 @@ def rollup_env(tmp_path):
             t += 600 * 1_000_000_000
     store.insert_many(rows)
     rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 20, 0, tzinfo=UTC)))
+
     yield TimeSeriesDB(store), store
     store.close()
 
 
 def _raw(store, metric, start, end, agg, interval=None, limit=None):
     """The reference raw-path computation (Python over streamed samples)."""
+
     samples = list(
         store.query_time_range(
             series_ids=store.series_ids_for_metric(metric),
@@ -80,7 +86,9 @@ class TestEquivalence:
     def test_query_matches_raw(self, rollup_env, func, interval):
         tsdb, store = rollup_env
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 18, 30, tzinfo=UTC))
+
         got = tsdb.query(
             "cpu", start=start, end=end, aggregation=func, interval=interval
         )
@@ -93,9 +101,12 @@ class TestEquivalence:
     def test_aggregate_matches_raw(self, rollup_env):
         tsdb, store = rollup_env
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 18, 30, tzinfo=UTC))
+
         funcs = ["avg", "sum", "min", "max", "count"]
         got = tsdb.aggregate("cpu", start=start, end=end, funcs=funcs)
+
         raw = list(
             store.query_time_range(
                 series_ids=store.series_ids_for_metric("cpu"),
@@ -111,25 +122,32 @@ class TestEquivalence:
     def test_window_within_one_hour(self, rollup_env):
         tsdb, store = rollup_env
         start = _ns(datetime(2026, 1, 1, 12, 20, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 12, 50, tzinfo=UTC))
         got = tsdb.query("cpu", start=start, end=end, aggregation="sum")
+
         exp = _raw(store, "cpu", start, end, "sum")
         assert got[0][1] == pytest.approx(exp[0][1])
 
     def test_window_crossing_boundary(self, rollup_env):
         tsdb, store = rollup_env
         start = _ns(datetime(2026, 1, 1, 12, 50, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 13, 20, tzinfo=UTC))
+
         for func in ("avg", "sum"):
             got = tsdb.query("cpu", start=start, end=end, aggregation=func)
+
             exp = _raw(store, "cpu", start, end, func)
             assert got[0][1] == pytest.approx(exp[0][1])
 
     def test_empty_window(self, rollup_env):
         tsdb, _ = rollup_env
         start = _ns(datetime(2026, 1, 1, 1, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 2, 0, tzinfo=UTC))
         assert tsdb.query("cpu", start=start, end=end, aggregation="avg") == []
+
         assert (
             tsdb.query("cpu", start=start, end=end, aggregation="avg", interval="1h")
             == []
@@ -138,7 +156,9 @@ class TestEquivalence:
     def test_limit(self, rollup_env):
         tsdb, store = rollup_env
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 18, 30, tzinfo=UTC))
+
         got = tsdb.query(
             "cpu", start=start, end=end, aggregation="avg", interval="1h", limit=3
         )
@@ -148,22 +168,29 @@ class TestEquivalence:
 
     def test_trailing_edge_current_hour(self, tmp_path):
         """Data written into a not-yet-rolled hour is still served correctly."""
+
         eng = create_sqlite_engine(str(tmp_path / "te.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
+
         base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
         rows = [("cpu", None, 1.0, base), ("cpu", None, 2.0, base + 600 * 1e9)]
+
         store.insert_many(rows)
         rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 20, 0, tzinfo=UTC)))
         # New data in hour 19 (completed but not rolled — written after rollup).
+
         late = _ns(datetime(2026, 1, 1, 19, 10, tzinfo=UTC))
         store.insert_many(
             [("cpu", None, 50.0, late), ("cpu", None, 60.0, late + 60 * 1e9)]
         )
         tsdb = TimeSeriesDB(store)
+
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 19, 20, tzinfo=UTC))
         got = tsdb.query("cpu", start=start, end=end, aggregation="sum")
+
         exp = _raw(store, "cpu", start, end, "sum")
         # 3 + 110
         assert got[0][1] == pytest.approx(exp[0][1])
@@ -179,7 +206,9 @@ class TestEligibility:
 
         tsdb, _ = rollup_env
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 18, 30, tzinfo=UTC))
+
         called = []
 
         def spy(db, sids, s, e, *, bucket_ns):
@@ -196,7 +225,9 @@ class TestEligibility:
 
         tsdb, _ = rollup_env
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 18, 30, tzinfo=UTC))
+
         called = []
 
         def spy(db, sids, s, e, *, bucket_ns):
@@ -205,6 +236,7 @@ class TestEligibility:
 
         monkeypatch.setattr(builder, "query_rollup_partial", spy)
         tsdb.query("cpu", start=start, end=end, aggregation="avg", interval=interval)
+
         assert called == []
 
     def test_no_rollup_data_falls_back(self, tmp_path, monkeypatch):
@@ -214,6 +246,7 @@ class TestEligibility:
         initialize_schema(eng)
         store = StorageEngine(eng)
         tsdb = TimeSeriesDB(store)
+
         now = time.time_ns()
         store.insert_many([("cpu", None, 1.0, now)])
         called = []
@@ -231,8 +264,11 @@ class TestEligibility:
 
         tsdb, _ = rollup_env
         # end in the future relative to the 20:00 watermark -> not eligible
+
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 23, 0, tzinfo=UTC))
+
         called = []
 
         def spy(db, sids, s, e, *, bucket_ns):
@@ -248,7 +284,9 @@ class TestEligibility:
 
         tsdb, _ = rollup_env
         start = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+
         end = _ns(datetime(2026, 1, 1, 18, 30, tzinfo=UTC))
+
         called = []
 
         def spy(db, sids, s, e, *, bucket_ns):
@@ -268,10 +306,13 @@ def test_watermark_and_idempotence(tmp_path):
     eng = create_sqlite_engine(str(tmp_path / "wm.sqlite"))
     initialize_schema(eng)
     store = StorageEngine(eng)
+
     base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
     store.insert_many([("cpu", None, 1.0, base), ("cpu", None, 2.0, base + 10 * 1e9)])
+
     assert rollup_watermark(eng) == 0
     n = rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)))
+
     assert n == 1
     wm = rollup_watermark(eng)
     assert wm == _ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))

@@ -18,14 +18,16 @@ def _grab(port: int):
 
 def _hold_first_two_of_free_block(n: int = 8) -> tuple[int, list]:
     """Find ``n`` consecutive free ports; hold ONLY the first two.
-
     The held pair plays the role of "busy 12500/12501" that the ingest
     auto-detector must skip. The remaining ``n - 2`` ports are released so
+
     the service can bind them.
     """
     for base in range(30000, 60000, 16):
         probe = []
+
         ok = True
+
         for i in range(n):
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
@@ -62,6 +64,7 @@ class TestPortAllocator:
     def test_alloc_deducts_internally(self):
         pa = PortAllocator(start=20200, end=20299)
         p1 = pa.alloc()
+
         p2 = pa.alloc()
         assert p1 != p2
 
@@ -81,6 +84,7 @@ class TestPortAllocator:
         s = _grab(20420)
         try:
             pa = PortAllocator(start=20420, end=20420)
+
             with pytest.raises(PortInUseError):
                 pa.alloc(auto_detect=False)
         finally:
@@ -96,9 +100,13 @@ class TestServiceIngestReservation:
         """Regression: the ingest auto-detect must skip ALL fixed ports.
 
         Before the fix the reserved set in Service._start omitted the stats
+
         port, so with 12500/12501 busy the detector picked 12506 (stats) for
+
         ingest and the StatsPublisher bind then failed — the service would not
+
         start. Verify it starts and the ingest port avoids every fixed port.
+
         """
         base, held = _hold_first_two_of_free_block()
         try:
@@ -120,6 +128,7 @@ class TestServiceIngestReservation:
             await svc.start()
             try:
                 fixed = {base + 2, base + 3, base + 4, base + 5, base + 6}
+
                 endpoint = svc.ingress.socket.getsockopt_string(zmq.LAST_ENDPOINT)
                 ingest_port = int(endpoint.rsplit(":", 1)[1])
                 assert ingest_port not in fixed

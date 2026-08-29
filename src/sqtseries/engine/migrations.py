@@ -1,5 +1,4 @@
 """Lightweight schema migration runner.
-
 SQLite ALTER support is limited (table rebuild needed for most changes), so
 we keep a ``schema_version`` table and apply migrations idempotently at
 startup. New migrations append to ``MIGRATIONS``.
@@ -50,6 +49,7 @@ def upgrade(db: Database, target: int | None = None) -> int:
 
 def ensure_current_partition(db: Database) -> None:
     """Create the current-month partition + its ts index if missing."""
+
     import time
 
     from .schema import month_partition_key, parse_partition_name
@@ -57,6 +57,7 @@ def ensure_current_partition(db: Database) -> None:
     now_ns = time.time_ns()
     y, m = parse_partition_name(month_partition_key(now_ns))
     name = month_partition_key(now_ns)
+
     if name not in set(db.get_table_names()):
         with db.connect() as conn:
             conn.executescript(measurements_ddl(y, m))

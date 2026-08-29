@@ -1,5 +1,4 @@
 """Tests for --db flag and multi-database conflict detection in the CLI.
-
 Covers:
 - ``--db`` overriding the configured database path for direct DB commands
 - ``run`` refusing to start when a live instance serves a different DB
@@ -23,6 +22,7 @@ from sqtseries.cli import main
 
 def _write_config(tmp_path, db_dir: str) -> str:
     """Config using free-ish fixed ports and a db path under db_dir."""
+
     cfg = tmp_path / "conf.toml"
     cfg.write_text(f"""[database]
 path = "{db_dir}/main.sqlite"
@@ -68,9 +68,12 @@ def _write_runtime(db_dir: str, pid: int, db_path: str) -> None:
 @pytest.fixture
 def db_env(tmp_path, monkeypatch):
     """Config + data dir; every pid pretends to be a live sqtseries."""
+
     monkeypatch.setattr(cli_mod, "_pid_is_sqtseries", lambda pid: True)
+
     db_dir = str(tmp_path / "data")
     cfg = _write_config(tmp_path, db_dir)
+
     return {"cfg": cfg, "db_dir": db_dir}
 
 
@@ -88,6 +91,7 @@ class TestDbFlag:
 
         db_dir = str(tmp_path / "data")
         cfg = _write_config(tmp_path, db_dir)
+
         engine = create_sqlite_engine(f"{db_dir}/other.sqlite")
         initialize_schema(engine)
         store = StorageEngine(engine)
@@ -103,6 +107,7 @@ class TestDbFlag:
     def test_ports_show_flagged_db_when_not_running(self, tmp_path):
         db_dir = str(tmp_path / "data")
         cfg = _write_config(tmp_path, db_dir)
+
         r = CliRunner().invoke(
             main,
             ["--config", cfg, "--db", f"{db_dir}/other.sqlite", "ports"],
@@ -117,6 +122,7 @@ class TestConflictDetection:
             db_env["db_dir"], os.getpid(), f"{db_env['db_dir']}/other.sqlite"
         )
         r = CliRunner().invoke(main, ["--config", db_env["cfg"], "status"])
+
         assert r.exit_code == 0
         assert "running" in r.output
         assert "Warning" in r.output
@@ -125,31 +131,40 @@ class TestConflictDetection:
 
     def test_status_silent_when_dbs_match(self, db_env):
         _write_runtime(db_env["db_dir"], os.getpid(), f"{db_env['db_dir']}/main.sqlite")
+
         r = CliRunner().invoke(main, ["--config", db_env["cfg"], "status"])
+
         assert r.exit_code == 0
         assert "Warning" not in r.output
 
     def test_run_refuses_conflicting_db(self, db_env):
         _write_runtime(db_env["db_dir"], 9999, f"{db_env['db_dir']}/other.sqlite")
+
         r = CliRunner().invoke(main, ["--config", db_env["cfg"], "run"])
+
         assert r.exit_code != 0
         assert "Conflicting databases" in r.output
 
     def test_run_refuses_same_db_already_served(self, db_env):
         _write_runtime(db_env["db_dir"], 9999, f"{db_env['db_dir']}/main.sqlite")
+
         r = CliRunner().invoke(main, ["--config", db_env["cfg"], "run"])
+
         assert r.exit_code != 0
         assert "already being served" in r.output
 
     def test_stop_refuses_wrong_db(self, db_env):
         _write_runtime(db_env["db_dir"], 9999, f"{db_env['db_dir']}/other.sqlite")
+
         r = CliRunner().invoke(main, ["--config", db_env["cfg"], "stop"])
+
         assert r.exit_code != 0
         assert "Refusing" in r.output
         assert "other.sqlite" in r.output
 
     def test_stop_reaches_kill_with_matching_db(self, db_env):
         _write_runtime(db_env["db_dir"], 42424242, f"{db_env['db_dir']}/main.sqlite")
+
         r = CliRunner().invoke(
             main,
             [
@@ -161,6 +176,7 @@ class TestConflictDetection:
             ],
         )
         # pid does not exist -> ProcessLookupError -> "not running" error
+
         assert r.exit_code != 0
         assert "not running" in r.output
 
@@ -179,13 +195,16 @@ class TestSystemdConfigPassthrough:
 
     def test_template_omits_config_when_absent(self):
         unit = sd.unit_template_contents("/usr/bin/python3", "/data/db.sqlite")
+
         assert "ExecStart=/usr/bin/python3 -m sqtseries run" in unit
         assert "--config" not in unit
 
     def test_install_writes_config_file(self, tmp_path, monkeypatch):
         calls = []
         monkeypatch.setattr(sd, "_unit_path", lambda system: tmp_path / sd.UNIT_NAME)
+
         monkeypatch.setattr(sd, "_systemctl", lambda args: calls.append(args))
+
         path = sd.install_systemd_unit(
             python="/usr/bin/python3",
             db_path="/data/db.sqlite",

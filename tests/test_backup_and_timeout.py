@@ -61,6 +61,7 @@ def _run_until_reply(broker, client, timeout_loops=200):
 class TestQueryTimeout:
     async def test_slow_handler_times_out(self, context):
         """A handler slower than the budget gets QUERY_TIMEOUT back."""
+
         port = free_tcp_port()
 
         def slow(q):
@@ -81,7 +82,9 @@ class TestQueryTimeout:
             client.connect(f"tcp://127.0.0.1:{port}")
             client.send(b'{"metric":"cpu"}')
             started = time.monotonic()
+
             resp = await _run_until_reply(broker, client)
+
             elapsed = time.monotonic() - started
             client.close(linger=0)
 
@@ -96,6 +99,7 @@ class TestQueryTimeout:
     async def test_fast_handler_with_timeout_succeeds(self, context):
         """Handlers within budget still return normally."""
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -117,7 +121,9 @@ class TestQueryTimeout:
 
     async def test_no_timeout_means_synchronous(self, context):
         """handler_timeout_s=None keeps the old inline synchronous path."""
+
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -138,7 +144,9 @@ class TestQueryTimeout:
 
     async def test_service_enforces_configured_timeout(self, tmp_path):
         """End-to-end: a running service replies QUERY_TIMEOUT for a query
+
         that exceeds query.timeout_s (simulated via a slow handler)."""
+
         from sqtseries.service import Service
 
         settings = Settings(
@@ -171,6 +179,7 @@ class TestQueryTimeout:
             return {"status": "ok", "data": []}
 
         svc.broker.handler = slow_handler
+
         pump_task = asyncio.create_task(pump())
         try:
 
@@ -187,8 +196,10 @@ class TestQueryTimeout:
                 return resp
 
             started = time.monotonic()
+
             resp = await asyncio.to_thread(client_roundtrip)
             payload = json.loads(resp)
+
             elapsed = time.monotonic() - started
 
             assert payload["error"]["code"] == "QUERY_TIMEOUT"
@@ -218,6 +229,7 @@ class TestBackupManager:
     async def test_run_once_creates_snapshot(self, backup_engine):
         eng, tmp_path = backup_engine
         mgr = BackupManager(eng, interval=3600.0, backup_dir=str(tmp_path / "bk"))
+
         await mgr.run_once()
         assert mgr.backups_created == 1
         assert mgr.runs == 1
@@ -236,6 +248,7 @@ class TestBackupManager:
         eng, tmp_path = backup_engine
         backup_database(eng, str(tmp_path / "bk"))  # fresh file
         mgr = BackupManager(eng, interval=3600.0, backup_dir=str(tmp_path / "bk"))
+
         await mgr.run_once()
         assert mgr.backups_created == 0  # nothing new
         assert mgr.runs == 1  # pass still counted
@@ -246,6 +259,7 @@ class TestBackupManager:
     async def test_start_stop_lifecycle(self, backup_engine):
         eng, tmp_path = backup_engine
         mgr = BackupManager(eng, interval=0.05, backup_dir=str(tmp_path / "bk2"))
+
         await mgr.start()
         await asyncio.sleep(0.15)  # several passes
         assert mgr.runs >= 2
@@ -280,6 +294,7 @@ class TestBackupConfig:
 class TestBackupServiceIntegration:
     async def test_service_creates_backups_on_schedule(self, tmp_path):
         """A running service with backup.enabled makes snapshots and reports
+
         them in admin stats."""
         from sqtseries.client import Client
         from sqtseries.service import Service
@@ -317,6 +332,7 @@ class TestBackupServiceIntegration:
         pump_task = asyncio.create_task(pump())
         try:
             await asyncio.sleep(2.0)  # let a pass happen (interval=1s)
+
             assert svc.backup_manager is not None
             assert svc.backup_manager.backups_created >= 1
             files = list((tmp_path / "bk").glob("sqtseries-*.db"))
@@ -369,9 +385,11 @@ class TestBackupServiceIntegration:
 class TestZeroTimeoutDisables:
     async def test_zero_timeout_runs_handler(self, context):
         """timeout_s=0 disables the budget (handler runs to completion)."""
+
         from sqtseries.config import QuerySettings
 
         port = free_tcp_port()
+
         broker = QueryBroker(
             f"tcp://127.0.0.1:{port}",
             QuerySettings(),
@@ -395,6 +413,7 @@ class TestZeroTimeoutDisables:
 class TestAdminKwargs:
     async def test_admin_conncheck_ids(self, tmp_path, free_ports):
         """Client.admin passes extra kwargs into the request (conncheck)."""
+
         from sqtseries.client import Client
         from sqtseries.service import Service
 
@@ -420,6 +439,7 @@ class TestAdminKwargs:
                 await asyncio.sleep(0.005)
 
         pump_task = asyncio.create_task(pump())
+
         c = Client(
             ports={
                 "write": free_ports["ingest"],
@@ -430,6 +450,7 @@ class TestAdminKwargs:
         )
         try:
             reply = await asyncio.to_thread(c.admin, "conncheck", ids=["nope"])
+
             assert reply["status"] == "ok"
             assert reply["present"] == []
         finally:
