@@ -519,7 +519,7 @@ class Service:
         try:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(sig, shutdown_event.set)
-        except NotImplementedError, RuntimeError:
+        except (NotImplementedError, RuntimeError):  # fmt: skip
             for sig in (signal.SIGINT, signal.SIGTERM):
                 signal.signal(sig, _signal)
         await shutdown_event.wait()

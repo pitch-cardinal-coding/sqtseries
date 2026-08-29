@@ -99,7 +99,7 @@ class Ingress:
     def _handle(self, raw: bytes) -> None:
         try:
             msg = orjson.loads(raw)
-        except orjson.JSONDecodeError, ValueError:
+        except (orjson.JSONDecodeError, ValueError):  # fmt: skip
             self.invalid_count += 1
             return
         try:
@@ -108,7 +108,7 @@ class Ingress:
                 reject_client_timestamp_skew_s=self.settings.reject_client_timestamp_skew_s,
             )
             metric, tags, value, ts_ns = ingest.to_rows()
-        except ProtocolError, OverflowError:
+        except (ProtocolError, OverflowError):  # fmt: skip
             # Malformed payloads count as invalid. OverflowError guards the
             # (skew-guard-disabled) huge-float timestamp path where
             # ``to_rows`` can't fit ``ts * 1e9`` into an int.

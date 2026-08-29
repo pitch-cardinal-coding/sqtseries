@@ -44,7 +44,7 @@ class RuntimeState:
             return None
         try:
             return orjson.loads(self.path.read_bytes())
-        except orjson.JSONDecodeError, ValueError, OSError:
+        except (orjson.JSONDecodeError, ValueError, OSError):  # fmt: skip
             return None
 
     def remove(self) -> None:

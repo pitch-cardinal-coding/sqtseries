@@ -63,7 +63,7 @@ line-length = 88
 target-version = "py314"
 
 [tool.black]
-target-version = ["py314"]  # keep in sync with ruff (sqtseries-research §11)
+target-version = ["py312"]  # Cython needs parenthesized except tuples; PEP 758 breaks it
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RET", "PTH", "S", "RUF", "PERF"]
