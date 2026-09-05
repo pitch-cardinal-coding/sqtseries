@@ -343,7 +343,11 @@ class TestOverlaySignals:
         proc, _ = await self._boot_overlay()
         try:
             proc.send_signal(signal.SIGHUP)
-            await asyncio.wait_for(proc.wait(), timeout=5)
+            # 15s, not 5s: under full-suite load the kernel can take
+            # seconds to deliver/reap the signal (reproduced 2026-09-05:
+            # TimeoutError at 5s in a full run, 3/3 clean runs at 8.5s
+            # isolated). SIGHUP keeps default terminate disposition.
+            await asyncio.wait_for(proc.wait(), timeout=15)
         finally:
             if proc.returncode is None:
                 proc.kill()

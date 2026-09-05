@@ -72,3 +72,51 @@ def test_template_defaults():
     unit = sd.unit_template_contents("/usr/bin/python3", "~/.sqtseries/data/db.sqlite")
 
     assert "ReadWritePaths=/home/" in unit or "/sqtseries/data" in unit
+
+
+def test_template_system_runs_as_installing_user():
+    unit = sd.unit_template_contents(
+        "/usr/bin/python3",
+        "/home/iam/.sqtseries/data/db.sqlite",
+        system=True,
+        user_home=("iam", "/home/iam"),
+    )
+
+    assert "User=iam" in unit
+    assert "ProtectHome=false" in unit
+    assert "/home/iam" in unit
+    assert "WantedBy=multi-user.target" in unit
+
+
+def test_template_system_without_user_stays_root():
+    unit = sd.unit_template_contents("/usr/bin/python3", "/data/db.sqlite", system=True)
+
+    assert "User=" not in unit
+    assert "ProtectHome=read-only" in unit
+    assert "WantedBy=multi-user.target" in unit
+
+
+def test_template_user_scope_unchanged():
+    unit = sd.unit_template_contents("/usr/bin/python3", "/data/db.sqlite")
+
+    assert "User=" not in unit
+    assert "WantedBy=default.target" in unit
+
+
+def test_template_rejects_control_chars():
+    import pytest
+
+    with pytest.raises(ValueError):
+        sd.unit_template_contents("/usr/bin/python3", "/data/db\r\n.sqlite")
+
+
+def test_install_system_reanchors_home(monkeypatch, isolated, tmp_path):
+    monkeypatch.setattr(sd, "_installing_user", lambda: ("iam", "/home/iam"))
+    sd.install_systemd_unit(
+        python="/usr/bin/python3",
+        db_path="~/.sqtseries/data/db.sqlite",
+        system=True,
+    )
+    unit = (tmp_path / "system" / sd.UNIT_NAME).read_text()
+    assert "User=iam" in unit
+    assert "/home/iam/.sqtseries/data/db.sqlite" in unit

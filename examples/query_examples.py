@@ -76,7 +76,7 @@ def main():
 
     print("\n=== 8. Gap filling (linear interpolation of small gaps) ===")
     print("Gap filling is available via the embedded Python API (TimeSeriesDB.query)")
-    print("with fill_gaps_ns parameter. See docs/queries.html for details.")
+    print("with fill_gaps_ns parameter. See dist/docs/queries.html for details.")
 
 
 def zmq_req(endpoint: str, payload: dict) -> dict:

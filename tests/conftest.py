@@ -23,11 +23,21 @@ def free_port() -> int:
 @pytest.fixture
 def free_ports() -> dict[str, int]:
     """Six distinct OS-assigned free ports for one service instance."""
-
-    return {
-        name: free_port()
-        for name in ("ingest", "query", "streaming", "admin", "http", "stats")
-    }
+    names = ("ingest", "query", "streaming", "admin", "http", "stats")
+    ports: dict[str, int] = {}
+    for name in names:
+        port = free_port()
+        tries = 0
+        # The kernel may hand back a just-released ephemeral port, so
+        # two rapid free_port() calls can return the same value (seen
+        # live: duplicate ingest/stats ports failing service startup).
+        while port in ports.values():
+            port = free_port()
+            tries += 1
+            if tries > 50:
+                raise RuntimeError("cannot allocate 6 distinct free ports")
+        ports[name] = port
+    return ports
 
 
 @pytest.fixture(autouse=True)

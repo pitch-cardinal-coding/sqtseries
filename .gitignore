@@ -16,7 +16,13 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
+
+# Tests (per-suite outputs from tests/run_all.sh)
+tests/results/
+tests/logs/
 
 # Virtual environments
 .venv/
@@ -26,7 +32,7 @@ env/
 # Build / packaging
 *.egg-info/
 build/
-dist/
+dist/*.whl
 target/
 
 # Database files

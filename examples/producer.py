@@ -3,7 +3,7 @@
 This is the fastest write path. Each message is one JSON frame sent to the
 PUSH socket on port 12501. The server writes each frame in its own
 transaction (there is no batching queue on the service path — see
-docs/ingestion.html).
+dist/docs/ingestion.html).
 
 Usage:
     python3 examples/producer.py --host 127.0.0.1 --port 12501 --rate 10

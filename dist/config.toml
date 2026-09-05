@@ -1,0 +1,90 @@
+# sqtseries configuration (TOML).
+#
+# Pass it with `--config config.toml` on any command:
+#   sqtseries --config config.toml run
+#   sqtseries --config config.toml status
+#   sqtseries --config config.toml install
+#
+# Precedence: command-line flags > SQT_SERIES_* environment variables >
+# this file > built-in defaults. Env uses double-underscore nesting:
+#   SQT_SERIES_INGESTION__PORT=14001   # same as ingestion.port = 14001
+#   SQT_SERIES_CONFIG_FILE=~/prod.toml # selects a config file
+
+[database]
+# Database file location (expands ~)
+path = "~/.sqtseries/data/db.sqlite"
+
+# The following are CONFIG-ONLY (validated but not consumed by the engine;
+# the engine uses fixed values — see docs/configuration.html "SQLite internals"):
+# page_size = 8192
+# cache_size = -64000
+# mmap_size = 268435456
+# busy_timeout = 5000
+# journal_size_limit = 67108864
+# threads = 4
+# batch_size = 2000      # validated 1..8191
+# flush_interval = 1.0
+
+[ingestion]
+# Ingest port (auto-detected by default — see [ports] section).
+# With auto_detect=true this is IGNORED and the first free port in
+# [ports.port_range_start, ports.port_range_end] is used instead.
+port = 12501
+hwm = 10000
+pending_max = 100
+max_message_size = 52428800
+reject_client_timestamp_skew_s = 300.0
+
+[query]
+port = 12502
+timeout_s = 30.0
+
+[streaming]
+port = 12503
+linger_seconds = 30.0
+
+[admin]
+port = 12504
+
+[http]
+port = 12505
+host = "127.0.0.1"
+cors_origins = ["*"]
+rate_limit_per_minute = 600
+max_websocket_connections = 1000
+
+[stats]
+enabled = true
+port = 12506
+
+[logging]
+level = "INFO"
+format = "console"
+# file = "/var/log/sqtseries.log"   # optional: uncomment to enable rotating file output
+
+[retention]
+enabled = true
+default_ttl = "30d"
+check_interval = "1h"
+partition_interval = "month"
+
+[rollup]
+enabled = true
+interval = "5m"
+
+[maintenance]
+enabled = true
+analyze_interval = "1h"
+
+[backup]
+enabled = true
+interval = "24h"
+path = "~/.sqtseries/backups/"
+
+[ports]
+# Auto-detect a free ingest port (the ONLY port that auto-detects).
+# The scan starts at port_range_start and skips the other five fixed ports.
+auto_detect = true
+port_range_start = 12500
+port_range_end = 12700
+port_offset = 0
