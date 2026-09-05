@@ -3,7 +3,7 @@ Wraps the ZeroMQ transports:
 - PUSH (write) on 12501
 - REQ (query) on 12502
 - SUB (subscribe) on 12503
-Same JSON wire format as the HTTP gateway (see docs/clients.html).
+Same JSON wire format as the HTTP gateway (see dist/docs/clients.html).
 """
 
 from collections.abc import Iterator

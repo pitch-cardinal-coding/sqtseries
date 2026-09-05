@@ -172,6 +172,11 @@ marked <em>streaming</em> run until Ctrl+C.</p>
           --config … run</code>)</td>
       <td><code>--workdir</code> (default <code>sqt-custom-work</code>)</td>
       <td>— full lifecycle, then exits</td></tr>
+  <tr><td><code>run_all_examples.py</code></td>
+      <td>Run every example above against a live service on free ports
+          and report pass/fail (keeps examples from going stale)</td>
+      <td><code>--skip-camera</code></td>
+      <td><code>python3 examples/run_all_examples.py</code></td></tr>
   <tr><td><code>camera/overlay_server.py</code></td>
       <td>Simulated camera-metrics WebSocket source (people/vehicles,
           battery, CPU) — feeds <code>camera_feed.py</code> and serves the

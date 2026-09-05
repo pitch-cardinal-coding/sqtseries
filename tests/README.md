@@ -25,6 +25,13 @@ python3 -m pytest tests/ -q
 # With coverage
 python3 -m pytest tests/ -q --cov=sqtseries
 
+# Per-file runner: hard per-suite timeout, 20s heartbeat, results kept
+./tests/run_all.sh                          # all suites (runs from repo root)
+./tests/run_all.sh test_query.py            # filtered (bare names allowed)
+SUITE_TIMEOUT=600 ./tests/run_all.sh        # per-suite hard timeout
+COVERAGE=1 ./tests/run_all.sh               # pytest-cov append + combine/report
+# Per-suite stdout+stderr lands in tests/results/<suite>.out (gitignored).
+
 # A single file
 python3 -m pytest tests/test_query.py -q
 
@@ -59,7 +66,7 @@ markers.
 | `test_partition.py`, `test_retention.py` | Partition manager, TTL retention drops |
 | `test_async_cleanup.py`, `test_resource_leaks.py`, `test_concurrency.py` | Task cancellation, fd/thread leak checks, concurrent writers |
 | `test_regressions.py` | Guards against bugs from the QA audit |
-| `test_docs_claims.py` | Verifies behaviors claimed in `docs/` |
+| `test_docs_claims.py` | Verifies behaviors claimed in `dist/docs/` |
 | `test_stress.py` | Lightweight stress smoke over many data points |
 | `test_property.py` | Hypothesis property tests of aggregation invariants |
 | `test_misc_edge.py` | Various edge cases shared across components |
@@ -168,5 +175,5 @@ under load.
 
 ## Documentation links
 
-- [Docs](docs/index.html)
+- [Docs](dist/docs/index.html)
 - [Project README](README.md)

@@ -57,16 +57,16 @@ a question.
 ## Use cases
 
 This is a small sample. For complete walkthroughs with code, see the
-[examples](dist/docs/examples.html) page.
+[examples](docs/examples.html) page.
 
 | Scenario | How sqtseries helps | Docs |
 |----------|-------------------|------|
-| Server monitoring | Stream CPU/memory/disk from every machine, query per-host averages and 99th-percentile peaks. Set up alerts by polling the stats socket. | [ingestion](dist/docs/ingestion.html), [queries](dist/docs/queries.html) |
-| IoT sensor logging | Each sensor writes its readings with tags (`sensor=bathroom,floor=2`). Query any sensor over any time window in under a millisecond. | [ingestion](dist/docs/ingestion.html), [queries](dist/docs/queries.html) |
-| Real-time dashboard | A browser connects via WebSocket and sees measurements as they arrive. The dashboard also subscribes to the stats socket to show current viewer count. | [streaming](dist/docs/streaming.html), [admin](dist/docs/api.html#admin) |
-| Financial tick data | Store every trade with nanosecond timestamps. Answer "what was the volume-weighted average price this minute?" with a single query. | [queries](dist/docs/queries.html) |
-| Home energy tracking | Log wattage every few seconds. Show daily summaries. Drop data older than a year automatically via retention. | [configuration](dist/docs/configuration.html) |
-| Fleet telemetry | Every vehicle sends GPS + speed. Monitor live positions on a map (WebSocket). Query historical routes (HTTP). Check how many vehicles are reporting right now (admin). | [streaming](dist/docs/streaming.html), [queries](dist/docs/queries.html) |
+| Server monitoring | Stream CPU/memory/disk from every machine, query per-host averages and 99th-percentile peaks. Set up alerts by polling the stats socket. | [ingestion](docs/ingestion.html), [queries](docs/queries.html) |
+| IoT sensor logging | Each sensor writes its readings with tags (`sensor=bathroom,floor=2`). Query any sensor over any time window in under a millisecond. | [ingestion](docs/ingestion.html), [queries](docs/queries.html) |
+| Real-time dashboard | A browser connects via WebSocket and sees measurements as they arrive. The dashboard also subscribes to the stats socket to show current viewer count. | [streaming](docs/streaming.html), [admin](docs/api.html#admin) |
+| Financial tick data | Store every trade with nanosecond timestamps. Answer "what was the volume-weighted average price this minute?" with a single query. | [queries](docs/queries.html) |
+| Home energy tracking | Log wattage every few seconds. Show daily summaries. Drop data older than a year automatically via retention. | [configuration](docs/configuration.html) |
+| Fleet telemetry | Every vehicle sends GPS + speed. Monitor live positions on a map (WebSocket). Query historical routes (HTTP). Check how many vehicles are reporting right now (admin). | [streaming](docs/streaming.html), [queries](docs/queries.html) |
 
 ## How to start
 
@@ -97,7 +97,7 @@ curl -X POST http://127.0.0.1:12505/api/v1/write \
 curl "http://127.0.0.1:12505/api/v1/read?metric=temp.outside"
 ```
 
-The [Quick Start](dist/docs/quickstart.html) walks through the full cycle:
+The [Quick Start](docs/quickstart.html) walks through the full cycle:
 install, configure, send data, query, subscribe live, check status, and run as
 a background service.
 
@@ -171,7 +171,7 @@ real ports.
 | 12505 | HTTP + WebSocket | REST API and browser streaming |
 | 12506 | ZMQ PUB | Connection and subscription events |
 
-All ports bind to `127.0.0.1`. See [ports](dist/docs/index.html) for the full
+All ports bind to `127.0.0.1`. See [ports](docs/index.html) for the full
 auto-detection mechanism.
 
 ### CLI commands at a glance
@@ -209,7 +209,7 @@ subcommand (`sqtseries --config c.toml run`), not after.
 
 `run` refuses to start over a database another live instance is serving,
 and `stop` refuses to touch an instance whose database differs from the
-one it resolves — see [Configuration](dist/docs/configuration.html).
+one it resolves — see [Configuration](docs/configuration.html).
 
 ### Admin commands (over the wire)
 
@@ -224,7 +224,7 @@ c.admin("conncheck", ids=["abc","xyz"])  # which ids are connected
 c.admin("subscribers")                   # per-topic subscriber counts
 ```
 
-Full details on every admin command are in the [API reference](dist/docs/api.html#admin).
+Full details on every admin command are in the [API reference](docs/api.html#admin).
 
 ## How sqtseries compares to other edge-device time-series databases
 
@@ -262,17 +262,17 @@ Full details on every admin command are in the [API reference](dist/docs/api.htm
 
 | Page | What it covers |
 |------|---------------|
-| [Quick Start](dist/docs/quickstart.html) | End-to-end: install, send, query, subscribe, systemd |
-| [Configuration](dist/docs/configuration.html) | Every setting, env vars, config file format, duration syntax |
-| [Ingestion](dist/docs/ingestion.html) | Writing data via ZMQ, HTTP, and the Client; tags (dimensions — why and how); timestamps and the clock-skew guard |
-| [Queries](dist/docs/queries.html) | Time ranges, aggregations, intervals, downsampling, gap filling, per-tag queries (embedded API) |
-| [Streaming](dist/docs/streaming.html) | Live data via ZMQ SUB, WebSocket, and the Client |
-| [Camera](dist/docs/camera.html) | Pump a camera metrics feed into sqtseries, watch it on a live WebSocket dashboard, and answer 17 questions about it |
-| [Client Libraries](dist/docs/clients.html) | Code samples for Python, Go, Rust, PHP, and Node.js |
-| [API Reference](dist/docs/api.html) | Embedded Python API, Client, CLI, wire protocol, admin commands |
-| [Architecture](dist/docs/architecture.html) | Engine layout, schema, write path, rollup design, error handling |
-| [Backup & Restore](dist/docs/backup.html) | What to back up, restore procedure, and how vacuum works |
-| [Benchmarks](dist/docs/benchmarks.md) | Reproducible performance numbers on a real workstation |
-| [Systemd](dist/docs/systemd.html) | Running as a service, hardening, dedicated user setup |
-| [Examples](dist/docs/examples.html) | Real-world scenarios with full code walkthroughs |
+| [Quick Start](docs/quickstart.html) | End-to-end: install, send, query, subscribe, systemd |
+| [Configuration](docs/configuration.html) | Every setting, env vars, config file format, duration syntax |
+| [Ingestion](docs/ingestion.html) | Writing data via ZMQ, HTTP, and the Client; tags (dimensions — why and how); timestamps and the clock-skew guard |
+| [Queries](docs/queries.html) | Time ranges, aggregations, intervals, downsampling, gap filling, per-tag queries (embedded API) |
+| [Streaming](docs/streaming.html) | Live data via ZMQ SUB, WebSocket, and the Client |
+| [Camera](docs/camera.html) | Pump a camera metrics feed into sqtseries, watch it on a live WebSocket dashboard, and answer 17 questions about it |
+| [Client Libraries](docs/clients.html) | Code samples for Python, Go, Rust, PHP, and Node.js |
+| [API Reference](docs/api.html) | Embedded Python API, Client, CLI, wire protocol, admin commands |
+| [Architecture](docs/architecture.html) | Engine layout, schema, write path, rollup design, error handling |
+| [Backup & Restore](docs/backup.html) | What to back up, restore procedure, and how vacuum works |
+| [Benchmarks](docs/benchmarks.md) | Reproducible performance numbers on a real workstation |
+| [Systemd](docs/systemd.html) | Running as a service, hardening, dedicated user setup |
+| [Examples](docs/examples.html) | Real-world scenarios with full code walkthroughs |
 | [Example scripts](examples/) | Standalone runnable scripts for every operation |

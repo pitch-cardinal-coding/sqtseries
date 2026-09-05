@@ -1,5 +1,5 @@
 """Tests for documented behaviors that lacked coverage (validated via docs audit).
-Each test backs a specific claim made in docs/*.html so a regression would
+Each test backs a specific claim made in dist/docs/*.html so a regression would
 catch both a code bug and a doc lie.
 """
 

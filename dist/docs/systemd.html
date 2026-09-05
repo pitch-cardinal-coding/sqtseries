@@ -50,8 +50,10 @@ permission error — run it under <code>sudo</code>.</p>
   <tr><td>Control</td><td><code>systemctl --user ...</code> (or
       <code>journalctl --user ...</code>)</td><td><code>sudo systemctl ...</code>
       (or <code>journalctl ...</code>)</td></tr>
-  <tr><td>Runs as</td><td>your user, in your session</td><td>root unless the unit
-      sets <code>User=</code> (see the dedicated-user example below)</td></tr>
+  <tr><td>Runs as</td><td>your user, in your session</td><td>the installing user
+      (auto-detected into <code>User=</code> with full home access, so the
+      database stays under their <code>$HOME</code>); root only when no
+      installing user is detected — or use the dedicated user below</td></tr>
   <tr><td>Boot start</td><td>after you log in (needs <code>loginctl
       enable-linger $USER</code> to survive logout)</td><td>on boot, independent
       of any login</td></tr>
@@ -106,6 +108,21 @@ WantedBy=default.target
   <tr><td><code>Environment=SQT_SERIES_DATABASE__PATH</code></td><td>resolved <code>database.path</code></td><td>Keeps the service pointed at the same database the CLI resolves to (including any <code>--db</code> you used when installing).</td></tr>
   <tr><td><code>Environment=SQT_SERIES_LOGGING__LEVEL</code></td><td><code>INFO</code></td><td>Stable log level for the journal.</td></tr>
   <tr><td><code>WantedBy</code></td><td><code>default.target</code></td><td>Start (and auto-start) with the default target, i.e. normal boot.</td></tr>
+</table></div>
+
+<h3>Production layout (/opt)</h3>
+<p>A production install (<code>make deploy</code> or <code>cd dist &amp;&amp;
+sudo make install</code>) lays out exactly these paths — verified on this
+machine, all readable by the installing user:</p>
+<div class="table-wrap"><table>
+  <tr><th>Path</th><th>What it is</th></tr>
+  <tr><td><code>/opt/sqtseries</code></td><td>production venv (<code>bin/python3</code>, <code>bin/sqtseries</code>)</td></tr>
+  <tr><td><code>/opt/sqtseries/config.toml</code></td><td>service config (installed from the template on first install; never overwritten)</td></tr>
+  <tr><td><code>/usr/local/bin/sqtseries</code></td><td>symlink to the production console script</td></tr>
+  <tr><td><code>~/.sqtseries/data/db.sqlite</code></td><td>default database (owned by you, writable)</td></tr>
+  <tr><td><code>~/.sqtseries/backups/</code></td><td>default snapshot directory</td></tr>
+  <tr><td><code>/etc/systemd/system/sqtseries.service</code></td><td>system unit (only with <code>--system</code>)</td></tr>
+  <tr><td><code>~/.config/systemd/user/sqtseries.service</code></td><td>user unit (default <code>install</code>)</td></tr>
 </table></div>
 
 <h3>Custom ports and settings (--config)</h3>
@@ -178,15 +195,16 @@ EOF
 
 sudo sqtseries --config /etc/sqtseries/config.toml install --system
 </code></pre>
-<p>Then edit <code>/etc/systemd/system/sqtseries.service</code> to add
-<code>User=sqtseries</code> and a matching <code>ReadWritePaths</code>,
-then reload:</p>
+<p>Then edit <code>/etc/systemd/system/sqtseries.service</code> to set
+<code>User=sqtseries</code> (auto-detection picks the <em>installing</em>
+user, so point it at the dedicated one by hand) with a matching
+<code>ReadWritePaths</code>, then reload:</p>
 <pre><code># add to [Service]:
 #   User=sqtseries
 sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart sqtseries</code></pre>
-<p>The unit is written by the <code>sqtseries</code> command, so it does not
-know about the dedicated user until you add it by hand — after that the
-service runs with those permissions (and <code>NoNewPrivileges</code> /
+<p>Without the hand edit, a system install serves the installing user's
+database (auto-detected <code>User=</code>); after it, the service runs
+with those permissions (and <code>NoNewPrivileges</code> /
 <code>ProtectSystem=strict</code> keep the exposure small).</p>
 
 <h3>Uninstall</h3>
