@@ -42,6 +42,9 @@ async def subscribe_and_forward(
     try:
         sock.setsockopt(zmq.LINGER, 0)
         sock.setsockopt(zmq.RCVHWM, 1000)
+        from ..messaging.context import apply_tcp_keepalive
+
+        apply_tcp_keepalive(sock)
         # Subscribe BEFORE connect: the subscription then travels with the
         # connection handshake. Setting it after connect() leaves a (tiny) race
         # where a measurement published between connect completing and the

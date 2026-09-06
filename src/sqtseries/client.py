@@ -222,6 +222,12 @@ class Client:
         if self._sub_sock is None:
             sock = self._ctx.socket(zmq.SUB)
             sock.setsockopt(zmq.LINGER, 0)
+            # Capped backoff spreads simultaneous reconnects after a restart.
+            sock.setsockopt(zmq.RECONNECT_IVL, 100)
+            sock.setsockopt(zmq.RECONNECT_IVL_MAX, 5000)
+            from sqtseries.messaging.context import apply_tcp_keepalive
+
+            apply_tcp_keepalive(sock)
             sock.connect(f"tcp://{self.host}:{self.ports['subscribe']}")
 
             self._sub_sock = sock

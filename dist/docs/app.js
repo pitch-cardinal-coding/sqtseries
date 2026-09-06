@@ -110,10 +110,79 @@
     var current = detectCurrentHref();
     var html = "";
     NAV_ITEMS.forEach(function (item) {
-      var cls = item.href === current ? ' class="here"' : "";
-      html += '<a' + cls + ' href="' + item.href + '">' + item.label + '</a>';
+      var isCurrent = item.href === current;
+      var cls = isCurrent ? ' class="here"' : "";
+      var cur = isCurrent ? ' aria-current="page"' : "";
+      html += "<li><a" + cls + cur + ' href="' + item.href + '">' + item.label + "</a></li>";
     });
-    existing.innerHTML = html;
+    existing.innerHTML = '<ul id="main-nav-list">' + html + "</ul>";
+  }
+
+  function injectNavToggle() {
+    var header = document.querySelector("header");
+    var nav = document.querySelector('nav[aria-label="Main"]');
+    if (!header || !nav) return;
+    if (document.getElementById("nav-toggle")) return;
+    var btn = document.createElement("button");
+    btn.id = "nav-toggle";
+    btn.type = "button";
+    btn.setAttribute("aria-expanded", "false");
+    btn.setAttribute("aria-controls", "main-nav-list");
+    btn.setAttribute("aria-label", "Open menu");
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+      "<path d='M4 7h16M4 12h16M4 17h16'/></svg>";
+    header.insertBefore(btn, header.firstChild);
+    document.documentElement.classList.add("js", "nav-ready");
+
+    var list = document.getElementById("main-nav-list");
+    function isMobile() {
+      return window.matchMedia &&
+        window.matchMedia("(max-width: 820px)").matches;
+    }
+    function refreshInert() {
+      if (!list) return;
+      var open = document.documentElement.classList.contains("nav-open");
+      if (!isMobile() || open) {
+        list.removeAttribute("inert");
+      } else {
+        list.setAttribute("inert", "");
+      }
+    }
+    function setOpen(open) {
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      btn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+      document.documentElement.classList.toggle("nav-open", open);
+      refreshInert();
+    }
+    function syncForWidth() {
+      if (!isMobile()) setOpen(false);
+      else refreshInert();
+    }
+    btn.addEventListener("click", function () {
+      setOpen(btn.getAttribute("aria-expanded") !== "true");
+      if (btn.getAttribute("aria-expanded") === "true" && list) {
+        var first = list.querySelector("a");
+        if (first) first.focus();
+      }
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" &&
+          document.documentElement.classList.contains("nav-open")) {
+        setOpen(false);
+        btn.focus();
+      }
+    });
+    nav.addEventListener("click", function (ev) {
+      if (ev.target && ev.target.tagName === "A") setOpen(false);
+    });
+    var resizeT = null;
+    window.addEventListener("resize", function () {
+      if (resizeT) clearTimeout(resizeT);
+      resizeT = setTimeout(syncForWidth, 120);
+    });
+    syncForWidth();
   }
 
   /* ------------------------------------------------------------------ */
@@ -140,6 +209,7 @@
     /* ---- inject header/nav/footer from data ---- */
     injectHeader();
     injectNav();
+    injectNavToggle();
     injectFooterLinks();
 
     /* ---- theme toggle ---- */

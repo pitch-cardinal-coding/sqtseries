@@ -4,8 +4,8 @@ A time-series database that runs on your machine, keeps everything in one file,
 and answers questions about the past in milliseconds — no matter how many
 millions of readings you have stored.
 
-**6,297 lines** of Python · 54 classes · 305 functions · **93% test coverage**
-(543 tests passing) · Zero binary dependencies beyond Python 3.13+.
+**6,708 lines** of Python · 52 classes · 334 functions · **93% test coverage**
+(648 tests passing) · Zero binary dependencies beyond Python 3.14+.
 
 ## What it does
 

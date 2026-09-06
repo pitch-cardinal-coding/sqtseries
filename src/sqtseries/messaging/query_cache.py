@@ -1,10 +1,9 @@
 """Query result cache with TTL for deduplicating identical queries.
 When multiple WebSocket clients subscribe to the same metric and time range,
 the query engine runs the same query N times.  This cache deduplicates those
-identical queries by keying on ``(metric, start, end, aggregation, interval)``.
-Inspired by dafka's fetch filter (dafka/src/dafka_fetch_filter.c) which
-suppresses duplicate FETCH requests for the same partition.  Implemented as
-a bounded LRU with per-entry TTL, similar to ``_LRUCache`` in engine/store.py.
+identical queries by keying on ``(metric, start, end, aggregation, interval,
+aggregations, limit, order)``.
+Implemented as a bounded LRU with per-entry TTL, similar to ``_LRUCache`` in engine/store.py.
 """
 
 import time
@@ -39,7 +38,7 @@ class QueryResultCache:
         """Build a hashable cache key from a query dict.
         ``aggregations`` may be a list (from the query handler) which is not
 
-        hashable — convert to a frozenset for stable ordering and hashability.
+        hashable — convert to a sorted tuple for stable ordering and hashability.
 
         """
         aggs = query.get("aggregations")

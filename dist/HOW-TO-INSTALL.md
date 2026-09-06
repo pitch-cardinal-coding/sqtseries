@@ -26,13 +26,13 @@ sudo make install           # venv + wheel + symlinks + default config
 sudo make systemd-install   # system unit /etc/systemd/system/sqtseries.service, enable + start
 ```
 
-Verify:
+Verify (all through the `/usr/local/bin` symlink):
 
 ```bash
 make preflight                        # versions, service state, symlink
-/opt/sqtseries/bin/python3 -m sqtseries --version
-/opt/sqtseries/bin/python3 -m sqtseries status
-sqtseries health                      # via /usr/local/bin symlink
+sqtseries --version
+sqtseries status
+sqtseries health                      # database integrity probe
 ```
 
 Write a reading and query it back:

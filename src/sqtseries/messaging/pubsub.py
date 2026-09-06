@@ -98,6 +98,14 @@ class PubSub:
         self.socket.immediate = 1
         self.socket.setsockopt(zmq.LINGER, 500)
         self.socket.setsockopt(zmq.SNDHWM, self.hwm)
+        # Dead peers (no unsubscribe frame) evict after 5s idle.
+        self.socket.setsockopt(zmq.HEARTBEAT_IVL, 1000)
+        self.socket.setsockopt(zmq.HEARTBEAT_TIMEOUT, 5000)
+        self.socket.setsockopt(zmq.HEARTBEAT_TTL, 5000)
+        self.socket.setsockopt(zmq.MAXMSGSIZE, 50 * 1024 * 1024)
+        from .context import apply_tcp_keepalive
+
+        apply_tcp_keepalive(self.socket)
         self.socket.bind(self.endpoint)
         self._reader_task = asyncio.create_task(
             self._read_subscriptions(), name="pubsub-xpub-reader"

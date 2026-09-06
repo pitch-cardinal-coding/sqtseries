@@ -142,14 +142,43 @@ class ConnectionRegistry:
     def touch_ws(self, conn_id: str) -> None:
         """Update ``last_activity_at`` for a WebSocket connection.
         Call on every received frame (keepalive ping, client message, etc.)
-
-        to reset the evasive/expired clock.  Mirrors
-        ``zyre_peer_refresh()`` (zyre_peer.c:198) which resets both
-        evasive_at and expired_at on any peer activity.
+        to reset the idle clock.
         """
         entry = self._ws.get(conn_id)
         if entry is not None:
             entry["last_activity_at"] = time.time()
+
+    def sweep_stale(
+        self, expired_timeout_s: float = 30.0, batch_size: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return connections idle longer than ``expired_timeout_s``.
+        Iterate active connections and report entries whose
+        ``last_activity_at`` is older than the deadline. Read-only:
+        callers decide whether to evict (unregister_ws).
+        Results come oldest-idle first so a caller pacing eviction across
+        ticks (``batch_size`` per sweep) always drops the stalest peers
+        first; ``batch_size=None`` returns everything.
+        """
+        now = time.time()
+        stale: list[dict[str, Any]] = []
+        for cid, entry in list(self._ws.items()):
+            last = entry.get("last_activity_at", entry.get("connected_at", now))
+            age_s = now - last
+            if age_s >= expired_timeout_s:
+                stale.append(
+                    {
+                        "id": cid,
+                        "peer": entry.get("peer"),
+                        "topic": entry.get("topic"),
+                        "connected_at": entry.get("connected_at"),
+                        "last_activity_at": last,
+                        "age_s": age_s,
+                    }
+                )
+        stale.sort(key=lambda s: s["age_s"], reverse=True)
+        if batch_size is not None:
+            stale = stale[:batch_size]
+        return stale
 
     def check_connection(self, conn_id: str) -> bool:
         """Return ``True`` if ``conn_id`` is a currently-registered connection."""

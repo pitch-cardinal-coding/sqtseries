@@ -24,8 +24,13 @@ def subscribe_zmq(host: str, port: int, topic: str):
     ctx = zmq.Context()
     sock = ctx.socket(zmq.SUB)
     sock.setsockopt(zmq.LINGER, 0)
-    sock.connect(f"tcp://{host}:{port}")
+    # Subscribe BEFORE connect so the subscription travels with the handshake
+    # (no slow-joiner gap); keepalive + capped reconnect like the Client.
     sock.setsockopt(zmq.SUBSCRIBE, topic.encode() if topic != "*" else b"")
+    sock.setsockopt(zmq.TCP_KEEPALIVE, 1)
+    sock.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 60)
+    sock.setsockopt(zmq.RECONNECT_IVL_MAX, 5000)
+    sock.connect(f"tcp://{host}:{port}")
 
     print(f"Subscribed via ZMQ SUB to {host}:{port} (prefix: '{topic}')")
     print("Waiting for measurements... (Ctrl+C to stop)")

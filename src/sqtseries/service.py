@@ -346,9 +346,7 @@ class Service:
                 "error": {"code": "NOT_READY", "message": "query engine unavailable"},
             }
         # Check cache first — identical queries within TTL are served from
-        # cache, avoiding redundant SQLite scans.  Inspired by dafka's fetch
-        # filter (dafka/src/dafka_fetch_filter.c) which suppresses duplicate
-        # FETCH requests for the same partition.
+        # cache, avoiding redundant SQLite scans.
         cached = self._query_cache.get(query)
         if cached is not None:
             return cached

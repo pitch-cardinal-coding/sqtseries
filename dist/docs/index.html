@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"></nav>
+<nav aria-label="Main"><a class="here" href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -39,6 +39,18 @@ task pre-aggregates every completed hour into a summary table. A query about
 months of history reads a handful of summary rows instead of every stored
 point, so wide queries stay fast as the data grows.</p>
 
+<p>Every accepted measurement is also republished live: a browser dashboard
+can watch readings arrive over a WebSocket, or a backend service can
+subscribe over ZeroMQ with topic filtering. The service tracks every
+subscriber exactly (its streaming socket sees joins and leaves on the
+wire), so you always know who is connected — ask <code>connections</code>,
+<code>conncheck</code>, or <code>subscribers</code> on the admin port, or
+watch connect/disconnect events on the stats socket.</p>
+
+<p>Repeated questions are served from a short-lived result cache, old data
+is dropped automatically when it passes retention, and the service can run
+as a hardened systemd unit. Install it, start it, and ask questions.</p>
+
 <div class="cards">
   <div class="card">
     <h3>One file database</h3>
@@ -54,7 +66,18 @@ point, so wide queries stay fast as the data grows.</p>
   <div class="card">
     <h3>Fast reads</h3>
     <p>Queries draw on a built-in hourly summary table, so a question about
-    months of data reads a handful of rows instead of every stored point.</p>
+    months of data reads a handful of rows instead of every stored point.
+    Repeated questions are served from a short-lived result cache.</p>
+  </div>
+  <div class="card">
+    <h3>Live subscriptions</h3>
+    <p>Every accepted measurement is republished instantly over ZeroMQ and
+    WebSocket with topic filtering — dashboards update as data arrives.</p>
+  </div>
+  <div class="card">
+    <h3>Know who's connected</h3>
+    <p>Subscriber joins and leaves are tracked exactly on the wire. Query
+    active connections anytime, or stream connect events to a monitor.</p>
   </div>
   <div class="card">
     <h3>Two ways to talk</h3>

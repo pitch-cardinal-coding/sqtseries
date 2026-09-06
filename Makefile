@@ -54,7 +54,7 @@ help:
 	@echo "  make run-all                  Per-file runner: timeouts + heartbeats + results (SUITE_TIMEOUT=, COVERAGE=1)"
 	@echo "  make coverage                 Full suite under coverage + report (fail under 85%)"
 	@echo "  make coverage-html            HTML report in /tmp/sqtseries_htmlcov"
-	@echo "  make test-dafka               Adopted dafka/zyre pattern tests"
+	@echo "  make test-cache-health        Query cache + connection health tests"
 	@echo "  make test-docs                Documentation claims tests"
 	@echo "  make test-resource-leaks      Resource leak / fd / thread tests"
 	@echo "  make test-concurrency         Concurrent writer tests"
@@ -103,7 +103,7 @@ uninstall:
 	$(VENV)/bin/python3 -m pip uninstall -y sqtseries
 
 # ============================================================================
-# Prod install / deploy (mirrors the airbits phase model)
+# Prod install / deploy (stop → build → install to /opt/sqtseries)
 # ============================================================================
 
 install-prod: deploy
@@ -158,8 +158,8 @@ coverage-html: coverage
 	$(PY) -m coverage html -d /tmp/sqtseries_htmlcov
 	@echo "html report: /tmp/sqtseries_htmlcov"
 
-test-dafka:
-	$(PY) -m pytest tests/test_dafka_adopted.py -v
+test-cache-health:
+	$(PY) -m pytest tests/test_cache_and_health.py -v
 
 test-docs:
 	$(PY) -m pytest tests/test_docs_claims.py -v

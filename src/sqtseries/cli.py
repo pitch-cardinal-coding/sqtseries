@@ -258,7 +258,13 @@ def stats(ctx: click.Context) -> None:
     """Show database statistics."""
     settings = _load(ctx.obj["config_file"], ctx.obj["db_path"])
     from .engine import StorageEngine, create_sqlite_engine
+    from .engine.db import Database
+    from .engine.migrations import run_migrations
 
+    # A fresh database file has no tables yet (the service migrates on
+    # boot, but this command bypasses startup): migrate here too so a
+    # first-ever `stats` reports zeros instead of OperationalError.
+    run_migrations(Database(settings.db_path_expanded()))
     engine = create_sqlite_engine(settings.db_path_expanded())
     try:
         store = StorageEngine(engine)
