@@ -3,7 +3,7 @@
 from .admin import AdminBroker
 from .broker import QueryBroker
 from .connection_registry import ConnectionRegistry, new_connection_id
-from .context import DEFAULT_HWM, apply_options, socket_options
+from .context import DEFAULT_HWM, apply_options, apply_tcp_keepalive, socket_options
 from .ingress import Ingress
 from .protocol import (
     IngestMessage,
@@ -32,6 +32,7 @@ __all__ = [
     "SubscriptionTracker",
     "WorkerPool",
     "apply_options",
+    "apply_tcp_keepalive",
     "dumps",
     "new_connection_id",
     "parse_admin",

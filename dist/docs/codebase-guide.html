@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a class="here" href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -1369,9 +1369,8 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
   <code>first_seen</code> for ZMQ topics).</p>
   <div class="sym"><span class="kind">class</span><br><span class="sig">ConnectionRegistry</span>
   <p class="desc">Internal maps: <code>_ws</code> (conn_id &rarr; entry), <code>_zmq_subs</code> (topic &rarr;
-  count), <code>_zmq_first_seen</code>, <code>_listeners</code>. Constructor takes
-  <code>evasive_timeout_s</code> (default 10.0) and <code>expired_timeout_s</code> (default 30.0)
-  for connection health tracking. Methods:
+  count), <code>_zmq_first_seen</code>, <code>_listeners</code>. Stale-connection
+  detection is read-only (see <code>sweep_stale</code> below). Methods:
   <ul>
     <li><span class="sig">on_event(callback) / remove_listener(callback)</span> — subscribe/unsubscribe to
         <code>(event_type, payload)</code> pairs ("conn", "sub"). remove_listener must be paired with
@@ -1381,11 +1380,13 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
     <li><span class="sig">unregister_ws(conn_id)</span> — mark gone; the leave event carries connected_at and
         left_at for duration display.</li>
     <li><span class="sig">touch_ws(conn_id)</span> — update <code>last_activity_at</code> on every received frame
-        (keepalive ping, client message, etc.). Mirrors <code>zyre_peer_refresh()</code>.
-        Called from the websocket handler on every inbound frame and keepalive.</li>
-    <li><span class="sig">sweep_stale() -> list[dict]</span> — return connections whose <code>last_activity_at</code>
-        is older than <code>expired_timeout_s</code>. Entries include <code>age_s</code> for diagnostics.
-        Does NOT remove connections (caller decides). Mirrors <code>dafka_beacon_clear_dead_peers</code>.</li>
+        (keepalive ping, client message, etc.). Called from the websocket handler on every
+        inbound frame and keepalive.</li>
+    <li><span class="sig">sweep_stale(expired_timeout_s=30.0, batch_size=None) -> list[dict]</span> —
+        return connections whose <code>last_activity_at</code> is older than the deadline,
+        oldest-idle first. Entries include <code>age_s</code> for diagnostics.
+        <code>batch_size</code> caps the result so callers can pace eviction across ticks.
+        Does NOT remove connections (caller decides).</li>
     <li><span class="sig">register_zmq_sub(topic) / unregister_zmq_sub(topic)</span> — increment/decrement
         per-topic counts, emit "sub" events; first_seen set when a topic goes 0 &rarr; 1 (ttl 30 on joins).</li>
     <li><span class="sig">check_connection(conn_id) -> bool</span> — conncheck support.</li>
@@ -1404,9 +1405,7 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
   <div class="file-head"><span class="path">src/sqtseries/messaging/query_cache.py</span><span class="meta">~80 lines</span></div>
   <p>Query result cache with TTL for deduplicating identical queries. When multiple
   WebSocket clients subscribe to the same metric and time range, the query engine
-  runs the same query N times. This cache deduplicates those identical queries.
-  Inspired by Dafka's fetch filter (<code>dafka/src/dafka_fetch_filter.c</code>)
-  which suppresses duplicate FETCH requests for the same partition.</p>
+   runs the same query N times. This cache deduplicates those identical queries.</p>
   <div class="sym"><span class="kind">class</span><br><span class="sig">QueryResultCache</span>
   <p class="desc">Bounded LRU cache with per-entry TTL.
   <ul>

@@ -104,6 +104,17 @@ class TestDbFlag:
         assert r.exit_code == 0, r.output
         assert "metrics: 1" in r.output
 
+    def test_stats_on_fresh_db_reports_zeros(self, tmp_path):
+        db_dir = str(tmp_path / "data")
+        cfg = _write_config(tmp_path, db_dir)
+
+        r = CliRunner().invoke(
+            main, ["--config", cfg, "--db", f"{db_dir}/fresh.sqlite", "stats"]
+        )
+        assert r.exit_code == 0, r.output
+        assert "metrics: 0" in r.output
+        assert "series:  0" in r.output
+
     def test_ports_show_flagged_db_when_not_running(self, tmp_path):
         db_dir = str(tmp_path / "data")
         cfg = _write_config(tmp_path, db_dir)

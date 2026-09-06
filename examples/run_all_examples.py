@@ -201,6 +201,22 @@ auto_detect = false
                 ],
                 30,
             ),
+            (
+                "scale_check.py",
+                [
+                    ENV_PY,
+                    str(PROJECT / "examples" / "scale_check.py"),
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(ports["streaming"]),
+                    "--admin-port",
+                    str(ports["admin"]),
+                    "--topics",
+                    "200",
+                ],
+                60,
+            ),
         ]
 
         if not args.skip_advanced:

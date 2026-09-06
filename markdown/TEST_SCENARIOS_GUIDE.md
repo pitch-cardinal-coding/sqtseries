@@ -37,7 +37,7 @@ snapshots to prevent reentrancy bugs.
 
 ## 2. What Was Tested
 
-**Total tests:** 112 (103 in `test_connection_tracking.py`, 9 in `test_dafka_adopted.py`)
+**Total tests:** 112 (103 in `test_connection_tracking.py`, 9 in `test_cache_and_health.py`)
 **Leak analysis:** tracemalloc + gc.get_objects() across 25,000 register/unregister cycles
 **Result:** +35 objects (noise), zero leaks
 
@@ -355,7 +355,7 @@ def leak_check(label, setup_fn, churn_fn, teardown_fn, iterations=10000):
 | File | Purpose |
 |------|---------|
 | `tests/test_connection_tracking.py` | All 103 connection tracking tests |
-| `tests/test_dafka_adopted.py` | Query cache tests (9 tests, related) |
+| `tests/test_cache_and_health.py` | Query cache tests (9 tests, related) |
 | `src/sqtseries/messaging/connection_registry.py` | Registry under test |
 | `src/sqtseries/messaging/stats_publisher.py` | Event forwarding (tested) |
 | `src/sqtseries/messaging/pubsub.py` | SubscriptionTracker (tested) |

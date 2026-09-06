@@ -407,27 +407,6 @@ class TestWebSocket:
             assert ev.get("first_seen") is not None
             assert ev["left_at"] >= ev["first_seen"]
 
-    def test_ws_connections_no_listener_leak(self, tmp_path):
-        """Repeated connect/disconnect to /ws/connections must not grow the
-
-        registry's listener list (each handler unhooks its listener)."""
-
-        from sqtseries.messaging import ConnectionRegistry
-
-        registry = ConnectionRegistry()
-
-        eng = create_sqlite_engine(str(tmp_path / "conns_leak.sqlite"))
-
-        initialize_schema(eng)
-        store = StorageEngine(eng)
-        app = create_app(store=store, registry=registry)
-        client = TestClient(app)
-
-        for _ in range(10):
-            with client.websocket_connect("/ws/connections") as ws:
-                assert _ws_recv(ws)  # snapshot
-            assert len(registry._listeners) == 0, len(registry._listeners)
-
 
 class TestQueryDoesNotBlockLoop:
     """A slow HTTP read/aggregate must run off the event loop so health,

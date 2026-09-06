@@ -116,7 +116,7 @@ if sudo test ! -f "$CONFIG"; then
     ok "Installed default $CONFIG"
 fi
 # Publish docs to the user's home (no sudo: must stay owned+readable by
-# the logged-in user, like airbits ~/airbitsdocs)
+# the logged-in user)
 mkdir -p ~/sqtseriesdocs && rm -rf ~/sqtseriesdocs/* 2>/dev/null || true
 cp -r "$REPO_DIR/dist/docs/"* ~/sqtseriesdocs/ 2>/dev/null || true
 chmod -R u+rwX,go+rX ~/sqtseriesdocs 2>/dev/null || true
@@ -151,4 +151,4 @@ fi
 echo
 ok "Deploy complete!"
 echo
-echo "    Status:  /opt/sqtseries/bin/python3 -m sqtseries status"
+echo "    Status:  sqtseries status"

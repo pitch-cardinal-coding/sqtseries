@@ -46,6 +46,9 @@ class StatsPublisher:
         self.socket = ctx.socket(zmq.PUB)
         self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.setsockopt(zmq.SNDHWM, 1000)
+        from .context import apply_tcp_keepalive
+
+        apply_tcp_keepalive(self.socket)
         self.socket.bind(self.endpoint)
         self._started_at = time.time()
         self._task = asyncio.create_task(self._report_loop(), name="stats-publisher")

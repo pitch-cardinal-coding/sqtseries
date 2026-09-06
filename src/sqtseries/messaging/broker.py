@@ -55,6 +55,7 @@ class QueryBroker:
         apply_options(self.socket, socket_options(hwm=1000))
         if self.use_router:
             self.socket.router_mandatory = False
+            self.socket.router_handover = 1
         self.socket.bind(self.endpoint)
         log.info("query broker listening", endpoint=self.endpoint)
 

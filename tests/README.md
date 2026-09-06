@@ -74,6 +74,7 @@ markers.
 | `test_camera_overlay_page.py` | Playwright (headless Chromium) test of the live camera dashboard page: WebSocket connect, live updates, reconnect after a server restart, live connected-clients, and the `conn_validate.py` harness |
 | `test_websocket_edge.py` | WebSocket resilience & functionality edge cases: keepalive, close codes (1008/1009/1013), topic-prefix filtering, large/malformed/oversized frames, concurrent subscribers, slow-consumer isolation, churn (no listener/registry leaks), message ordering, connection cap |
 | `test_connection_tracking.py` | Connection registry, XPUB subscriber tracking, admin conncheck/subscribers |
+| `test_cache_and_health.py` | Query result cache, connection health sweep + batching, TCP keepalive defaults |
 | `test_lifecycle_shutdown.py` | Process lifecycle: prompt SIGTERM exit with a disconnected WebSocket, camera-overlay SIGHUP, `sqtseries stop` waits for exit + ports rebindable |
 | `test_edge_cases.py`, `test_logging.py` | Generic edge cases; logging configuration and rotation |
 | `test_stress_concurrent.py` | Concurrent connect/disconnect stress on the registry |

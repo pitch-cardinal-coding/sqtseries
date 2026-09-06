@@ -229,7 +229,7 @@ class TimeSeriesDB:
             return False
         # Requires at least one fully-inside hour (span >= 2 hours) and a tail
         # within the rolled region — otherwise there is nothing to accelerate
-        # and the raw path is faster (fewer connection round-trips).
+        # and the raw path is faster (fewer queries).
         if end_hour > watermark or end_hour < start_hour + 2 * HOUR_NS:
             return False
         return not (start is not None and start >= watermark)

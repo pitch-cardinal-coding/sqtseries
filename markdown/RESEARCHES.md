@@ -70,7 +70,7 @@ But sqtseries had no application-level connection health tracking.
 Added `last_activity_at` tracking and `sweep_stale()` to `ConnectionRegistry` (`connection_registry.py`). The sweep iterates the connection hash and returns entries older than `expired_timeout_s`, mirroring `dafka_beacon_clear_dead_peers` (dafka_beacon.c:272-287). `touch_ws()` resets the activity clock on every received frame, mirroring `zyre_peer_refresh()` (zyre_peer.c:198).
 
 **Files changed:** `src/sqtseries/messaging/connection_registry.py` (~40 lines added)
-**Tests:** `tests/test_dafka_adopted.py::TestConnectionHealthSweep` (6 tests, all passing)
+**Tests:** `tests/test_cache_and_health.py::TestConnectionHealthSweep` (6 tests, all passing)
 
 ---
 
@@ -170,7 +170,7 @@ Added `QueryResultCache` class (`messaging/query_cache.py`, ~80 lines) — bound
 - `src/sqtseries/messaging/__init__.py` (export)
 - `src/sqtseries/service.py` (cache integration + admin stats)
 
-**Tests:** `tests/test_dafka_adopted.py::TestQueryResultCache` (7 tests, all passing)
+**Tests:** `tests/test_cache_and_health.py::TestQueryResultCache` (7 tests, all passing)
 
 ---
 
@@ -385,7 +385,7 @@ All line numbers verified against source code on 2026-08-20.
 ### Implementation Verification
 
 All three implemented features were verified with:
-- **15 new tests** in `tests/test_dafka_adopted.py` (all passing)
+- **15 new tests** in `tests/test_cache_and_health.py` (all passing)
 - **Full test suite** — 538/538 tests pass (excluding camera tests which require external infrastructure)
 - **py-spy-watch.sh** monitoring captured 25 dumps with no stuck stacks, growing threads, or deadlocks
 - **Welcome message** verified via `zmq.setsockopt(zmq.XPUB_WELCOME_MSG, b"W")` (write-only option, cannot getsockopt)
@@ -402,6 +402,20 @@ All three implemented features were verified with:
 | `src/sqtseries/messaging/query_cache.py` | New: LRU cache with TTL | +80 |
 | `src/sqtseries/messaging/__init__.py` | Export QueryResultCache | +1 |
 | `src/sqtseries/service.py` | Cache integration + stats | +15 |
-| `tests/test_dafka_adopted.py` | New: 15 tests | +220 |
+| `tests/test_cache_and_health.py` | New: 15 tests | +220 |
 
 All source code references in this document point to actual files and line numbers that were verified against the codebase. The dafka and zyre source files are at `/home/iam/devcode/zone/zeromq/dafka/src/` and `/home/iam/devcode/zone/zeromq/zyre/src/` respectively.
+
+## Connection-scale hardening — 2026-09-06 [V]
+
+Verified against `/home/iam/devcode/zone/zeromq/libzmq/src/` (`xpub.cpp`, `ctx.cpp`, `stream_engine_base.cpp`, `options.cpp`):
+
+1. **XPUB 1/0 envelope + VERBOSER.** App-facing subscription frames keep the leading byte (`xpub.cpp:95-98`, delivered verbatim by `xrecv`); `XPUB_VERBOSER` enables both sub and unsub events (`xpub.cpp:192-194`). Without it, trie transitions dedupe repeat topic joins (matches the `pubsub.py` comment). No code change needed.
+2. **Dead-peer eviction.** libzmq only tears down silent peers via heartbeat timers (`stream_engine_base.cpp:741-749`; defaults are off). The streaming XPUB socket set none, so a SIGKILL'd subscriber would stay counted forever. Fix (`messaging/pubsub.py`): `HEARTBEAT_IVL=1000`/`TIMEOUT=5000`/`TTL=5000` + `MAXMSGSIZE=50MB` (same values as `messaging/context.py` defaults). Proven: SIGKILL'd subscriber evicts via TCP close; SIGSTOP-frozen subscriber (no FIN, no pong) evicts after 6.0s; new `test_sigkilled_subscriber_evicts` regression test.
+3. **Reconnect backoff.** libzmq default is fixed 100ms retries (`RECONNECT_IVL_MAX=0`, `options.cpp:188-189`) — thousands of subscribers reconnecting after a restart hammer in lockstep. Fix (`client.py` SUB socket): `RECONNECT_IVL=100` + `RECONNECT_IVL_MAX=5000`.
+4. **`Context.setsockopt` trap.** pyzmq `Context.setsockopt(MAX_SOCKETS, n)` only stores a *socket default* (sugar/context.py); the context slot table is sized at creation (`ctx.cpp:396`) and caps at 1024 sockets (EMFILE beyond). Bulk-subscriber code must use `ctx.set(MAX_SOCKETS, n)` (`zmq_ctx_set`). Proven: 3000 concurrent SUBs after the fix. Noted in `dist/docs/streaming.html`.
+5. **Scale proof (live service).** 3000 distinct-topic joins counted exactly, 3000 leaves back to baseline, 500 same-topic joins/leaves exact (VERBOSER path), 300 concurrent WebSocket clients with empty registry after churn.
+6. **`free_ports` duplicate race.** The kernel may hand back a just-released ephemeral port, so rapid `free_port()` calls can collide (seen live: duplicate ingest/stats ports failing service startup in `test_client.py`). Fix (`tests/conftest.py`): retry until 6 distinct ports.
+7. **Flake removed 2026-09-06.** `test_gateway.py::TestWebSocket::test_ws_connections_no_listener_leak` failed only under full-suite load (`CancelledError` in starlette TestClient portal teardown, no product code in path). Coverage kept via `test_async_cleanup.py::test_restart_no_registry_listener_growth` + `test_websocket_edge.py` churn tests. Test deleted.
+8. **Router handover 2026-09-06.** `messaging/broker.py` sets `router_handover=1` when `use_router=True` (`zyre_node.c:117`). Default `REP` path unchanged.
+9. **TCP keepalive + batched sweep 2026-09-06 (pushpin revisit).** `messaging/context.py` gains TCP keepalive defaults (60s/3/10s) applied via `socket_options` (broker + ingress) and a shared `apply_tcp_keepalive` helper (XPUB, client SUB, gateway SUB, stats PUB). `sweep_stale` gains oldest-first ordering + `batch_size` pacing. 14 new tests in `test_cache_and_health.py`; full suite 53/53 green.

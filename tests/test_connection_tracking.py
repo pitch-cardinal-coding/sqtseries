@@ -320,6 +320,51 @@ class TestPubSubXpub:
 
         await pubsub.stop()
 
+    async def test_sigkilled_subscriber_evicts(self):
+        """A subscriber killed without closing still leaves the registry."""
+        import signal
+        import subprocess
+        import sys
+
+        port = free_port()
+
+        reg = ConnectionRegistry()
+        pubsub = PubSub(f"tcp://127.0.0.1:{port}", registry=reg)
+        await pubsub.start()
+        await asyncio.sleep(0.1)
+
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import time, zmq; "
+                "c = zmq.Context(); s = c.socket(zmq.SUB); "
+                f"s.connect('tcp://127.0.0.1:{port}'); "
+                "s.setsockopt(zmq.SUBSCRIBE, b'dead.peer'); "
+                "time.sleep(60)",
+            ],
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 10
+            while reg.subscriber_count("dead.peer") < 1:
+                assert time.monotonic() < deadline, "join never registered"
+                await asyncio.sleep(0.1)
+
+            proc.send_signal(signal.SIGKILL)
+            await asyncio.sleep(0.2)
+            assert proc.poll() is not None
+
+            deadline = time.monotonic() + 25
+            while reg.subscriber_count("dead.peer") != 0:
+                assert time.monotonic() < deadline, "dead peer never evicted"
+                await asyncio.sleep(0.5)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            await pubsub.stop()
+
 
 class TestAdminCommands:
     @pytest.fixture
