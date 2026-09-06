@@ -24,6 +24,12 @@ def _tsdb(request: Request) -> TimeSeriesDB:
     return request.app.state.tsdb
 
 
+def _count_http(request: Request, key: str, n: int = 1) -> None:
+    counters = getattr(request.app.state, "http_counters", None)
+    if counters is not None:
+        counters[key] = counters.get(key, 0) + n
+
+
 def _to_ns(seconds: float | None) -> int | None:
     """Convert epoch seconds to nanoseconds; raise 400 on overflow."""
     if seconds is None:
@@ -53,6 +59,7 @@ async def write(request: Request, payload: Any = _WRITE_BODY) -> dict[str, Any]:
 
         if pubsub is not None:
             await _broadcast(pubsub, validated)
+        _count_http(request, "writes", written)
         return {
             "status": "ok",
             "written": written,
@@ -66,6 +73,7 @@ async def write(request: Request, payload: Any = _WRITE_BODY) -> dict[str, Any]:
 
     if pubsub is not None:
         await _broadcast(pubsub, [validated])
+    _count_http(request, "writes", written)
     return {
         "status": "ok",
         "written": written,
@@ -245,6 +253,7 @@ async def read(
         )
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    _count_http(request, "queries")
     return {
         "status": "ok",
         "data": [{"timestamp": ts / 1e9, "value": v} for ts, v in data],
@@ -271,6 +280,7 @@ async def aggregate(
         )
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    _count_http(request, "queries")
     return {"status": "ok", "aggregations": result}
 
 

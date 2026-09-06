@@ -20,6 +20,7 @@
     { href: "ingestion.html",          label: "Ingestion" },
     { href: "queries.html",            label: "Queries" },
     { href: "streaming.html",          label: "Streaming" },
+    { href: "dashboard.html",          label: "Dashboard" },
     { href: "camera.html",             label: "Camera" },
     { href: "clients.html",            label: "Client Libraries" },
     { href: "backup.html",             label: "Backup &amp; Restore" },

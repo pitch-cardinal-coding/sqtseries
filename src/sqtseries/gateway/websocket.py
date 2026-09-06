@@ -49,8 +49,10 @@ async def subscribe_and_forward(
         # connection handshake. Setting it after connect() leaves a (tiny) race
         # where a measurement published between connect completing and the
         # subscription reaching the XPUB is dropped for this subscriber.
+        # Subscribe the actual topic prefix (not empty) so XPUB-side counts
+        # attribute this client to its topic; "*" still means everything.
 
-        sock.setsockopt(zmq.SUBSCRIBE, b"")
+        sock.setsockopt(zmq.SUBSCRIBE, b"" if topic == "*" else topic.encode())
         sock.connect(pubsub.endpoint)
         log.info("websocket subscribed", endpoint=pubsub.endpoint)
         if registry is not None:

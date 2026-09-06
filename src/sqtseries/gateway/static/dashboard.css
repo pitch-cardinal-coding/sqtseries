@@ -1,0 +1,140 @@
+/* sqtseries admin dashboard — project rules on top of the vendored
+   Light Bootstrap Dashboard CSS. System font stack only (no webfonts);
+   flat sidebar color (no background image). */
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+.sidebar[data-color="blue"] {
+  background: #1f3a5f;
+}
+
+.sidebar .logo {
+  padding: 16px 12px;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sidebar-wrapper {
+  overflow-x: hidden;
+}
+
+/* The mobile drawer rests translated off-canvas; it must not widen the
+   page into a horizontal scrollbar. */
+.wrapper {
+  overflow-x: hidden;
+}
+
+#nav-toggle {
+  display: none;
+}
+
+@media (max-width: 991px) {
+  /* Off-canvas behavior comes from the vendored template: the sidebar
+     rests translated off the right edge and body.nav-open slides it in.
+     Only the toggle visibility is ours. */
+  #nav-toggle {
+    display: inline-block;
+  }
+
+  body .main-panel {
+    width: 100%;
+  }
+}
+
+.status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6c757d;
+  margin-right: 6px;
+  vertical-align: baseline;
+}
+
+.status-dot.ok {
+  background: #28a745;
+}
+
+.status-dot.degraded {
+  background: #ffc107;
+}
+
+.status-dot.down {
+  background: #dc3545;
+}
+
+.conn-pill {
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e9ecef;
+  color: #343a40;
+  white-space: nowrap;
+}
+
+.conn-pill.connected {
+  background: #d4edda;
+  color: #155724;
+}
+
+.conn-pill.reconnecting {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.stale-flag {
+  color: #856404;
+  font-weight: 600;
+}
+
+.freshness {
+  color: #6c757d;
+  font-size: 0.8rem;
+}
+
+#ticker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+#ticker li {
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 0.85rem;
+}
+
+#ticker .t-conn {
+  color: #1d68a7;
+}
+
+#ticker .t-sub {
+  color: #6f42c1;
+}
+
+#ticker .t-tick {
+  color: #6c757d;
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.table-responsive {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
