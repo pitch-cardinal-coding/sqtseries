@@ -58,6 +58,9 @@ Documentation = "https://github.com/yourname/sqtseries/docs"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+sqtseries = ["gateway/static/*", "gateway/static/vendor/*"]
+
 [tool.ruff]
 line-length = 88
 target-version = "py314"

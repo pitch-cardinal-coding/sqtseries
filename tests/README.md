@@ -72,6 +72,7 @@ markers.
 | `test_misc_edge.py` | Various edge cases shared across components |
 | `test_examples_run.py`, `test_question_examples_advanced.py`, `test_camera_feed.py` | Runs the example scripts (including the camera feed + overlay server, which live in `examples/camera/`) against a live in-process service |
 | `test_camera_overlay_page.py` | Playwright (headless Chromium) test of the live camera dashboard page: WebSocket connect, live updates, reconnect after a server restart, live connected-clients, and the `conn_validate.py` harness |
+| `test_dashboard_page.py` | Playwright test of the admin dashboard page: snapshot render, live values, reconnect after restart, mobile viewport, console-clean |
 | `test_websocket_edge.py` | WebSocket resilience & functionality edge cases: keepalive, close codes (1008/1009/1013), topic-prefix filtering, large/malformed/oversized frames, concurrent subscribers, slow-consumer isolation, churn (no listener/registry leaks), message ordering, connection cap |
 | `test_connection_tracking.py` | Connection registry, XPUB subscriber tracking, admin conncheck/subscribers |
 | `test_cache_and_health.py` | Query result cache, connection health sweep + batching, TCP keepalive defaults |

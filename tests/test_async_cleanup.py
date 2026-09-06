@@ -1,6 +1,7 @@
 """Async lifecycle edge cases: cancellation, idempotent stop, drain on shutdown."""
 
 import asyncio
+import time
 
 import pytest
 
@@ -210,3 +211,38 @@ class TestServiceCleanup:
             assert len(svc.connection_registry._listeners) == 1
             await svc.shutdown()
             assert len(svc.connection_registry._listeners) == 0
+
+    async def test_dashboard_streams_close_cleanly(self, settings):
+        """Repeated /ws/dashboard cycles must not leak listeners or tasks.
+
+        Each cycle registers a registry listener plus a 1s tick task; both
+        must be gone after disconnect, and the registry must show no
+        lingering connections.
+        """
+        import websockets
+
+        from sqtseries.service import Service
+
+        svc = Service(settings)
+        await svc.start()
+        try:
+            port = settings.http.port
+            for _ in range(10):
+                async with websockets.connect(
+                    f"ws://127.0.0.1:{port}/ws/dashboard"
+                ) as ws:
+                    raw = await ws.recv()
+                    assert '"snapshot"' in raw
+            # Disconnect cleanup is async server-side: the last close may
+            # still be in flight when the loop ends. Settle first.
+            deadline = time.monotonic() + 5.0
+            while (
+                len(svc.connection_registry._listeners) != 1
+                and time.monotonic() < deadline
+            ):
+                await asyncio.sleep(0.05)
+            assert svc.connection_registry._listeners != []
+            assert len(svc.connection_registry._listeners) == 1
+            assert svc.connection_registry.list_connections() == []
+        finally:
+            await svc.shutdown()

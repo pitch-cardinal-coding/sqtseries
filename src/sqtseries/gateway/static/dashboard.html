@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<!-- sqtseries admin dashboard. Layout: Light Bootstrap Dashboard v2.0.0
+     (Creative Tim, MIT — vendored in vendor/, see THIRD-PARTY.txt).
+     Separate dashboard.css + dashboard.js; no inline script, style, or
+     event handlers (CSP default-src 'self'); no external requests. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sqtseries admin</title>
+<link rel="icon" href="/dashboard-assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/dashboard-assets/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/dashboard-assets/vendor/light-bootstrap-dashboard.css">
+<link rel="stylesheet" href="/dashboard-assets/dashboard.css">
+</head>
+<body>
+<div class="wrapper">
+  <div class="sidebar" data-color="blue">
+    <div class="logo">sqtseries admin</div>
+    <div class="sidebar-wrapper">
+      <ul class="nav">
+        <li class="nav-item active"><a class="nav-link" href="./dashboard"><p>Overview</p></a></li>
+        <li class="nav-item"><a class="nav-link" href="#connections"><p>Connections</p></a></li>
+        <li class="nav-item"><a class="nav-link" href="#topics"><p>Topics</p></a></li>
+        <li class="nav-item"><a class="nav-link" href="#storage"><p>Storage</p></a></li>
+        <li class="nav-item"><a class="nav-link" href="#ticker-card"><p>Events</p></a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="main-panel">
+    <nav class="navbar navbar-expand-lg">
+      <button class="navbar-toggler" id="nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false">
+        <span class="navbar-toggler-bar burger-lines"></span>
+        <span class="navbar-toggler-bar burger-lines"></span>
+        <span class="navbar-toggler-bar burger-lines"></span>
+      </button>
+      <a class="navbar-brand" href="./dashboard">Dashboard</a>
+      <ul class="navbar-nav ml-auto">
+        <li class="nav-item"><span class="conn-pill" id="conn-pill"><span id="conn-state-text">connecting</span></span></li>
+        <li class="nav-item"><span class="freshness" id="feed-age"></span></li>
+      </ul>
+    </nav>
+    <div class="content">
+      <div class="container-fluid">
+        <div class="row">
+          <div class="col-md-3"><div class="card"><div class="card-header"><h4 class="card-title">Service</h4></div><div class="card-body"><p><span class="status-dot" id="status-dot"></span><span id="stat-status">—</span></p><p>uptime <span id="stat-uptime">—</span></p><p>version <span id="stat-version">—</span></p><p class="freshness" id="stat-db">—</p><p class="freshness" id="stat-db-bytes">—</p></div></div></div>
+          <div class="col-md-3"><div class="card"><div class="card-header"><h4 class="card-title">Ingest</h4></div><div class="card-body"><p class="stat-value" id="stat-ingest-rate">—</p><p>total <span id="stat-ingested">—</span></p><p>invalid <span id="stat-invalid">—</span> · errors <span id="stat-ingest-errors">—</span></p></div></div></div>
+          <div class="col-md-3"><div class="card"><div class="card-header"><h4 class="card-title">Queries</h4></div><div class="card-body"><p class="stat-value" id="stat-query-rate">—</p><p>total <span id="stat-queries">—</span></p><p>cache hit <span id="stat-cache-ratio">—</span> · size <span id="stat-cache-size">—</span></p></div></div></div>
+          <div class="col-md-3"><div class="card"><div class="card-header"><h4 class="card-title">Live</h4></div><div class="card-body"><p class="stat-value" id="stat-publish-rate">—</p><p>published <span id="stat-published">—</span></p><p>connections <span id="stat-connections">—</span> · subscribers <span id="stat-subscribers">—</span></p></div></div></div>
+        </div>
+        <div class="row">
+          <div class="col-md-8"><div class="card" id="connections"><div class="card-header"><h4 class="card-title">Connections</h4><p class="card-category" id="conn-note"></p></div><div class="card-body"><div class="table-responsive"><table class="table"><thead><tr><th>ID</th><th>Peer</th><th>Topic</th><th>Activity</th><th>State</th></tr></thead><tbody id="conn-rows"></tbody></table></div></div></div></div>
+          <div class="col-md-4"><div class="card" id="topics"><div class="card-header"><h4 class="card-title">Topics</h4></div><div class="card-body"><div class="table-responsive"><table class="table"><thead><tr><th>Topic</th><th>Subscribers</th></tr></thead><tbody id="topic-rows"></tbody></table></div></div></div></div>
+        </div>
+        <div class="row">
+          <div class="col-md-6"><div class="card" id="storage"><div class="card-header"><h4 class="card-title">Storage</h4></div><div class="card-body"><p>series <span id="stat-series">—</span> · metrics <span id="stat-metrics">—</span> · partitions <span id="stat-partitions">—</span> · dropped <span id="stat-dropped">—</span></p><p>WAL <span id="stat-wal">—</span> · checkpoints <span id="stat-checkpoints">—</span></p><p>last backup <span id="stat-backup">—</span> · rollup through <span id="stat-watermark">—</span></p><p class="freshness">analyze <span id="stat-maint-runs">—</span> · retention <span id="stat-retention-runs">—</span> · backups <span id="stat-backup-runs">—</span></p><p class="freshness" id="stat-ports"></p></div></div></div>
+          <div class="col-md-6"><div class="card" id="ticker-card"><div class="card-header"><h4 class="card-title">Events</h4></div><div class="card-body"><ul id="ticker"></ul></div></div></div>
+        </div>
+      </div>
+    </div>
+    <footer class="footer"><div class="container-fluid"><p class="copyright">sqtseries admin — live from this service</p></div></footer>
+  </div>
+</div>
+<script src="/dashboard-assets/dashboard.js" defer></script>
+</body>
+</html>

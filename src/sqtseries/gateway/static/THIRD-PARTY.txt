@@ -1,0 +1,19 @@
+Third-party assets vendored locally (no CDN, no external requests).
+
+Light Bootstrap Dashboard v2.0.0
+Copyright (c) 2019 Creative Tim (http://www.creative-tim.com)
+MIT License — see LICENSE-light-bootstrap-dashboard in this directory.
+Source: https://github.com/creativetimofficial/light-bootstrap-dashboard
+Retrieved 2026-09-06.
+
+Files used:
+- vendor/bootstrap.min.css (unmodified, Bootstrap 4)
+- vendor/light-bootstrap-dashboard.css (one mechanical path fix:
+  "../fonts/" rewritten to "./" so the vendored nucleo font files
+  resolve from this directory; no style rules changed)
+- vendor/nucleo-icons.* (icon font, loaded only if .nc-icon is used)
+- vendor/LICENSE-light-bootstrap-dashboard (MIT text)
+
+Deliberately NOT vendored: jQuery, popper, bootstrap JS, demo.js,
+Google Fonts, Font Awesome, sidebar images. dashboard.js is vanilla
+(no framework) and dashboard.css carries the project-specific rules.

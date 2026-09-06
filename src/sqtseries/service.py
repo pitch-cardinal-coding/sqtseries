@@ -84,6 +84,7 @@ class Service:
         self._runtime_owned = False
         self.connection_registry = ConnectionRegistry()
         self._query_cache = QueryResultCache()
+        self._http_counters: dict[str, int] = {"writes": 0, "queries": 0}
 
     async def start(self) -> None:
         """Start the service; on partial failure, clean up what started."""
@@ -262,7 +263,9 @@ class Service:
             ingestion=self.settings.ingestion,
             registry=self.connection_registry,
             query_timeout_s=self.settings.query.timeout_s,
+            stats_provider=self.dashboard_snapshot,
         )
+        self._http_counters = app.state.http_counters
         config = uvicorn.Config(
             app,
             host=self.settings.http.host,
@@ -453,11 +456,13 @@ class Service:
         }
         if self.ingress is not None:
             istats = self.ingress.stats()
-            payload["ingested"] = istats["recv"]
+            http_writes = getattr(self, "_http_counters", {}).get("writes", 0)
+            payload["ingested"] = istats["recv"] + http_writes
             payload["invalid"] = istats["invalid"]
             payload["ingest_errors"] = istats["errors"]
         if self.broker is not None:
-            payload["queries"] = self.broker.stats()["requests"]
+            http_queries = getattr(self, "_http_counters", {}).get("queries", 0)
+            payload["queries"] = self.broker.stats()["requests"] + http_queries
         if self.admin_broker is not None:
             payload["admin_requests"] = self.admin_broker.stats()["requests"]
         if self.checkpoint_manager is not None:
@@ -490,7 +495,50 @@ class Service:
         payload["query_cache_misses"] = qstats["misses"]
         return payload
 
+    def dashboard_snapshot(self) -> dict[str, Any]:
+        """Full dashboard snapshot: admin counters plus lists and storage."""
+        from pathlib import Path
+
+        payload = self._admin_stats()
+        payload["server_time"] = time.time()
+        payload["version"] = "0.1.0"
+        payload["ws_connections"] = self.connection_registry.ws_count
+        payload["connections"] = self.connection_registry.list_connections()
+        sub = self._admin_subscribers()
+        payload["zmq_subscribers"] = sub["zmq_subscribers"]
+        payload["subscriptions"] = sub["subscriptions"]
+        db_path = self.settings.db_path_expanded()
+        payload["db_path"] = str(db_path)
+        try:
+            payload["db_bytes"] = Path(db_path).stat().st_size
+        except OSError:
+            payload["db_bytes"] = None
+        payload["ports"] = {
+            "ingest": self.settings.ingestion.port,
+            "query": self.settings.query.port,
+            "streaming": self.settings.streaming.port,
+            "admin": self.settings.admin.port,
+            "http": self.settings.http.port,
+            "stats": self.settings.stats.port,
+        }
+        try:
+            names = self.store.db.get_table_names() if self.store else []
+            payload["partitions"] = sum(n.startswith("measurements_") for n in names)
+        except Exception:
+            payload["partitions"] = None
+        try:
+            from .partition.rollup import rollup_watermark
+
+            payload["rollup_watermark"] = (
+                rollup_watermark(self.store.db) if self.store else None
+            )
+        except Exception:
+            payload["rollup_watermark"] = None
+        return payload
+
     def _admin_connections(self) -> dict[str, Any]:
+        """Return the list of active WebSocket connections."""
+        return {"status": "ok", "data": self.connection_registry.list_connections()}
         """Return the list of active WebSocket connections."""
         return {"status": "ok", "data": self.connection_registry.list_connections()}
 

@@ -5,17 +5,23 @@ write/query engine, no ZMQ hop). CORS + request-ID middleware.
 
 import asyncio
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..config import HttpSettings
 from ..engine.store import StorageEngine
 from ..query import TimeSeriesDB
+from .dashboard import dashboard_stream
 from .ratelimit import RateLimitMiddleware
 from .routes import router as api_router
 from .websocket import subscribe_and_forward
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def create_app(
@@ -26,6 +32,7 @@ def create_app(
     ingestion: Any | None = None,
     registry: Any | None = None,
     query_timeout_s: float | None = None,
+    stats_provider: Any | None = None,
 ) -> FastAPI:
     """Create the FastAPI application.
     Args:
@@ -38,6 +45,9 @@ def create_app(
             skew guard on the HTTP write path (same as the ZMQ path).
         query_timeout_s: cap for one HTTP read/aggregate (None disables);
             the query runs off the event loop in a thread.
+        stats_provider: zero-arg callable returning the full service stats
+            dict for the dashboard push channel (None = degraded snapshot
+            from store + registry only).
     """
     settings = settings or HttpSettings()
     if tsdb is None:
@@ -61,6 +71,11 @@ def create_app(
     # runs off the event loop in a thread regardless, so the loop stays
     # responsive even without a cap.
     app.state.query_timeout_s = query_timeout_s
+    app.state.stats_provider = stats_provider
+    # Shared HTTP counters: the ZMQ worker stats (ingress recv, broker
+    # requests) never see HTTP traffic, so handlers tally here and the
+    # service merges both into the admin stats counters.
+    app.state.http_counters = {"writes": 0, "queries": 0}
     # Live WebSocket connection budget (checked in each ws endpoint).
     app.state.ws_count = 0
     app.state.ws_max_connections = settings.max_websocket_connections
@@ -108,6 +123,20 @@ def create_app(
         return response
 
     app.include_router(api_router)
+
+    # Dashboard assets live under their own prefix so GET /dashboard
+    # always hits the page route below (a mount at /dashboard would
+    # swallow it via slash-redirect).
+    if STATIC_DIR.is_dir():
+        app.mount(
+            "/dashboard-assets",
+            StaticFiles(directory=STATIC_DIR),
+            name="dashboard-assets",
+        )
+
+        @app.get("/dashboard", include_in_schema=False)
+        async def dashboard_page() -> FileResponse:
+            return FileResponse(STATIC_DIR / "dashboard.html")
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, str]:
@@ -215,6 +244,24 @@ def create_app(
                 await asyncio.gather(send_task, watch_task, return_exceptions=True)
             finally:
                 registry.remove_listener(on_event)
+        finally:
+            app.state.ws_count -= 1
+
+    @app.websocket("/ws/dashboard")
+    async def ws_dashboard(websocket: WebSocket):
+        """Push admin-dashboard stream: snapshot, live events, 1s ticks."""
+        await websocket.accept()
+        if not _ws_slot_available(app):
+            await websocket.close(code=1013, reason="too many connections")
+
+            return
+        try:
+            await dashboard_stream(
+                websocket,
+                provider=getattr(app.state, "stats_provider", None),
+                store=app.state.store,
+                registry=app.state.registry,
+            )
         finally:
             app.state.ws_count -= 1
 
