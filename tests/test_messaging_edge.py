@@ -254,8 +254,9 @@ class TestIngressEdge:
             IngestionSettings(reject_client_timestamp_skew_s=0),
             context=context,
         )
-        ing._handle(b'{"metric": "m", "value": 1.0, "timestamp": 1e308}')
+        row = ing._parse(b'{"metric": "m", "value": 1.0, "timestamp": 1e308}')
 
+        assert row is None
         assert ing.invalid_count == 1
         assert ing.recv_count == 0
 
@@ -264,8 +265,8 @@ class TestIngressEdge:
 
         received = []
 
-        def sink(metric, tags, value, ts_ns):
-            received.append(metric)
+        def sink(rows):
+            received.extend(m for m, _t, _v, _ts in rows)
 
         ing = Ingress(
             f"tcp://127.0.0.1:{port}",
@@ -280,7 +281,7 @@ class TestIngressEdge:
             # exceeds max_message_size
             pub.send(b"x" * 1024)
             await asyncio.sleep(0.2)
-            await ing.run_once(block=False)
+            await ing.drain_many()
         finally:
             pub.close(linger=0)
             await ing.stop()

@@ -120,26 +120,26 @@ queries and retention; per-series ranges use the clustered primary key
 
 <h3>Write path</h3>
 <p>Ingestion is serialized by SQLite itself — there is no app-level write
-queue and no app-level batching:</p>
+queue; batching happens at the drain step:</p>
 <ol>
   <li>PUSH frames arrive on port <code>12501</code> (HWM 10,000; a slow
       consumer blocks the producer through the socket buffer).</li>
-  <li>Each frame is validated: <code>orjson</code> decode, then
+  <li>The worker step drains up to 256 frames per tick (NOBLOCK) and
+      validates each: <code>orjson</code> decode, then
       <code>parse_ingest</code> (metric/value/tags/timestamp shape plus the
       clock-skew guard, default 300 s). Invalid frames are dropped and
       counted (<code>invalid</code> in admin stats).</li>
-  <li>The sink calls <code>store.insert_many</code> <em>with that single
-      measurement</em> inside one <code>BEGIN IMMEDIATE</code> transaction
-      (series resolution, partition DDL, and the measurement insert all
-      commit together). There is no row-level batching on the service path —
-      each frame is one transaction.</li>
+  <li>The sink calls <code>store.insert_many</code> <em>once per drained
+      batch</em> inside one <code>BEGIN IMMEDIATE</code> transaction
+      (series resolution, partition DDL, and the measurement inserts all
+      commit together) — a 256-point burst costs one commit, not 256. The
+      former one-transaction-per-point path was the measured ingest
+      bottleneck under concurrent query load (2026-09).</li>
 </ol>
 <p><code>database.batch_size</code> (default 2000) exists in the config and is
 honored by benchmark/load tooling (<code>scripts/benchmark.py</code> batches
-via <code>insert_many</code> with <code>--batch</code>), but the live service
-path is per-message inserts. A fast writer therefore has higher per-write
-overhead than the benchmark numbers suggest; see
-<a href="benchmarks.md">benchmarks</a> for the distinction.</p>
+via <code>insert_many</code> with <code>--batch</code>). See
+<a href="benchmarks.md">benchmarks</a> for the numbers.</p>
 
 <h3>Query path and the rollup fast path</h3>
 <p>A query first decides whether the rollup can answer it (see

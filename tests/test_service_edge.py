@@ -52,7 +52,7 @@ class TestSinkErrors:
 
             svc.store.insert_many = boom
             # must not raise
-            svc._sink("cpu", None, 1.0, 1_700_000_000_000_000_000)
+            svc._sink([("cpu", None, 1.0, 1_700_000_000_000_000_000)])
             svc.store.insert_many = orig
         finally:
             await svc.shutdown()
@@ -66,7 +66,7 @@ class TestSinkErrors:
                 raise RuntimeError("pub broke")
 
             monkeypatch.setattr(svc.pubsub, "publish", boom)
-            svc._on_publish(b"cpu", {"value": 1.0})
+            svc._on_publish([(b"cpu", {"value": 1.0})])
             # let the publish task run + fail
             await asyncio.sleep(0.1)
         finally:

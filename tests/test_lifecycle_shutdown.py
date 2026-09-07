@@ -275,7 +275,7 @@ class TestWsStreamAndRegistry:
                 await asyncio.sleep(0.2)
                 frame = None
                 for _ in range(3):
-                    svc._on_publish(b"cpu", {"metric": "cpu", "value": 1.0})
+                    svc._on_publish([(b"cpu", {"metric": "cpu", "value": 1.0})])
 
                     try:
                         frame = await asyncio.wait_for(ws.recv(), timeout=2)

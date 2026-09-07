@@ -6,9 +6,30 @@ hops) — rejected.
 API: ``connect()`` (reader), ``begin()`` (writer, BEGIN IMMEDIATE),
 ``execute()``, ``exec_driver_sql()``, ``scalar()/fetchall()/fetchone()/first()``,
 ``lastrowid``, ``dispose()``.
+
+Connection pooling: one persistent writer (SQLite single-writer invariant)
+guarded by a threading.Lock, plus a bounded LIFO pool of reader connections.
+Design points verified against the sqlite.org forum thread "Simple Connection
+Pool for SQLite in Python" (forumpost 9e9b8627..., R. Binns / K. Medcalf):
+- LIFO, not FIFO: the most recently returned connection has the warmest
+  page cache; FIFO would rotate to the coldest one first.
+- Connections are created on demand up to the bound, never all up front.
+- Check-in hygiene: cursors are closed and any transaction rolled back
+  before pooling. A partially-consumed SELECT holds a WAL read snapshot
+  even with ``in_transaction == False`` (verified 2026-09: it blocks
+  ``PRAGMA wal_checkpoint(TRUNCATE)`` until the statement is reset), so
+  every cursor opened through the wrapper is released at check-in.
+- The real pooling win is skipping the "fresh connection" cost — open,
+  schema read+parse, PRAGMA setup — which grows with the partition count.
+Handles are never pooled after dispose(), and a writer handle that raises
+is quarantined and lazily replaced (self-healing) so a poisoned connection
+can never wedge all writes.
 """
 
+import contextlib
+import queue
 import sqlite3
+import threading
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -38,6 +59,60 @@ CONNECTION_PRAGMAS: dict[str, str] = {
 # sqtseries-research-2026.md §9.
 READER_AUTOCHECKPOINT = 0
 WRITER_AUTOCHECKPOINT = 10000
+
+# Reader pool ceiling.  Readers scale on WAL snapshots but each holds an mmap
+# window and page cache; past ~4 the memory cost outweighs concurrency gains
+# for our single-process workload.  (production-hardening.org § sizing table)
+DEFAULT_READER_POOL_SIZE = 4
+
+# Page cache for TRANSIENT connections — ones opened when the pool is empty
+# because every pooled reader is checked out. A transient handle carrying the
+# full 64 MB cache multiplied by concurrent over-checkouts was the dominant
+# RSS growth under query bursts (measured 2026-09: ~3 MB/s RSS climb under a
+# sustained query storm; the freed arenas are not promptly returned by the
+# allocator). 8 MB still covers a hot working set for a single query.
+TRANSIENT_CACHE_SIZE = "-8000"
+
+
+# How long a checkout waits for a pooled slot before falling back to a
+# transient handle. Bounded waiting is deadlock prevention (no indefinite
+# wait → no circular wait); 5s is well inside the gateway's query budget
+# (query.timeout_s, default 30s) and short enough that a stuck slot holder
+# cannot freeze unrelated queries.
+READER_SLOT_TIMEOUT_S = 5.0
+
+
+class _ReaderSlots:
+    """Bounded reader concurrency: pool size, with BOUNDED waiting.
+
+    Deadlock prevention per the Coffman conditions (Wikipedia, "Deadlock
+    (computer science)"): the previous per-thread re-entrant design created
+    hold-and-wait (a thread holding a slot while waiting for another), and
+    its threading.local depth counter was corrupted whenever a
+    @contextmanager's finally ran on a different thread (GC finalization,
+    anyio portal handoffs) — each corruption permanently leaked a slot until
+    every acquire blocked forever (observed as a full-suite hang 2026-09).
+
+    This design breaks hold-and-wait and circular wait: a checkout NEVER
+    waits indefinitely. ``acquire`` polls the BoundedSemaphore with a
+    timeout; on timeout it reports no-slot and the caller opens a TRANSIENT
+    handle (small page cache, closed at check-in) instead of queueing
+    forever. Queueing for up to the timeout IS the intended backpressure.
+    """
+
+    __slots__ = ("_sem",)
+
+    def __init__(self, value: int):
+        self._sem = threading.BoundedSemaphore(value)
+
+    def acquire(self, timeout_s: float = READER_SLOT_TIMEOUT_S) -> bool:
+        """Take a slot within ``timeout_s``; False = open a transient handle."""
+        return self._sem.acquire(timeout=timeout_s)
+
+    def release(self) -> None:
+        # BoundedSemaphore.release() is thread-safe and owner-agnostic: safe
+        # even when a generator's finally runs on a different thread.
+        self._sem.release()
 
 
 class Result:
@@ -82,16 +157,29 @@ class Result:
 
 
 class Connection:
-    """Wraps a raw sqlite3 connection; context manager commits on clean exit."""
+    """Wraps a raw sqlite3 connection for one checkout.
 
-    __slots__ = ("_db", "_raw", "_transaction")
+    ``with conn:`` ends the transaction (commit on clean exit for writer
+    wrappers, rollback on error) but never closes the handle — the pooling
+    context managers :meth:`Database.connect` / :meth:`Database.begin` own
+    the handle lifecycle, so closing here would poison the pool.
+    """
+
+    __slots__ = ("_cursors", "_db", "_raw", "_transaction")
 
     def __init__(
-        self, db: Database, raw: sqlite3.Connection, transaction: bool = False
+        self,
+        db: Database,
+        raw: sqlite3.Connection,
+        transaction: bool = False,
     ):
         self._db = db
         self._raw = raw
         self._transaction = transaction
+        # Every cursor created through this wrapper. Released at check-in:
+        # an abandoned partial SELECT pins a WAL read snapshot even outside
+        # an explicit transaction (blocks TRUNCATE checkpoints).
+        self._cursors: list[sqlite3.Cursor] = []
 
     @property
     def dbapi_connection(self) -> sqlite3.Connection:
@@ -116,6 +204,7 @@ class Connection:
         except sqlite3.Error:
             cur.close()
             raise
+        self._cursors.append(cur)
         return Result(cur)
 
     def exec_driver_sql(self, sql: str, params: Any = None) -> Result:
@@ -131,74 +220,153 @@ class Connection:
         except sqlite3.Error:
             cur.close()
             raise
+        self._cursors.append(cur)
         return Result(cur)
+
+    def _release_snapshots(self) -> None:
+        """Close every cursor opened through this wrapper.
+
+        A partially-consumed SELECT keeps its statement unreset, holding a
+        WAL read snapshot even when ``in_transaction`` is False — blocking
+        ``PRAGMA wal_checkpoint(TRUNCATE)`` until GC happens to collect it.
+        Closing the cursor finalizes the statement deterministically, the
+        same job apsw's ConnectionPool does with ``closecursors(True)``.
+        """
+        cursors, self._cursors = self._cursors, []
+        for cur in cursors:
+            with contextlib.suppress(sqlite3.Error):
+                cur.close()
 
     def __enter__(self) -> Connection:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        try:
-            if exc_type is None:
-                self.commit() if self._transaction else None
-        finally:
-            self.close()
+        # End the transaction but never close the handle: Database.connect()
+        # / begin() own the lifecycle (closing here would return a dead
+        # connection to the pool or close the persistent writer).
+        if exc_type is None:
+            if self._transaction:
+                self.commit()
+        else:
+            with contextlib.suppress(sqlite3.Error):
+                self.rollback()
 
 
 class Database:
-    """A raw sqlite3 database file."""
+    """A raw sqlite3 database file with connection pooling.
 
-    def __init__(self, path: str):
+    One persistent writer (guarded by a lock — SQLite single-writer) and a
+    bounded queue.Queue of reader connections (WAL concurrent readers).
+    A writer handle that fails is quarantined and lazily replaced on the
+    next transaction (self-healing); dispose() is idempotent and safe
+    against in-flight checkouts.
+    """
+
+    def __init__(self, path: str, reader_pool_size: int = DEFAULT_READER_POOL_SIZE):
         self.path = str(Path(path).expanduser())
         parent = Path(self.path).parent
 
         if str(parent):
             parent.mkdir(parents=True, exist_ok=True)
 
-    @contextmanager
-    def connect(self, apply_pragmas: bool = True) -> Generator[Connection]:
-        """Yield a fresh READER connection (never checkpoints WAL)."""
-        conn = Connection(
-            self,
-            self._open(
-                apply_pragmas=apply_pragmas, autocheckpoint=READER_AUTOCHECKPOINT
-            ),
-            transaction=False,
+        if reader_pool_size < 1:
+            # Queue(maxsize=0) would mean an UNBOUNDED pool — never allowed.
+            raise ValueError("reader_pool_size must be >= 1")
+
+        self._reader_pool_size = reader_pool_size
+        # LIFO: the last-returned connection has the warmest page cache;
+        # FIFO would hand out the coldest one first (sqlite.org forum
+        # forumpost 9e9b8627..., R. Binns).
+        self._reader_pool: queue.LifoQueue[sqlite3.Connection] = queue.LifoQueue(
+            maxsize=reader_pool_size
         )
+        self._writer_conn: sqlite3.Connection | None = None
+        self._writer_lock = threading.Lock()
+        # Reader slot bound == pool size: a checkout past the pool either
+        # queues (bounded wait) or opens a transient connection (8 MB-class
+        # page cache each) — never a fresh 64 MB-cache handle per waiter.
+        # See _ReaderSlots for the deadlock rationale.
+        self._reader_slots = _ReaderSlots(reader_pool_size)
+        self._disposed = False
+
+    @contextmanager
+    def connect(self) -> Generator[Connection]:
+        # Bounded wait: take a pool slot or fall back to a transient handle.
+        # No indefinite waiting → no circular wait → no deadlock (Coffman).
+        # The module global is passed explicitly (looked up per call) so the
+        # timeout is tunable at runtime and in tests.
+        slot = self._reader_slots.acquire(timeout_s=READER_SLOT_TIMEOUT_S)
+        raw = self._checkout_reader(pooled=slot)
+        wrapper = Connection(self, raw, transaction=False)
         try:
-            yield conn
+            yield wrapper
         finally:
-            conn.close()
+            # Release abandoned statements BEFORE the handle is pooled, or a
+            # partial SELECT would pin its WAL read snapshot and block
+            # TRUNCATE checkpoints for as long as the handle sits in the pool.
+            wrapper._release_snapshots()
+            self._checkin_reader(raw)
+            if slot:
+                self._reader_slots.release()
 
     @contextmanager
     def begin(self) -> Generator[Connection]:
-        """Yield a WRITER transaction connection (owns WAL checkpointing).
+        """Writer transaction — serialised by _writer_lock.
 
         Uses ``BEGIN IMMEDIATE``: takes the write lock up front (busy_timeout
-
         waits for it). Plain ``BEGIN`` is deferred — it takes a read snapshot,
-
         and the later read->write lock upgrade returns SQLITE_BUSY immediately
-
         under WAL (deadlock avoidance), which busy_timeout cannot retry.
-
         """
-        raw = self._open(apply_pragmas=True, autocheckpoint=WRITER_AUTOCHECKPOINT)
-
-        raw.execute("BEGIN IMMEDIATE")
-        conn = Connection(self, raw, transaction=True)
-        try:
-            yield conn
-            raw.commit()
-        except BaseException:
-            raw.rollback()
-            raise
-        finally:
-            conn.close()
+        # _get_writer() must run under the lock: outside it, two threads can
+        # both see an empty slot and open handles, leaking one of them.
+        with self._writer_lock:
+            raw = self._get_writer()
+            conn = Connection(self, raw, transaction=True)
+            try:
+                try:
+                    raw.execute("BEGIN IMMEDIATE")
+                except sqlite3.ProgrammingError:
+                    # Handle died since the last transaction (e.g. closed
+                    # underneath us). Same-call self-heal: quarantine and
+                    # retry once on a fresh handle. OperationalError (busy
+                    # timeout, corruption, ...) still propagates below.
+                    self._quarantine_writer(raw)
+                    raw = self._get_writer()
+                    conn = Connection(self, raw, transaction=True)
+                    raw.execute("BEGIN IMMEDIATE")
+                yield conn
+                raw.commit()
+                conn._release_snapshots()
+            except BaseException:
+                # Quarantine (close) instead of rollback(): close() discards
+                # any pending transaction implicitly, and rollback() itself
+                # can raise on a poisoned handle. Either way the handle must
+                # never be reused. Lock is still held here.
+                self._quarantine_writer(raw)
+                raise
 
     def dispose(self) -> None:
-        """No persistent handles to close (connections are per-use)."""
+        """Close all pooled handles. Idempotent.
 
-        return
+        Waits for an in-flight writer transaction (never closes under it).
+        Reader checkouts that land after the drain are closed at check-in
+        instead of being re-pooled, so dispose() leaks no descriptors.
+        """
+        # Set first so a checkout racing the drain cannot re-pool.
+        self._disposed = True
+        while True:
+            try:
+                raw = self._reader_pool.get_nowait()
+            except queue.Empty:
+                break
+            with contextlib.suppress(Exception):
+                raw.close()
+        with self._writer_lock:
+            if self._writer_conn is not None:
+                with contextlib.suppress(Exception):
+                    self._writer_conn.close()
+                self._writer_conn = None
 
     def get_table_names(self) -> list[str]:
         with self.connect() as conn:
@@ -208,12 +376,11 @@ class Database:
         return [r[0] for r in rows]
 
     def execute(self, sql: str, params: Any = None) -> Result:
-        """Execute SQL in a committed writer transaction.
-        Writes and DDL persist (the old implementation used a reader
-        connection, so writes were silently rolled back on close). The
-        returned Result is best used for ``rowcount``/``lastrowid``; for
+        """Execute in one committed writer transaction (writes/DDL persist).
 
-        reading rows use ``scalar()`` or a ``connect()`` session.
+        The returned Result is for ``rowcount``/``lastrowid``; it must not
+        be used for row-fetching after this method returns (the transaction
+        is already closed) — use ``scalar()`` or a ``connect()`` session.
         """
         with self.begin() as conn:
             return conn.execute(sql, params)
@@ -223,16 +390,74 @@ class Database:
             return conn.execute(sql, params).scalar()
 
     def _open(
-        self, apply_pragmas: bool = True, autocheckpoint: int = READER_AUTOCHECKPOINT
+        self,
+        autocheckpoint: int = READER_AUTOCHECKPOINT,
+        cache_size: str | None = None,
     ) -> sqlite3.Connection:
-        raw = sqlite3.connect(self.path, check_same_thread=False)
-        if not apply_pragmas:
-            return raw
+        raw = sqlite3.connect(self.path, check_same_thread=False, timeout=30)
         raw.execute("PRAGMA foreign_keys = ON")
-        for name, value in CONNECTION_PRAGMAS.items():
+        pragmas = CONNECTION_PRAGMAS
+        if cache_size is not None:
+            pragmas = {**CONNECTION_PRAGMAS, "cache_size": cache_size}
+        for name, value in pragmas.items():
             raw.execute(f"PRAGMA {name} = {value}")
         raw.execute(f"PRAGMA wal_autocheckpoint = {autocheckpoint}")
         return raw
+
+    def _checkout_reader(self, pooled: bool = True) -> sqlite3.Connection:
+        if pooled:
+            try:
+                return self._reader_pool.get_nowait()
+            except queue.Empty:
+                # Slot owned but pool momentarily empty (another checkout is
+                # between get_nowait and check-in): open a full-cache handle.
+                return self._open(autocheckpoint=READER_AUTOCHECKPOINT)
+        # No slot within the timeout: a transient handle with a SMALL page
+        # cache. It will be closed at check-in (pool is full), so investing
+        # 64 MB of page cache in it is pure waste — and the allocator keeps
+        # those arenas mapped after free, inflating RSS for the lifetime.
+        return self._open(
+            autocheckpoint=READER_AUTOCHECKPOINT, cache_size=TRANSIENT_CACHE_SIZE
+        )
+
+    def _checkin_reader(self, conn: sqlite3.Connection, pooled: bool = True) -> None:
+        # Transient handle (no slot was owned) or disposed engine: close
+        # instead of re-pooling, so the pool only ever holds full-cache
+        # handles and a checkout racing dispose() leaks no descriptors.
+        if not pooled or self._disposed:
+            with contextlib.suppress(Exception):
+                conn.close()
+            return
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+        except sqlite3.Error:
+            # Closed or otherwise broken handle — never pool a dead connection.
+            with contextlib.suppress(Exception):
+                conn.close()
+            return
+        try:
+            self._reader_pool.put_nowait(conn)
+        except queue.Full:
+            conn.close()
+
+    def _get_writer(self) -> sqlite3.Connection:
+        """Return the writer handle; caller must hold ``_writer_lock``.
+
+        Self-healing: if the previous transaction failed, the poisoned
+        handle was quarantined (closed) and a fresh one is opened here, so
+        one bad transaction can never wedge every future write.
+        """
+        if self._writer_conn is None:
+            self._writer_conn = self._open(autocheckpoint=WRITER_AUTOCHECKPOINT)
+        return self._writer_conn
+
+    def _quarantine_writer(self, raw: sqlite3.Connection) -> None:
+        """Close and untrack a failed writer handle. Caller holds the lock."""
+        if self._writer_conn is raw:
+            self._writer_conn = None
+        with contextlib.suppress(Exception):
+            raw.close()
 
 
 def create_sqlite_engine(
@@ -251,7 +476,10 @@ def create_sqlite_engine(
     """
     db = Database(path)
     if not Path(db.path).exists():
-        with db.connect(apply_pragmas=False) as conn:
-            conn.exec_driver_sql("PRAGMA page_size = 8192")
-            conn.exec_driver_sql("PRAGMA auto_vacuum = INCREMENTAL")
+        raw = sqlite3.connect(db.path)
+        try:
+            raw.execute("PRAGMA page_size = 8192")
+            raw.execute("PRAGMA auto_vacuum = INCREMENTAL")
+        finally:
+            raw.close()
     return db

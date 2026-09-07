@@ -41,34 +41,16 @@ SAMPLE_MESSAGE = {
 }
 
 
-def free_tcp_port() -> int:
-    import socket
-
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
 @pytest.fixture
-async def running_service(tmp_path):
-    ports = {
-        "ingest": free_tcp_port(),
-        "query": free_tcp_port(),
-        "streaming": free_tcp_port(),
-        "admin": free_tcp_port(),
-        "http": free_tcp_port(),
-        "stats": free_tcp_port(),
-    }
+async def running_service(tmp_path, free_ports):
     s = Settings(
         database={"path": str(tmp_path / "cam.sqlite")},
-        ingestion={"port": ports["ingest"]},
-        query={"port": ports["query"]},
-        streaming={"port": ports["streaming"]},
-        admin={"port": ports["admin"]},
-        http={"port": ports["http"]},
-        stats={"port": ports["stats"]},
+        ingestion={"port": free_ports["ingest"]},
+        query={"port": free_ports["query"]},
+        streaming={"port": free_ports["streaming"]},
+        admin={"port": free_ports["admin"]},
+        http={"port": free_ports["http"]},
+        stats={"port": free_ports["stats"]},
         ports={"auto_detect": False},
     )
     svc = Service(s)
@@ -84,7 +66,7 @@ async def running_service(tmp_path):
 
     pump_task = asyncio.create_task(pump())
     try:
-        yield svc, s, ports
+        yield svc, s, free_ports
     finally:
         pump_task.cancel()
         await asyncio.gather(pump_task, return_exceptions=True)

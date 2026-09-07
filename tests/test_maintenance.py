@@ -77,8 +77,14 @@ async def test_checkpoint_detects_blocked_readers(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_checkpoint_no_wal_no_tracking(tmp_path):
+    """A fresh engine with no writes has no WAL file: the manager reports
+    wal_bytes == 0 and never enters the busy-tracking path."""
     eng = create_sqlite_engine(str(tmp_path / "cp2.sqlite"))
     initialize_schema(eng)
+    # Pooling keeps handles open, and SQLite only deletes the -wal file when
+    # the LAST connection closes — so release them to assert on the file.
+    # No data was written: reopening for the checkpoint writes no new frames.
+    eng.dispose()
     mgr = CheckpointManager(eng, interval=60.0, max_wal_bytes=0)
     await mgr._checkpoint_if_needed()
     assert mgr.wal_bytes == 0

@@ -289,9 +289,17 @@ async def stats(request: Request) -> dict[str, Any]:
     store: Any = request.app.state.store
     payload: dict[str, Any] = {"status": "ok"}
     if store is not None:
-        payload["metrics"] = len(store.list_metrics())
-        payload["series"] = store.series_count()
+        # list_metrics/series_count are full scans; they must run off the
+        # event loop (the dashboard polls /stats every second, and a slow
+        # scan here would stall every other request and WS tick).
+        metrics, series = await _run_query(request, lambda: _store_counts(store))
+        payload["metrics"] = metrics
+        payload["series"] = series
     return payload
+
+
+def _store_counts(store: Any) -> tuple[int, int]:
+    return len(store.list_metrics()), store.series_count()
 
 
 @router.get("/connections")

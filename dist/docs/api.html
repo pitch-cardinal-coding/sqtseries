@@ -156,7 +156,8 @@ sqtseries uninstall        # disable + remove the unit
 <pre><code>{"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72, "timestamp": 1720000000.1}
 </code></pre>
 <p>Fire-and-forget, one frame per measurement, no reply and no ZMQ-level
-batching. <code>timestamp</code> is optional epoch <em>seconds</em> (float
+batching on the wire (the server drains frames in bursts and commits one
+transaction per burst). <code>timestamp</code> is optional epoch <em>seconds</em> (float
 allowed); skewed timestamps are rejected (default ±300s — dropped and counted
 as <code>invalid</code> on this path). The ingest port is auto-detected by
 default (<code>ports.auto_detect</code>): the first free port in 12500–12700,

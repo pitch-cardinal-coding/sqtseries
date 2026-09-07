@@ -229,7 +229,7 @@ class TestStressConcurrent:
 
 async def _pump(svc):
     while True:
-        await svc.ingress.run_once(block=False)
+        await svc.ingress.drain_many()
         await svc.broker.run_once(block=False)
         await svc.admin_broker.run_once(block=False)
         await asyncio.sleep(0.005)

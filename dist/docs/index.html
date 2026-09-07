@@ -59,9 +59,10 @@ as a hardened systemd unit. Install it, start it, and ask questions.</p>
   </div>
   <div class="card">
     <h3>Fast, crash-safe writes</h3>
-    <p>Every measurement is written in its own transaction the moment it
-    arrives — no batch buffer to lose or flush. SQLite's WAL journal makes
-    every write atomic.</p>
+    <p>Incoming points are drained in bursts and committed in one transaction
+    per burst — high throughput with nothing buffered: a burst commits
+    atomically or not at all. SQLite's WAL journal makes every write
+    crash-safe.</p>
   </div>
   <div class="card">
     <h3>Fast reads</h3>

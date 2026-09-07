@@ -38,8 +38,8 @@ class TestIngress:
 
         received = []
 
-        def sink(metric, tags, value, ts_ns):
-            received.append((metric, tags, value, ts_ns))
+        def sink(rows):
+            received.extend(rows)
 
         ing = Ingress(
             f"tcp://127.0.0.1:{port}",
