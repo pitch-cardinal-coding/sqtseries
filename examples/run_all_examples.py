@@ -29,6 +29,18 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+def free_ports() -> dict[str, int]:
+    """Six distinct OS-assigned free ports (deduplicated)."""
+    names = ("ingest", "query", "streaming", "admin", "http", "stats")
+    ports: dict[str, int] = {}
+    for name in names:
+        port = free_port()
+        while port in ports.values():
+            port = free_port()
+        ports[name] = port
+    return ports
+
+
 def wait_until_ping(port: int, timeout_s: float = 30.0) -> bool:
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REQ)
@@ -80,15 +92,7 @@ def main():
     )
     args = parser.parse_args()
 
-    # Pick free ports
-    ports = {
-        "ingest": free_port(),
-        "query": free_port(),
-        "streaming": free_port(),
-        "admin": free_port(),
-        "http": free_port(),
-        "stats": free_port(),
-    }
+    ports = free_ports()
 
     # Write config
     workdir = Path("/tmp/sqtseries-example-test")  # noqa: S108 - CLI test default

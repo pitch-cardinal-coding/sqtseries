@@ -200,7 +200,10 @@ class Service:
             # socket had work; the worker sleeps longer when idle (see
             # WorkerPool._run).
             did = False
-            if await self.ingress.run_once(block=False):
+            # Batch-drain ingress: one sink transaction per burst instead of
+            # one per point (per-point BEGIN IMMEDIATE commits were the ingest
+            # bottleneck under concurrent query load — measured 2026-09).
+            if await self.ingress.drain_many() > 0:
                 did = True
             if await self.broker.run_once(block=False):
                 did = True
@@ -314,33 +317,40 @@ class Service:
             f"HTTP gateway failed to start on port {self.settings.http.port}"
         )
 
-    def _sink(self, metric: str, tags: Any, value: float, ts_ns: int) -> None:
-        """Persist an ingested measurement immediately.
-        Writes are serialized by SQLite itself (single-writer + BEGIN IMMEDIATE
+    def _sink(self, rows: list[tuple[str, Any, float, int]]) -> None:
+        """Persist a drained batch in ONE transaction.
 
-        in ``Database.begin()`` + busy_timeout), so a separate app-level write
-
-        queue would only add flush latency without correctness benefit.
-
+        ``insert_many`` groups rows by partition and wraps everything (series
+        resolution + measurement inserts) in a single BEGIN IMMEDIATE, so a
+        256-point burst costs one commit instead of 256. The single-writer
+        invariant is unchanged (same serialisation as a per-point path).
+        Writes are serialized by SQLite itself (single-writer + BEGIN
+        IMMEDIATE in ``Database.begin()`` + busy_timeout), so a separate
+        app-level write queue would only add flush latency.
         """
-        if self.store is not None:
+        if self.store is not None and rows:
             try:
-                self.store.insert_many([(metric, tags, value, ts_ns)])
+                self.store.insert_many(rows)
             except Exception:
-                log.exception("sink insert failed", metric=metric)
+                # Never let one bad batch kill the worker step: drop the batch
+                # (PULL has no acks — the producer has already moved on) but
+                # keep the process serving.
+                log.exception("sink batch insert failed", batch_size=len(rows))
 
-    def _on_publish(self, topic: bytes, payload: dict[str, Any]) -> None:
-        """Republish an ingested measurement to live subscribers."""
-        if self.pubsub is not None:
-            task = asyncio.create_task(self._publish(topic, payload))
+    def _on_publish(self, batch: list[tuple[bytes, dict[str, Any]]]) -> None:
+        """Republish a drained batch: ONE task per burst, not one per point."""
+        if self.pubsub is not None and batch:
+            task = asyncio.create_task(self._publish(batch))
             self._publish_tasks.add(task)
             task.add_done_callback(self._publish_tasks.discard)
 
-    async def _publish(self, topic: bytes, payload: dict[str, Any]) -> None:
-        try:
-            await self.pubsub.publish(topic, payload)
-        except Exception:
-            log.warning("publish failed", exc_info=True)
+    async def _publish(self, batch: list[tuple[bytes, dict[str, Any]]]) -> None:
+        """Republish a batch of ingested measurements to live subscribers."""
+        for topic, payload in batch:
+            try:
+                await self.pubsub.publish(topic, payload)
+            except Exception:
+                log.warning("publish failed", exc_info=True)
 
     def _query_handler(self, query: dict[str, Any]) -> dict[str, Any]:
         if self.ts is None:

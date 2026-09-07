@@ -10,7 +10,6 @@ processes can never break the run.
 
 import asyncio
 import re
-import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -25,27 +24,19 @@ EXAMPLES = REPO_ROOT / "examples"
 ANSWER_RE = re.compile(r"ANSWER: (\S+) = ([\d.]+)")
 
 
-def free_port() -> int:
-    """Ask the OS for a currently-free port (released right after)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture
-async def running_service(tmp_path):
-    ports = {
-        name: free_port()
-        for name in ("ingest", "query", "streaming", "admin", "http", "stats")
-    }
+async def running_service(tmp_path, free_ports):
     s = Settings(
         database={"path": str(tmp_path / "c.sqlite"), "batch_size": 500},
-        ingestion={"port": ports["ingest"], "reject_client_timestamp_skew_s": 864000},
-        query={"port": ports["query"]},
-        streaming={"port": ports["streaming"]},
-        admin={"port": ports["admin"]},
-        http={"port": ports["http"]},
-        stats={"port": ports["stats"]},
+        ingestion={
+            "port": free_ports["ingest"],
+            "reject_client_timestamp_skew_s": 864000,
+        },
+        query={"port": free_ports["query"]},
+        streaming={"port": free_ports["streaming"]},
+        admin={"port": free_ports["admin"]},
+        http={"port": free_ports["http"]},
+        stats={"port": free_ports["stats"]},
         ports={"auto_detect": False},
     )
     svc = Service(s)
@@ -53,7 +44,7 @@ async def running_service(tmp_path):
     await svc.pool.stop()
     pump_task = asyncio.create_task(_pump(svc))
     try:
-        yield svc, s, ports
+        yield svc, s, free_ports
     finally:
         pump_task.cancel()
         await asyncio.gather(pump_task, return_exceptions=True)

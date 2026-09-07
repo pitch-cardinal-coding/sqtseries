@@ -8,10 +8,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, Response, WebSocket
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..config import HttpSettings
 from ..engine.store import StorageEngine
@@ -22,6 +24,51 @@ from .routes import router as api_router
 from .websocket import subscribe_and_forward
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+class HeaderMiddleware:
+    """Pure ASGI middleware: X-Request-ID + hardening response headers.
+
+    Deliberately NOT ``@app.middleware("http")``: that decorator wraps every
+    request in a ``BaseHTTPMiddleware`` task group + anyio memory stream —
+    measurable per-request allocation that py-spy showed dominating stacks
+    under load. This adds only the header values themselves.
+
+    Security headers per COMPLIANCE.md; the gateway serves JSON only, so a
+    strict CSP is safe; WebSockets (scope type != "http") pass untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request_id = None
+        for key, value in scope.get("headers", []):
+            if key == b"x-request-id":
+                request_id = value.decode("latin-1")
+                break
+        if not request_id:
+            request_id = uuid.uuid4().hex[:12]
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Request-ID"] = request_id
+                headers["X-Frame-Options"] = "DENY"
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-XSS-Protection"] = "1; mode=block"
+                headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                headers["Permissions-Policy"] = (
+                    "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+                )
+                headers["Content-Security-Policy"] = "default-src 'self'"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 def create_app(
@@ -80,11 +127,12 @@ def create_app(
     app.state.ws_count = 0
     app.state.ws_max_connections = settings.max_websocket_connections
 
-    # Middleware is LIFO: the last one added runs outermost. So the request-ID
-    # middleware (registered below via @app.middleware) is outermost, then the
-    # rate limiter, then CORS nearest the router. Both CORSMiddleware and
-    # RateLimitMiddleware short-circuit non-HTTP scopes, so CORS does not gate
-    # WebSockets: /ws/subscribe accepts before any CORS or rate-limit check.
+    # Middleware is LIFO: the last one added runs outermost. HeaderMiddleware
+    # (added below) is outermost, so even rate-limited 429 responses carry the
+    # request-ID + hardening headers; then the rate limiter, then CORS nearest
+    # the router. All three short-circuit non-HTTP scopes, so CORS does not
+    # gate WebSockets: /ws/subscribe accepts before any CORS or rate-limit
+    # check.
 
     app.add_middleware(
         CORSMiddleware,
@@ -95,32 +143,7 @@ def create_app(
     app.add_middleware(
         RateLimitMiddleware, limit_per_minute=settings.rate_limit_per_minute
     )
-
-    @app.middleware("http")
-    async def request_id_middleware(request: Request, call_next) -> Response:
-        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
-
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
-
-    @app.middleware("http")
-    async def security_headers_middleware(request: Request, call_next) -> Response:
-        # Hardening headers (COMPLIANCE.md "Security Headers"). The gateway
-        # serves JSON only, so a strict CSP is safe; it does not gate the
-        # WebSocket handshakes (those are not HTTP responses).
-        response = await call_next(request)
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-
-        response.headers["Permissions-Policy"] = (
-            "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
-        )
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
-
-        return response
+    app.add_middleware(HeaderMiddleware)
 
     app.include_router(api_router)
 

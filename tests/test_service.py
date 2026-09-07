@@ -33,7 +33,7 @@ class TestService:
         # insert data via sink
         import time
 
-        svc._sink("cpu.usage", None, 0.5, time.time_ns())
+        svc._sink([("cpu.usage", None, 0.5, time.time_ns())])
         await svc.shutdown()
         assert not svc.runtime.exists
 
@@ -48,7 +48,7 @@ class TestService:
     async def test_query_handler(self, settings):
         svc = Service(settings)
         await svc.start()
-        svc._sink("temp", None, 21.5, 1_700_000_000_000_000_000)
+        svc._sink([("temp", None, 21.5, 1_700_000_000_000_000_000)])
         result = svc._query_handler({"metric": "temp"})
         assert result["status"] == "ok"
         await svc.shutdown()
@@ -133,8 +133,9 @@ class TestService:
         svc = Service(settings)
         await svc.start()
         try:
-            for i in range(6):
-                svc._sink("cpu", None, float(i), base + i * 600_000_000_000)
+            svc._sink(
+                [("cpu", None, float(i), base + i * 600_000_000_000) for i in range(6)]
+            )
             rollup_partition(svc.engine, "measurements_2026_01", replace=True)
 
             result = svc.ts.query(

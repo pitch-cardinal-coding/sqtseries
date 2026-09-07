@@ -71,9 +71,11 @@ Latency is wall-clock time of one query, p50/p95 over the query runs (50 in the 
 Throughput is page-cache-bound up to ~1M rows; beyond that it becomes
 WAL-checkpoint / disk-IO-bound. The 5M-row drop is real and reproducible on
 this machine (checkpoints start hitting the 64MB `journal_size_limit`).
-These are batched-engine numbers; the on-wire service path (one insert
-transaction per message) sustains fewer rows/sec — measure it with the
-benchmark tool's engine insert and scale expectations accordingly.
+These are batched-engine numbers; the live service path drains ingest frames
+in bursts (up to 256 per tick) and commits one transaction per batch, so it
+sustains a large fraction of these rates. Measure your hardware with the
+benchmark tool and `scripts/stress_percentiles.py` (per-path P50/P90/P99 for
+the live service).
 
 ## Query latency
 

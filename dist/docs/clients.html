@@ -294,7 +294,8 @@ print(orjson.loads(adm.recv()))
       dropped when a socket closes.</li>
   <li>Ingestion is fire-and-forget: one frame per measurement, no
       acknowledgement and no ZMQ-level batching. Send frames as fast as your
-      sender can; the server writes each one immediately. There is no
+      sender can; the server drains them in bursts and commits one transaction
+      per burst. There is no
       "batch until the server flushes" contract to reason about.</li>
   <li>Set a <strong>receive timeout</strong> on REQ sockets (the bundled
       client uses 30s). The server also enforces its own budget,

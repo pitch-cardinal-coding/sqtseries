@@ -107,10 +107,35 @@ python3 -m pytest tests/ -x
 
 ## Profiling with py-spy-watch
 
-`scripts/py-spy-watch.sh` continuously samples `py-spy dump` on live
-`python3 -m sqtseries` processes and appends every stack trace to a log
-file. Use it alongside a running server **or** a test run that spawns
-subprocesses (the script targets any `python3.*sqtseries` process).
+`scripts/py-spy-watch.sh` continuously watches **every** matching python
+process — the pytest runner itself (tests run engines in-process) plus each
+spawned `python3 -m sqtseries` service or example script — logging an RSS
+trend line per pid with a `+N kB` delta, and appending a full `py-spy dump`
+stack trace every `dump_interval` seconds per pid. Use it alongside a
+running server **or** a whole test-suite/examples run.
+
+```bash
+# Start the watcher in a tmux session
+# usage: scripts/py-spy-watch.sh [interval_s] [out_file] [dump_interval_s] [--clean]
+tmux new -d -s py-spy-watch "bash scripts/py-spy-watch.sh 1 /tmp/sqtseries-py-spy.log 30"
+
+# In another window: run the tests or examples
+tmux new -d -s tests "/home/iam/devcode/.env/sqtseries/bin/python3 -m pytest tests/ -q"
+
+# Inspect the log (RSS trend lines + periodic full stacks)
+tail -f /tmp/sqtseries-py-spy.log
+
+# When done
+tmux kill-session -t py-spy-watch
+tmux kill-session -t tests
+```
+
+Matching requires **both** the command line and the process `comm` to look
+like a python process, so bash wrappers that merely carry the pattern in
+their `bash -c` string never match (a lesson from airbits' watcher). It
+needs `sudo` for ptrace (yama/ptrace_scope=1); passwordless sudo is probed
+at startup — without it the log carries RSS trend lines only. py-spy 0.4.2
+attaches fine on Python 3.14.4 (verified 2026-09).
 
 ### Quick start
 
@@ -141,11 +166,9 @@ bash scripts/py-spy-watch.sh 2 /tmp/sqtseries-py-spy.log
 
 ### How targeting works
 
-The script uses `pgrep -f "python3.*sqtseries"` to find targets. This
-matches processes whose command line contains both `python3` *and*
-`sqtseries` — i.e. any sqtseries server instance or subprocess spawned
-by the test suite. It avoids matching bash wrappers, non-Python helper
-scripts, or unrelated processes from other projects.
+The script matches processes whose command line contains `python3` and
+`sqtseries` (servers, example scripts) plus the `pytest` runner itself,
+filtered by `/proc/PID/comm` so shell wrappers never match.
 
 `sudo` is required for ptrace under `yama/ptrace_scope=1` (the
 kernel default on most distros).
@@ -166,6 +189,73 @@ The `test_resource_leaks.py`, `test_async_cleanup.py`, and
 concurrent safety; py-spy complements them by showing runtime behaviour
 under load.
 
+## Profiling with rss-watch (no-ptrace fallback)
+
+`scripts/rss-watch.sh` is a lightweight memory/thread/fd monitor that needs
+no ptrace and no sudo. py-spy does attach on this stack (py-spy 0.4.2 +
+Python 3.14.4, verified 2026-09), but it requires sudo for ptrace and
+briefly pauses the target on every dump — when you only want resource
+trending, or cannot use sudo, this script reads `/proc/PID/status` for
+every `python3.*sqtseries` process and logs VmRSS, VmSize, thread count,
+and fd count at each interval.
+
+### Quick start
+
+```bash
+tmux new -d -s rss-watch "bash scripts/rss-watch.sh 2 /tmp/sqtseries-rss.log"
+
+# In another window: run the tests or examples
+tmux new -d -s tests "python3 -m pytest tests/ -q"
+
+# Inspect the log
+tail -f /tmp/sqtseries-rss.log
+
+# When done
+tmux kill-session -t rss-watch
+tmux kill-session -t tests
+```
+
+### What the logs tell you
+
+Each snapshot shows per-process rss, vsz, threads, and fds. Look for:
+
+- **Rss climb** — steady VmRSS growth over time = memory leak.
+- **Thread growth** — rising thread count = un-joined tasks or threads.
+- **Fd growth** — rising fd count = socket/connection/file leak.
+
+Use a unique output file per project to avoid interleaved logs:
+
+```bash
+bash scripts/rss-watch.sh 2 /tmp/sqtseries-rss.log
+```
+
+## CI-style leak gate
+
+`scripts/leak_check.py` turns an rss-watch log into a pass/fail verdict:
+
+```bash
+# Run the workload under rss-watch, then judge the log
+python3 scripts/leak_check.py /tmp/sqtseries-rss.log
+
+# Recipe for a bounded CI-style run (all in tmux sessions):
+#   1. start rss-watch (2s interval)
+#   2. start the server / test suite / example run
+#   3. run the workload long enough that post-warm-up snapshots exist
+#   4. leak_check exits 0 (pass), 1 (leak), or 2 (no data — never silent-pass)
+python3 scripts/leak_check.py \
+    --warmup-snapshots 10 --rss-tolerance-kb 20000 /tmp/sqtseries-rss.log
+```
+
+Verdicts are based on **drift after warm-up**, not from process birth: a
+starting server always grows once (imports, sockets, thread pool, caches),
+so the first `--warmup-snapshots` of each process lifetime are skipped and
+whatever remains must be flat. A spike that fully recovers passes (load
+peak); a climb that never returns fails. Histories split automatically at
+process-restart markers (fresh python process: fds <= 4, threads == 1,
+rss < 8 MB), so pid reuse and restarting services are judged per lifetime.
+Tune `--warmup-snapshots` to your rss-watch interval (10 snapshots = 20 s
+at the default 2 s), and size `--rss-tolerance-kb` to your workload.
+
 ## Troubleshooting
 
 | Symptom | Reason / fix |
@@ -173,7 +263,7 @@ under load.
 | "Address already in use" | Should not happen: every service fixture binds OS-assigned free ports (`free_ports`). If it does, a leftover process may hold a port — check `ss -tlnp` and kill it. |
 | Slow suite | Run a single file, or `--durations` to find the slowest tests |
 | Weird failures after editing config | New settings often need new `test_config*` cases; the loader reads env vars, so unset `SQT_SERIES_*` before running |
-| py-spy-watch "Failed to find python version" | The watcher picked up a non-Python process. The default `pgrep` pattern should prevent this; if it persists, check `pgrep -af "python3.*sqtseries"` to see what it matches. |
+| py-spy attach errors ("Failed to find python version", ptrace denied) | Use the venv's py-spy (0.4.2 attaches on Python 3.14.4, verified 2026-09) and attach with sudo: `sudo -n /home/iam/devcode/.env/sqtseries/bin/py-spy dump --pid <PID>` (yama/ptrace_scope=1). If you still cannot attach, `scripts/rss-watch.sh` needs no ptrace at all. |
 
 ## Documentation links
 

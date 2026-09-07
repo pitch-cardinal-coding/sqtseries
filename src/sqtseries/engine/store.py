@@ -170,7 +170,6 @@ class StorageEngine:
             return 0
 
         by_partition: dict[str, list[tuple[int, int, float]]] = {}
-        existing = set(self.db.get_table_names()) if auto_create_partition else set()
 
         inserted = 0
 
@@ -188,13 +187,15 @@ class StorageEngine:
                 by_partition.setdefault(pkey, []).append((sid, ts_ns, value))
 
             if auto_create_partition:
+                # Partition DDL is idempotent (CREATE TABLE IF NOT EXISTS), so
+                # we can create exactly the partitions this batch touches —
+                # no sqlite_master table-list scan needed here. Scanning on
+                # every insert_many call dominated short-batch latency as the
+                # schema grows month over month (measured 2026-09).
                 for pname in sorted(by_partition):
-                    if pname in existing:
-                        continue
                     year, month = parse_partition_name(pname)
                     conn.execute(measurements_ddl(year, month))
                     conn.execute(measurements_index_ddl(year, month))
-                    existing.add(pname)
 
             for pname, part_rows in by_partition.items():
                 # Validates the name before it is used in DDL interpolation

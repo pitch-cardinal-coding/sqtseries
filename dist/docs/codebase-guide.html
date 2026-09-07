@@ -732,13 +732,15 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
   signal handlers, but <code>Service.run()</code>'s <code>add_signal_handler</code> replaces them, so
   <code>should_exit</code> is only ever set in <code>shutdown()</code>. Bind failure surfaces a clean
   RuntimeError.</p></div>
-  <div class="sym"><span class="kind">method</span><br><span class="sig">_sink(metric, tags, value, ts_ns)</span>
-  <p class="desc">Persist one ingested measurement immediately via <code>store.insert_many</code>. There is no
-  app-level write queue: SQLite serializes writers itself (single-writer + BEGIN IMMEDIATE +
-  busy_timeout), so a queue would only add latency.</p></div>
-  <div class="sym"><span class="kind">method</span><br><span class="sig">_on_publish(topic, payload)</span>
-  <p class="desc">Fire an asyncio task per measurement to republish to live subscribers; tasks are tracked
-  in <code>_publish_tasks</code> and drained on shutdown.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_sink(rows)</span>
+  <p class="desc">Persist a drained batch in ONE transaction via <code>store.insert_many</code> — a
+  256-point burst costs one commit, not 256 (the per-point commit path was the ingest bottleneck
+  under concurrent query load). No app-level write queue: SQLite serializes writers itself
+  (single-writer + BEGIN IMMEDIATE + busy_timeout), so a queue would only add latency. A failed
+  batch is dropped and logged — the PULL producer has already moved on.</p></div>
+  <div class="sym"><span class="kind">method</span><br><span class="sig">_on_publish(batch)</span>
+  <p class="desc">Fire ONE asyncio task per drained batch to republish to live subscribers; tasks are
+  tracked in <code>_publish_tasks</code> and drained on shutdown.</p></div>
   <div class="sym"><span class="kind">method</span><br><span class="sig">_query_handler(query) -> dict</span>
   <p class="desc">Serves the query REP socket: validates <code>limit</code>, dispatches the
   <code>aggregations</code> (comma-separated) form to <code>ts.aggregate</code>, otherwise to
@@ -1282,22 +1284,26 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
 
 <div class="file" id="m-ingress">
   <div class="file-head"><span class="path">src/sqtseries/messaging/ingress.py</span><span class="meta">136 lines</span></div>
-  <p>Ingress pipeline: ZMQ PULL &rarr; validate &rarr; sink (SQLite write) + republish. No app-level
-  write queue — each validated frame goes straight to the sink and onto the pub/sub bus.</p>
-  <div class="const"><span class="sig">TOPIC_PREFIX = b""</span> — pubsub topic is the metric name.</div>
+  <p>Ingress pipeline: ZMQ PULL &rarr; validate &rarr; batched sink (SQLite write) + republish.
+  Batch-first: a drained burst is persisted in ONE transaction and republished in ONE task (the
+  former one-transaction-per-point path capped ingest far below the pump rate under concurrent
+  query load — measured 2026-09).</p>
+  <div class="const"><span class="sig">DEFAULT_DRAIN_BATCH = 256</span> — max frames per drain_many() call.</div>
   <div class="sym"><span class="kind">class</span><br><span class="sig">Ingress</span>
   <p class="desc"><code>(endpoint, settings, sink=None, on_publish=None, context=None)</code>.
-  <code>sink(metric, tags, value, ts_ns)</code> is called synchronously per frame (None skips
-  persistence — validation and republish still happen); <code>on_publish(bytes_metric, dict)</code>
-  feeds live subscribers. Counters: <code>recv_count</code>, <code>error_count</code>, <code>invalid_count</code>.
+  <code>sink(rows)</code> is called ONCE per drained batch with a list of
+  (metric, tags, value, ts_ns) rows (None skips persistence — validation and republish still
+  happen); <code>on_publish([(topic_bytes, payload), ...])</code> feeds live subscribers, once per
+  batch. Counters: <code>recv_count</code>, <code>error_count</code>, <code>invalid_count</code>.
   <ul>
     <li><span class="sig">async start()</span> — PULL socket with HWM + max message size, bound to the endpoint.</li>
-    <li><span class="sig">async run_once(block=True) -> bool</span> — recv one frame (blocking or NOBLOCK),
-        handle it, return whether one was handled; zmq errors counted and logged.</li>
-    <li><span class="sig">async drain()</span> — drain ALL pending frames in a tight loop (shutdown/tests).</li>
-    <li><span class="sig">_handle(raw)</span> — parse (invalid JSON counts), <code>parse_ingest</code> with the
-        skew guard (ProtocolError/OverflowError &rarr; invalid counter — OverflowError guards the
-        huge-float timestamp path where <code>ts * 1e9</code> can't fit an int), then sink + on_publish.</li>
+    <li><span class="sig">async drain_many(max_messages=256) -> int</span> — NOBLOCK-drain up to N frames,
+        validate each, then dispatch the batch once; returns rows handled. zmq errors counted and logged.</li>
+    <li><span class="sig">async drain()</span> — drain ALL pending frames (shutdown/tests).</li>
+    <li><span class="sig">_parse(raw) -> Row | None</span> — parse (invalid JSON counts), <code>parse_ingest</code>
+        with the skew guard (ProtocolError/OverflowError &rarr; invalid counter — OverflowError guards the
+        huge-float timestamp path where <code>ts * 1e9</code> can't fit an int).</li>
+    <li><span class="sig">_dispatch(rows)</span> — sink(rows) + on_publish(events) for one batch.</li>
     <li><span class="sig">async stop()</span> — close the socket (linger 0).</li>
     <li><span class="sig">stats()</span> — {recv, invalid, errors}.</li>
   </ul></p></div>
@@ -2211,15 +2217,14 @@ then one frame per change: {"type": "conn", ...} / {"type": "sub", ...}</pre>
 <h2 id="flows">17. End-to-End Data Flows</h2>
 
 <h3>17.1 Write path (ZMQ)</h3>
-<pre>producer (PUSH) ──frame──► Ingress.run_once ──► _handle:
-    orjson.loads ─► parse_ingest (+skew guard) ─► _sink("cpu.usage", tags, 0.72, ts_ns)
-        │                                                 │
-        │                                                 ▼
-        │                                     StorageEngine.insert_many (ONE transaction:
-        │                                     resolve series, create partition if needed,
-        │                                     executemany into measurements_YYYY_MM)
+<pre>producer (PUSH) ──frames──► Ingress.drain_many (up to 256/tick, NOBLOCK) ──► _parse:
+    orjson.loads ─► parse_ingest (+skew guard) ─► _sink(rows) — ONE transaction per batch:
+        │                                         StorageEngine.insert_many (resolve series,
+        │                                         create partition if needed, executemany
+        │                                         into measurements_YYYY_MM)
         ▼
-    on_publish(metric, {metric, tags, value}) ─► PubSub.publish ─► [topic, json] on XPUB 12503
+    on_publish([(topic, {metric, tags, value}), ...]) ─► ONE task ─► PubSub.publish per row
+                                                      └─► [topic, json] on XPUB 12503
                                                       └─► WS /ws/subscribe clients via SUB socket</pre>
 
 <h3>17.2 Write path (HTTP)</h3>

@@ -177,7 +177,7 @@ class TestServiceCleanup:
             await asyncio.sleep(0.2)
 
         svc.pubsub.publish = slow  # type: ignore[method-assign]
-        svc._on_publish(b"cpu", {"value": 1.0})
+        svc._on_publish([(b"cpu", {"value": 1.0})])
         await asyncio.sleep(0.05)
         assert svc._publish_tasks
         # must await + clear the task

@@ -9,6 +9,7 @@
   var MAX_TICKER = 50;
   var MAX_ROWS = 200;
   var MAX_BACKOFF_MS = 10000;
+  var REFRESH_DEBOUNCE_MS = 150;
 
   var els = {};
   var ws = null;
@@ -17,6 +18,8 @@
   var ageTimer = null;
   var prevCounters = null;
   var prevTickAt = 0;
+  var refreshTimer = null;
+  var refreshGeneration = 0;
 
   function el(id) {
     if (!els[id]) {
@@ -296,14 +299,37 @@
     }
   }
 
+  /* Conn/sub events arrive in bursts (e.g. mass connect under load).
+     Coalesce them into one refresh per debounce window; a generation
+     counter drops stale responses that resolve out of order. */
   function refreshLists() {
+    if (refreshTimer !== null) {
+      return;
+    }
+    refreshTimer = window.setTimeout(function () {
+      refreshTimer = null;
+      fetchLists();
+    }, REFRESH_DEBOUNCE_MS);
+  }
+
+  function fetchLists() {
+    refreshGeneration += 1;
+    var gen = refreshGeneration;
     fetch("/api/v1/connections", { cache: "no-store" })
       .then(function (r) { return r.json(); })
-      .then(function (body) { renderConnections(body.data || []); })
+      .then(function (body) {
+        if (gen === refreshGeneration) {
+          renderConnections(body.data || []);
+        }
+      })
       .catch(function () {});
     fetch("/api/v1/subscribers", { cache: "no-store" })
       .then(function (r) { return r.json(); })
-      .then(function (body) { renderTopics(body.subscriptions || []); })
+      .then(function (body) {
+        if (gen === refreshGeneration) {
+          renderTopics(body.subscriptions || []);
+        }
+      })
       .catch(function () {});
   }
 
@@ -394,6 +420,11 @@
       window.clearTimeout(backoffTimer);
       backoffTimer = null;
     }
+    if (refreshTimer !== null) {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    refreshGeneration += 1;
     if (ageTimer !== null) {
       window.clearInterval(ageTimer);
       ageTimer = null;
