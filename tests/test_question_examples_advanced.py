@@ -178,7 +178,8 @@ class TestAdvancedQuestionExamples:
         # Questions 4-10 should still run and have ANSWER lines
         answer_count = sum(1 for line in out.splitlines() if "ANSWER:" in line)
 
-        assert answer_count >= 7  # questions 4-10 = 7 answers
+        # Questions 4-10 = 7 answers.
+        assert answer_count >= 7
 
     async def test_per_series_with_db_works(self):
         """Per-series questions produce answers when --db is provided."""
@@ -196,7 +197,8 @@ class TestAdvancedQueriesUnit:
 
     def test_utc_day_start(self):
         """utc_day_start returns midnight UTC in seconds."""
-        now = 1_700_000_000  # arbitrary timestamp
+        # Arbitrary timestamp.
+        now = 1_700_000_000
         with pytest.MonkeyPatch().context() as mp:
             mp.setattr(time, "time", lambda: now)
             from examples.question_examples_advanced import utc_day_start

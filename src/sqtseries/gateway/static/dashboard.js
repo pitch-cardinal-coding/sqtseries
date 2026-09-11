@@ -131,12 +131,19 @@
     var names = Object.keys(ports).sort();
     setText(
       "stat-ports",
-      names.map(function (k) { return k + ":" + ports[k]; }).join("  ")
+      names
+        .map(function (k) {
+          return k + ":" + ports[k];
+        })
+        .join("  "),
     );
     setText("stat-wal", fmtBytes(snap.wal_bytes));
     setText(
       "stat-checkpoints",
-      fmtInt(snap.checkpoints) + " (" + fmtInt(snap.checkpoint_busy_runs) + " busy)"
+      fmtInt(snap.checkpoints) +
+        " (" +
+        fmtInt(snap.checkpoint_busy_runs) +
+        " busy)",
     );
   }
 
@@ -165,18 +172,17 @@
     setText("stat-ingested", fmtInt(tick.ingested));
     setText("stat-invalid", fmtInt(tick.invalid));
     setText("stat-ingest-errors", fmtInt(tick.ingest_errors));
+    setText("stat-persisted", fmtInt(tick.persisted || 0));
+    setText("stat-dropped-points", fmtInt(tick.dropped || 0));
     setText("stat-queries", fmtInt(tick.queries));
     var hits = tick.query_cache_hits || 0;
     var misses = tick.query_cache_misses || 0;
     var total = hits + misses;
     setText(
       "stat-cache-ratio",
-      total ? ((100 * hits) / total).toFixed(1) + "%" : "—"
+      total ? ((100 * hits) / total).toFixed(1) + "%" : "—",
     );
-    setText(
-      "stat-cache-size",
-      fmtInt(tick.query_cache_size) + " / 512"
-    );
+    setText("stat-cache-size", fmtInt(tick.query_cache_size) + " / 512");
     setText("stat-published", fmtInt(tick.published));
   }
 
@@ -197,7 +203,8 @@
       var tr = document.createElement("tr");
       ["id", "peer", "topic"].forEach(function (k) {
         var td = document.createElement("td");
-        td.textContent = c[k] === undefined || c[k] === null ? "—" : String(c[k]);
+        td.textContent =
+          c[k] === undefined || c[k] === null ? "—" : String(c[k]);
         tr.appendChild(td);
       });
       var age = document.createElement("td");
@@ -206,8 +213,7 @@
       tr.appendChild(age);
       var stale = document.createElement("td");
       var isStale =
-        c.last_activity_at &&
-        Date.now() / 1000 - c.last_activity_at >= 30;
+        c.last_activity_at && Date.now() / 1000 - c.last_activity_at >= 30;
       stale.textContent = isStale ? "stale" : "live";
       if (isStale) {
         stale.className = "stale-flag";
@@ -270,7 +276,7 @@
       "stat-watermark",
       typeof snap.rollup_watermark === "number"
         ? fmtHourNs(snap.rollup_watermark)
-        : "—"
+        : "—",
     );
   }
 
@@ -286,14 +292,17 @@
   function applyEvent(msg) {
     if (msg.type === "conn") {
       tickRow(
-        "conn " + (msg.id || "?") + " " + (msg.connected === false ? "left" : "joined"),
-        "conn"
+        "conn " +
+          (msg.id || "?") +
+          " " +
+          (msg.connected === false ? "left" : "joined"),
+        "conn",
       );
       refreshLists();
     } else if (msg.type === "sub") {
       tickRow(
         "sub " + (msg.topic || "?") + " → " + (msg.subscribers || 0),
-        "sub"
+        "sub",
       );
       refreshLists();
     }
@@ -316,7 +325,9 @@
     refreshGeneration += 1;
     var gen = refreshGeneration;
     fetch("/api/v1/connections", { cache: "no-store" })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        return r.json();
+      })
       .then(function (body) {
         if (gen === refreshGeneration) {
           renderConnections(body.data || []);
@@ -324,7 +335,9 @@
       })
       .catch(function () {});
     fetch("/api/v1/subscribers", { cache: "no-store" })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        return r.json();
+      })
       .then(function (body) {
         if (gen === refreshGeneration) {
           renderTopics(body.subscriptions || []);

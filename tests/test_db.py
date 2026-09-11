@@ -79,7 +79,8 @@ def test_writer_self_heals_after_dead_handle(db):
     db.execute("CREATE TABLE t(x)")
     with db._writer_lock:
         raw = db._get_writer()
-        raw.close()  # simulate the handle dying underneath us
+        # Simulate the handle dying underneath us.
+        raw.close()
     with db.begin() as conn:
         conn.execute("INSERT INTO t VALUES (1)")
     assert db.scalar("SELECT COUNT(*) FROM t") == 1
@@ -153,10 +154,13 @@ def test_reader_pool_is_lifo_warmest_reused(db):
     a = cm1.__enter__().dbapi_connection
     b = cm2.__enter__().dbapi_connection
     try:
-        assert a is not b  # two concurrent checkouts -> two handles
+        # Two concurrent checkouts -> two handles.
+        assert a is not b
     finally:
-        cm1.__exit__(None, None, None)  # pool: [a]
-        cm2.__exit__(None, None, None)  # pool: [a, b] (LIFO top = b)
+        # Pool: [a].
+        cm1.__exit__(None, None, None)
+        # Pool: [a, b] (LIFO top = b).
+        cm2.__exit__(None, None, None)
     # Next checkout is b (LIFO top); while b is held, the next is a.
     cm3, cm4 = db.connect(), db.connect()
     try:
@@ -183,7 +187,8 @@ def test_abandoned_partial_select_does_not_block_checkpoint(db, tmp_path):
     with db.connect() as conn:
         it = iter(conn.execute("SELECT x FROM t"))
         next(it)
-        del it  # Result/cursor still alive, statement unreset
+        # Result/cursor still alive, statement unreset.
+        del it
 
     # Writer grows the WAL after the (now pooled) reader's snapshot
     with db.begin() as conn:
@@ -298,10 +303,12 @@ def test_reader_bound_bounded_wait_no_deadlock(tmp_path, monkeypatch):
     with database.connect() as holder:
         holder.execute("SELECT 1").first()
         t0 = time.monotonic()
-        with database.connect() as waiter:  # must NOT hang
+        # Must NOT hang.
+        with database.connect() as waiter:
             elapsed = time.monotonic() - t0
             assert waiter.execute("SELECT x FROM t").scalar() == 7
-    assert elapsed < 2.0  # timed out fast; transient handle served the query
+    # Timed out fast; transient handle served the query.
+    assert elapsed < 2.0
 
 
 def test_concurrent_checkouts_respect_pool_bound(tmp_path):
@@ -356,17 +363,52 @@ def test_nested_same_thread_checkout_no_deadlock(tmp_path, monkeypatch):
         assert database.get_table_names() == ["t"]
 
 
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
 def test_abandoned_checkout_releases_slot(tmp_path):
     """A connect() generator abandoned without __exit__ (finalized by GC,
-    possibly from another thread) must not leak its slot."""
+    possibly from another thread) must not leak its slot.
+
+    The ignored ResourceWarning is this test's own exhaust: abandoning the
+    checkout is the point, and the raw handle is therefore finalized by the
+    collector instead of closed. Unrelated teardown paths close cleanly
+    (StorageEngine.close disposes the pool).
+    """
     database = Database(tmp_path / "leak.sqlite", reader_pool_size=2)
     ctx = database.connect()
     wrapper = ctx.__enter__()
     wrapper.execute("SELECT 1").first()
-    del ctx, wrapper  # abandon — no __exit__; GeneratorExit runs the finally
+    # Abandon — no __exit__; GeneratorExit runs the finally.
+    del ctx, wrapper
     gc.collect()
     # Both slots must be back: the semaphore recovered from the abandonment.
     assert database._reader_slots._sem._value == 2
     for _ in range(2):
         with database.connect() as conn:
             conn.execute("SELECT 1").first()
+
+
+def test_open_failure_closes_handle(tmp_path, monkeypatch):
+    """A pragma failure mid-_open must close the raw handle, not leak it
+    to the garbage collector (ResourceWarning) or the descriptor table."""
+    import warnings
+
+    import sqtseries.engine.db as db_mod
+
+    bad_pragmas = dict(db_mod.CONNECTION_PRAGMAS, cache_size="bogus!!!")
+    monkeypatch.setattr(db_mod, "CONNECTION_PRAGMAS", bad_pragmas)
+    database = Database(str(tmp_path / "fail.sqlite"))
+    # Drain garbage from earlier tests first: the collect below must only
+    # see this test's own handle.
+    gc.collect()
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        try:
+            database._open()
+            raised = False
+        except sqlite3.OperationalError:
+            raised = True
+        # The except block has exited, so no traceback pins the frame:
+        # an unclosed handle is collectible exactly here.
+        assert raised
+        gc.collect()
+    assert [w for w in record if issubclass(w.category, ResourceWarning)] == []

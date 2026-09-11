@@ -39,9 +39,14 @@ def socket_options(
     heartbeat_ttl: int = 5000,
     immediate: bool = True,
     tcp_keepalive: bool = True,
+    reconnect_ivl_max_ms: int = 10_000,
 ) -> dict[int, Any]:
     """Return socket options to apply before bind/connect.
     LINGER is set here (before bind) per pyzmq#1407 guidance.
+
+    reconnect_ivl_max_ms enables exponential reconnect backoff (default
+    10s): the stock behavior retries at a constant 100ms forever, which
+    hammers a down peer instead of backing off.
     """
     opts: dict[int, Any] = {
         zmq.LINGER: linger_ms,
@@ -50,6 +55,8 @@ def socket_options(
         zmq.HEARTBEAT_TIMEOUT: heartbeat_timeout,
         zmq.HEARTBEAT_TTL: heartbeat_ttl,
         zmq.IMMEDIATE: int(bool(immediate)),
+        zmq.RECONNECT_IVL: 100,
+        zmq.RECONNECT_IVL_MAX: reconnect_ivl_max_ms,
     }
     if tcp_keepalive:
         opts.update(_tcp_keepalive_opts())

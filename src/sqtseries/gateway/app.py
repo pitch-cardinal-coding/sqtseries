@@ -79,6 +79,7 @@ def create_app(
     ingestion: Any | None = None,
     registry: Any | None = None,
     query_timeout_s: float | None = None,
+    query_max_rows: int = 10_000,
     stats_provider: Any | None = None,
 ) -> FastAPI:
     """Create the FastAPI application.
@@ -92,6 +93,8 @@ def create_app(
             skew guard on the HTTP write path (same as the ZMQ path).
         query_timeout_s: cap for one HTTP read/aggregate (None disables);
             the query runs off the event loop in a thread.
+        query_max_rows: raw-row cap for queries run by the built-in tsdb
+            (gateway-only mode); ignored when a ``tsdb`` is passed in.
         stats_provider: zero-arg callable returning the full service stats
             dict for the dashboard push channel (None = degraded snapshot
             from store + registry only).
@@ -100,7 +103,7 @@ def create_app(
     if tsdb is None:
         if store is None:
             raise ValueError("either store or tsdb is required")
-        tsdb = TimeSeriesDB(store)
+        tsdb = TimeSeriesDB(store, max_rows=query_max_rows)
 
     # FastAPI serializes JSON directly via Pydantic (Rust-backed, same speed
     # class as orjson) when a response model / return type is declared — the

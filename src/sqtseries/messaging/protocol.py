@@ -4,10 +4,19 @@ ingest/query/admin; pubsub uses two-part frames: [topic, json-payload].
 """
 
 import math
+import threading
 from dataclasses import dataclass
 from typing import Any
 
 import orjson
+
+# Server-assigned timestamps must be strictly increasing per process (see
+# IngestMessage.to_rows): the wall clock is coarser than a 50-frame burst,
+# and a duplicate ns within a series violates the (series_id, timestamp_ns)
+# PRIMARY KEY and rolls the whole batch back. Mutable holder (not `global`)
+# so the monotonic guard stays testable without module-global writes.
+_server_ts_lock = threading.Lock()
+_server_last_ts_ns = [0]
 
 
 class ProtocolError(ValueError):
@@ -29,6 +38,17 @@ class IngestMessage:
 
         ts = self.timestamp if self.timestamp is not None else time.time()
         ts_ns = int(ts * 1_000_000_000)
+        if self.timestamp is None:
+            # Server-assigned time must be strictly increasing per process:
+            # the wall clock is coarser than a burst (50 frames can land in
+            # one tick), and duplicate ns within a series would violate the
+            # (series_id, timestamp_ns) PRIMARY KEY and roll the whole
+            # transaction back atomically. Drift ahead of wall time is
+            # bounded by 1ns per assigned point (negligible).
+            with _server_ts_lock:
+                if ts_ns <= _server_last_ts_ns[0]:
+                    ts_ns = _server_last_ts_ns[0] + 1
+                _server_last_ts_ns[0] = ts_ns
 
         return (self.metric, self.tags, self.value, ts_ns)
 

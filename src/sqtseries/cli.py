@@ -1,6 +1,7 @@
 """sqtseries command-line interface."""
 
 import asyncio
+import concurrent.futures
 import contextlib
 import os
 import time
@@ -125,6 +126,19 @@ def run(ctx: click.Context) -> None:
     svc = Service(settings)
 
     async def _run() -> None:
+        # Bounded default executor: every blocking off-loop job (queries,
+        # /write, dashboard snapshots) lands here. Unbounded, the default
+        # executor spawns a thread per concurrent slow job — under a query
+        # storm that climbed linearly (measured 2026-09-09: +1 thread per
+        # few snapshots at 10k pts/s). 8 threads cap concurrency; excess
+        # jobs queue (real backpressure, bounded-queue doctrine) instead of
+        # multiplying GIL-contending threads.
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(
+                max_workers=8, thread_name_prefix="sqt-offloop"
+            )
+        )
         await svc.start()
         try:
             await svc.run()

@@ -98,13 +98,15 @@ class TestFlatten:
         assert by_metric["status.detection_overlay"]["value"] == 1.0
         for p in points:
             assert p["tags"] == {"camera_id": "test_cam_001"}
-            assert "timestamp" in p  # generated_at preserved
+            # generated_at preserved.
+            assert "timestamp" in p
 
     def test_flatten_skips_strings_and_missing(self):
         from examples.camera.camera_feed import flatten
 
         msg = dict(SAMPLE_MESSAGE)
-        del msg["current_visible_people"]  # missing numeric -> skipped
+        # Missing numeric -> skipped.
+        del msg["current_visible_people"]
 
         points = flatten(msg)
         metrics = {p["metric"] for p in points}
@@ -173,7 +175,8 @@ class TestAskSparseData:
         from examples.camera.camera_feed import flatten
 
         base = time.time() - 3600
-        for i in range(60):  # one message per minute for an hour
+        # One message per minute for an hour.
+        for i in range(60):
             msg = dict(SAMPLE_MESSAGE)
             msg["current_visible_people"] = 10 + (i % 20)
             msg["system_metrics"]["batteryPercent"] = 85.0 - i * 0.1
@@ -195,8 +198,10 @@ class TestAskSparseData:
             "24",
         )
         assert res.returncode == 0, res.stderr
-        assert "avg=" in res.stdout  # Q1 answered with real numbers
-        assert "battery" in res.stdout  # Q8 reported
+        # Q1 answered with real numbers.
+        assert "avg=" in res.stdout
+        # Q8 reported.
+        assert "battery" in res.stdout
 
     async def test_ask_q8_recharge_message(self, running_service):
         """Battery that gains charge is reported as a recharge."""
@@ -206,7 +211,8 @@ class TestAskSparseData:
         base = time.time() - 7200
         for i in range(10):
             msg = dict(SAMPLE_MESSAGE)
-            msg["system_metrics"]["batteryPercent"] = 50.0 + i * 5.0  # rising
+            # Rising.
+            msg["system_metrics"]["batteryPercent"] = 50.0 + i * 5.0
 
             for p in flatten(msg):
                 svc.ts.insert(

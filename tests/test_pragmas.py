@@ -72,3 +72,17 @@ class TestMaintenance:
         with engine.connect() as conn:
             val = conn.exec_driver_sql("PRAGMA auto_vacuum").scalar()
         assert val == 2
+
+
+class TestCheckpointModes:
+    def test_invalid_mode_raises(self, engine):
+        from sqtseries.engine import wal_checkpoint
+
+        with pytest.raises(ValueError, match="Invalid checkpoint mode"):
+            wal_checkpoint(engine, "BOGUS")
+
+    def test_integrity_check_clean(self, engine):
+        from sqtseries.engine import integrity_check
+
+        initialize_schema(engine)
+        assert integrity_check(engine) == ["ok"]

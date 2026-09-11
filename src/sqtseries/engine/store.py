@@ -160,6 +160,10 @@ class StorageEngine:
         *,
         auto_create_partition: bool = True,
     ) -> int:
+        # CUD Point: Create — the single funnel for all user-data writes
+        # (ZMQ sink, HTTP write, embedded insert all converge here). There
+        # is no Update anywhere in the service (append-only; grep UPDATE
+        # is empty) — only this insert path and TTL-driven deletes.
         """Insert (metric, tags, value, timestamp_ns) rows; returns count.
 
         Resolves series in one transaction, then inserts measurements per
@@ -287,6 +291,79 @@ class StorageEngine:
                     continue
                 raise
 
+    def downsample_sqlite(
+        self,
+        series_ids: Sequence[int],
+        start_ns: int | None,
+        end_ns: int | None,
+        bucket_ns: int,
+    ) -> dict[int, list[float]]:
+        """Per-bucket ``[count, sum, min, max]`` partials computed in SQLite.
+
+        Same buckets as :func:`sqtseries.query.agg.downsample` (``ts //
+        bucket_ns`` over non-negative epoch timestamps; exact floor division
+        also for pre-1970 timestamps) but NOTHING is materialized in Python:
+        SQLite streams one aggregate row per bucket however many raw points
+        the window holds. Partials merge across partitions oldest-first, the
+        same order the raw path observes rows in.
+
+        Returns ``{bucket_key: [count, sum, min, max]}``. Empty window -> {}.
+        """
+        out: dict[int, list[float]] = {}
+        series_ids = list(series_ids)
+        if not series_ids:
+            return out
+        placeholders = ",".join("?" for _ in series_ids)
+        # Exact floor division in pure integer math (SQLite `/` truncates
+        # toward zero, Python `//` floors — identical for ts >= 0, corrected
+        # below for pre-epoch timestamps).
+        bucket_expr = (
+            "(CASE WHEN timestamp_ns >= 0 THEN timestamp_ns / ? "
+            "ELSE -((-timestamp_ns + ? - 1) / ?) END)"
+        )
+        for pname in self._partitions_for_range(start_ns, end_ns):
+            # Validates the name before it is used in SQL interpolation
+            parse_partition_name(pname)
+            sql = (
+                f"SELECT {bucket_expr} AS b, COUNT(*), SUM(value), "  # noqa: S608 - pname validated above
+                f"MIN(value), MAX(value) FROM {pname} "
+                f"WHERE series_id IN ({placeholders})"
+            )
+            params: list[Any] = [bucket_ns, bucket_ns, bucket_ns]
+            params.extend(series_ids)
+            if start_ns is not None:
+                sql += " AND timestamp_ns >= ?"
+                params.append(start_ns)
+            if end_ns is not None:
+                sql += " AND timestamp_ns <= ?"
+                params.append(end_ns)
+            sql += " GROUP BY b"
+            try:
+                with self.db.connect() as conn:
+                    result = conn.execute(sql, params)
+                    for row in result:
+                        bkey = int(row[0])
+                        part = out.get(bkey)
+                        if part is None:
+                            out[bkey] = [
+                                float(row[1]),
+                                float(row[2]),
+                                float(row[3]),
+                                float(row[4]),
+                            ]
+                        else:
+                            part[0] += float(row[1])
+                            part[1] += float(row[2])
+                            part[2] = min(part[2], float(row[3]))
+                            part[3] = max(part[3], float(row[4]))
+            except sqlite3.OperationalError as exc:
+                # retention dropped this partition after we cached its name
+                if "no such table" in str(exc):
+                    self.invalidate_partitions()
+                    continue
+                raise
+        return out
+
     def first_sample_ts(
         self,
         series_ids: Sequence[int],
@@ -325,6 +402,48 @@ class StorageEngine:
             if row is not None and (first is None or int(row[0]) < first):
                 first = int(row[0])
         return first
+
+    def count_in_range(
+        self,
+        series_ids: Sequence[int],
+        start_ns: int | None = None,
+        end_ns: int | None = None,
+    ) -> int:
+        """Row count in range without materializing any row.
+
+        Lets callers enforce the bounded-work cap before paying for a fetch.
+        """
+        series_ids = list(series_ids)
+        if not series_ids:
+            return 0
+        placeholders = ",".join("?" for _ in series_ids)
+        total = 0
+        for pname in self._partitions_for_range(start_ns, end_ns):
+            # Validates the name before it is used in SQL interpolation
+            parse_partition_name(pname)
+            sql = (
+                f"SELECT COUNT(*) FROM {pname} "  # noqa: S608 - pname validated above
+                f"WHERE series_id IN ({placeholders})"
+            )
+            params: list[Any] = list(series_ids)
+            if start_ns is not None:
+                sql += " AND timestamp_ns >= ?"
+                params.append(start_ns)
+            if end_ns is not None:
+                sql += " AND timestamp_ns <= ?"
+                params.append(end_ns)
+            try:
+                with self.db.connect() as conn:
+                    row = conn.execute(sql, params).first()
+                if row is not None:
+                    total += int(row[0])
+            except sqlite3.OperationalError as exc:
+                # retention dropped this partition after we cached its name
+                if "no such table" in str(exc):
+                    self.invalidate_partitions()
+                    continue
+                raise
+        return total
 
     def _partitions_for_range(
         self, start_ns: int | None, end_ns: int | None
@@ -383,6 +502,11 @@ class StorageEngine:
         self._series_cache.clear()
         self._id_cache.clear()
         self._parts_cache = None
+        # Pooled sqlite handles outlive the caches: without this they die
+        # at GC time (ResourceWarning noise) instead of closing cleanly.
+        # Database.dispose() is idempotent, so service shutdown calling
+        # engine.dispose() separately stays harmless.
+        self.db.dispose()
 
 
 def _tags_to_json(tags: dict[str, str] | None) -> str | None:

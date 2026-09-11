@@ -16,9 +16,6 @@
 <div class="docs-grid">
   <div class="docs-content">
 
-<!-- ================================================================ -->
-<!-- COVER                                                             -->
-<!-- ================================================================ -->
 <div class="cover">
   <h2>Complete Codebase Guide</h2>
   <p class="subtitle">Every file, class, function, constant and example explained</p>
@@ -26,15 +23,13 @@
   <div class="badge-row">
     <span class="badge">version 0.1.0</span>
     <span class="badge">Python &ge; 3.14 + SQLite + ZeroMQ + FastAPI</span>
-    <span class="badge">~20k lines: 6.1k source &middot; 4.2k examples &middot; 9.5k tests</span>
+    <span class="badge">~25k lines: 8.2k source &middot; 3.8k examples &middot; 13.4k tests</span>
   </div>
   <p class="small">Generated 2026-08-11 &middot; printable to PDF<br>
   <code>google-chrome --headless=new --disable-gpu --no-sandbox --print-to-pdf=codebase-guide.pdf codebase-guide.html</code></p>
 </div>
 
-<!-- ================================================================ -->
-<!-- TOC                                                               -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="toc">Table of Contents</h2>
 <div class="guide-toc">
@@ -128,9 +123,7 @@
 </ul>
 </div>
 </div>
-<!-- ================================================================ -->
-<!-- 1. OVERVIEW                                                        -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="overview">1. Project Overview</h2>
 
@@ -179,9 +172,7 @@ same answer, about 9&times; faster.</p>
 ruff/black/isort, playwright (dashboard page tests), memory-profiler (bench).</p>
 </div>
 
-<!-- ================================================================ -->
-<!-- 2. ARCHITECTURE                                                    -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="architecture">2. Architecture at a Glance</h2>
 
@@ -253,9 +244,7 @@ ingest port is the first free port in <code>[12500+offset, 12700+offset]</code> 
 ports — so it is usually <strong>12500</strong>, not the configured 12501. The active ports are written to
 <code>runtime.json</code> next to the database; <code>sqtseries ports</code> / <code>sqtseries status</code> read them back.</p>
 </div>
-<!-- ================================================================ -->
-<!-- 3. CORE CONCEPTS                                                  -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="concepts">3. Core Concepts</h2>
 
@@ -328,9 +317,7 @@ so deleted data leaves no aggregate trace. TTL syntax: <code>30d</code>, <code>1
 of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p>
 </div>
 
-<!-- ================================================================ -->
-<!-- 4. ROOT FILES                                                      -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="root-files">4. Root Files</h2>
 
@@ -387,9 +374,7 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
   file values. The file is optional — the service starts with built-in defaults out of the box.</p>
 </div>
 </div>
-<!-- ================================================================ -->
-<!-- 5. TOP-LEVEL PACKAGE                                              -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="pkg-top">5. Package sqtseries (top level)</h2>
 
@@ -734,8 +719,7 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
   RuntimeError.</p></div>
   <div class="sym"><span class="kind">method</span><br><span class="sig">_sink(rows)</span>
   <p class="desc">Persist a drained batch in ONE transaction via <code>store.insert_many</code> — a
-  256-point burst costs one commit, not 256 (the per-point commit path was the ingest bottleneck
-  under concurrent query load). No app-level write queue: SQLite serializes writers itself
+  256-point burst commits once. No app-level write queue: SQLite serializes writers itself
   (single-writer + BEGIN IMMEDIATE + busy_timeout), so a queue would only add latency. A failed
   batch is dropped and logged — the PULL producer has already moved on.</p></div>
   <div class="sym"><span class="kind">method</span><br><span class="sig">_on_publish(batch)</span>
@@ -798,15 +782,12 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
   <p class="desc"><code>disable --now</code> then unlink the unit file.</p></div>
 </div>
 </div>
-<!-- ================================================================ -->
-<!-- 6. ENGINE PACKAGE                                                 -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="pkg-engine">6. Package sqtseries.engine</h2>
 <p>The raw sqlite3 storage layer: schema, partitions, PRAGMAs, migrations, checkpoints, backups,
 maintenance. Why raw sqlite3 (per the module docs): benchmark-validated 2026-08-07 — roughly
-6.7&times; faster point lookups and 1.2&times; bulk inserts than alternatives on the exact hot paths;
-aiosqlite rejected (sequential thread hops).</p>
+6.7&times; faster point lookups and 1.2&times; bulk inserts than alternatives on the exact hot paths.</p>
 
 <div class="file" id="e-init">
   <div class="file-head"><span class="path">src/sqtseries/engine/__init__.py</span><span class="meta">40 lines</span></div>
@@ -1021,9 +1002,7 @@ aiosqlite rejected (sequential thread hops).</p>
   <code>async stop()</code> cancels.</p></div>
 </div>
 
-<!-- ================================================================ -->
-<!-- 7. PARTITION PACKAGE                                             -->
-<!-- ================================================================ -->
+
 <h2 id="pkg-partition">7. Package sqtseries.partition</h2>
 <p>Retention &amp; partitions: automatic data lifecycle management.</p>
 
@@ -1125,9 +1104,7 @@ aiosqlite rejected (sequential thread hops).</p>
   <code>async stop()</code>.</p></div>
 </div>
 
-<!-- ================================================================ -->
-<!-- 8. QUERY PACKAGE                                                 -->
-<!-- ================================================================ -->
+
 <h2 id="pkg-query">8. Package sqtseries.query</h2>
 <p>Query engine: aggregation, downsampling, gap filling, and the rollup fast path.</p>
 
@@ -1224,9 +1201,7 @@ aiosqlite rejected (sequential thread hops).</p>
   unsupported names.</p></div>
 </div>
 </div>
-<!-- ================================================================ -->
-<!-- 9. MESSAGING PACKAGE                                              -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="pkg-messaging">9. Package sqtseries.messaging</h2>
 <p>The ZeroMQ layer — externally facing sockets plus internal plumbing. Messages are JSON via
@@ -1285,9 +1260,7 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
 <div class="file" id="m-ingress">
   <div class="file-head"><span class="path">src/sqtseries/messaging/ingress.py</span><span class="meta">136 lines</span></div>
   <p>Ingress pipeline: ZMQ PULL &rarr; validate &rarr; batched sink (SQLite write) + republish.
-  Batch-first: a drained burst is persisted in ONE transaction and republished in ONE task (the
-  former one-transaction-per-point path capped ingest far below the pump rate under concurrent
-  query load — measured 2026-09).</p>
+  Batch-first: a drained burst is persisted in ONE transaction and republished in ONE task.</p>
   <div class="const"><span class="sig">DEFAULT_DRAIN_BATCH = 256</span> — max frames per drain_many() call.</div>
   <div class="sym"><span class="kind">class</span><br><span class="sig">Ingress</span>
   <p class="desc"><code>(endpoint, settings, sink=None, on_publish=None, context=None)</code>.
@@ -1463,9 +1436,7 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
   <code>async stop()</code> cancels and awaits all; property <code>running</code>.</p></div>
 </div>
 </div>
-<!-- ================================================================ -->
-<!-- 10. GATEWAY PACKAGE                                              -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="pkg-gateway">10. Package sqtseries.gateway</h2>
 <p>HTTP gateway (FastAPI REST + WebSocket) on port 12505. Bridges HTTP directly to the engine —
@@ -1587,9 +1558,7 @@ single-process architecture, no ZMQ hop.</p>
   aborts the stream.</p></div>
 </div>
 </div>
-<!-- ================================================================ -->
-<!-- 11. EXAMPLES                                                      -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="pkg-examples">11. Examples</h2>
 <p>Standalone runnable scripts for every operation. None of them import sqtseries internals (the
@@ -1811,9 +1780,7 @@ Running them requires a live <code>sqtseries run</code> service on the default p
   </ul>
 </div>
 
-<!-- ================================================================ -->
-<!-- 12. CAMERA STACK                                                  -->
-<!-- ================================================================ -->
+
 <h2 id="camera-stack">12. Camera Analytics Stack (examples/camera)</h2>
 <p>A complete self-contained demo: a <em>simulated camera</em> with edge analytics streams JSON
 over a WebSocket; <code>camera_feed.py</code> pumps every reading into sqtseries over plain HTTP
@@ -1969,9 +1936,7 @@ in a tmux session.</p>
   </ul>
 </div>
 
-<!-- ================================================================ -->
-<!-- 13. SCRIPTS                                                       -->
-<!-- ================================================================ -->
+
 <h2 id="scripts">13. scripts/benchmark.py</h2>
 <div class="file" id="scripts-file">
   <div class="file-head"><span class="path">scripts/benchmark.py</span><span class="meta">182 lines</span></div>
@@ -1995,9 +1960,7 @@ in a tmux session.</p>
   </ul>
 </div>
 </div>
-<!-- ================================================================ -->
-<!-- 14. TESTS                                                         -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="tests">14. Tests (54 files + conftest.py)</h2>
 <p>The suite is self-contained: every test uses a temp database under <code>tmp_path</code> — no
@@ -2124,9 +2087,7 @@ awaits async tests without markers; a 60 s pytest-timeout guards hangs. Run:
   <code>test_service*.py</code> cover the daemon lifecycle; <code>test_zmq_edge.py</code> covers ZMQ semantics — all listed above.</p>
 </div>
 
-<!-- ================================================================ -->
-<!-- 15. DOCS DIRECTORY                                                -->
-<!-- ================================================================ -->
+
 <h2 id="docs-dir">15. docs/ Directory</h2>
 <p>A hand-written documentation site (HTML + style.css + app.js), not generated. It powers the
 README links and is itself validated by <code>test_docs_claims.py</code>. Pages:</p>
@@ -2150,9 +2111,7 @@ README links and is itself validated by <code>test_docs_claims.py</code>. Pages:
 </table>
 <p>Supporting assets: <code>style.css</code>, <code>app.js</code> (theme toggle + TOC), <code>favicon.svg</code>.</p>
 </div>
-<!-- ================================================================ -->
-<!-- 16. WIRE PROTOCOL                                                 -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="protocol">16. Wire Protocol Reference</h2>
 <p>Both transports carry the same JSON shapes. Timestamps: <em>seconds</em> on the wire
@@ -2210,9 +2169,7 @@ topic "report": {"uptime_s": ..., "ws_connections": n, "zmq_subscribers": n, "ac
 then one frame per change: {"type": "conn", ...} / {"type": "sub", ...}</pre>
 </div>
 
-<!-- ================================================================ -->
-<!-- 17. DATA FLOWS                                                    -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="flows">17. End-to-End Data Flows</h2>
 
@@ -2265,9 +2222,7 @@ so the clustered PK can't collide.</p>
   ─► TRUNCATE checkpoint ─► dispose engine ─► remove runtime.json</pre>
 </div>
 
-<!-- ================================================================ -->
-<!-- 18. GLOSSARY                                                     -->
-<!-- ================================================================ -->
+
 <div class="part">
 <h2 id="glossary">18. Glossary</h2>
 <table>

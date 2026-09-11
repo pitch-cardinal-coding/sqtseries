@@ -433,7 +433,8 @@ class TestQueryDoesNotBlockLoop:
         orig = TimeSeriesDB.aggregate
 
         def slow_aggregate(self, *args, **kwargs):
-            time.sleep(1.0)  # simulate a heavy aggregate
+            # Simulate a heavy aggregate.
+            time.sleep(1.0)
             return orig(self, *args, **kwargs)
 
         TimeSeriesDB.aggregate = slow_aggregate
@@ -444,7 +445,8 @@ class TestQueryDoesNotBlockLoop:
                 slow = asyncio.create_task(
                     c.get("/api/v1/aggregate", params={"metric": "x", "funcs": "avg"})
                 )
-                await asyncio.sleep(0.2)  # let the aggregate enter the slow path
+                # Let the aggregate enter the slow path.
+                await asyncio.sleep(0.2)
 
                 t0 = time.monotonic()
 

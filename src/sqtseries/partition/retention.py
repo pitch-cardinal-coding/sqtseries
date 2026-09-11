@@ -69,6 +69,8 @@ class RetentionPolicy:
         return keep
 
     def run(self, now: datetime | None = None) -> list[str]:
+        # CUD Point: Delete trigger — TTL expiry is the sole source of
+        # user-data deletion (drop_partition + rollup-row cleanup below).
         """Drop expired partitions; returns dropped table names."""
         now = now or datetime.now(UTC)
         keep = self.partitions_to_retain(now)

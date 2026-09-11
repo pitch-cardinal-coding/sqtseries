@@ -5,6 +5,9 @@ Spawns a real service on free ports, pumps data through ZMQ ingest and HTTP
 write, then hammers every read path — ZMQ query, HTTP read, HTTP aggregate,
 WebSocket fanout, admin commands — and reports P50/P90/P99 per path.
 
+Units: ``--rate`` and the pump throughput are in pts/s (points per second);
+a point is one measurement (metric + value + tags + timestamp).
+
 Usage:
     python3 scripts/stress_percentiles.py [--duration 30] [--rate 2000]
                                           [--clients 8] [--json out.json]
@@ -15,8 +18,10 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import re
 import shutil
 import socket
+import sqlite3
 import statistics
 import subprocess
 import sys
@@ -88,6 +93,11 @@ class Latencies:
     def error(self, path: str) -> None:
         with self._lock:
             self._errors[path] = self._errors.get(path, 0) + 1
+
+    def count(self, path: str) -> int:
+        """Successful samples recorded for a path (used for accounting)."""
+        with self._lock:
+            return len(self._samples.get(path, ()))
 
     def report(self) -> dict[str, dict]:
         out = {}
@@ -186,9 +196,28 @@ auto_detect = false
 
         ctx = zmq.Context.instance()
 
+        def _ingested_now() -> int:
+            """Fresh REQ socket per call (a late reply poisons the FSM).
+            Returns the server's cumulative ingested counter, -1 on failure."""
+            actx = zmq.Context()
+            sock = actx.socket(zmq.REQ)
+            sock.setsockopt(zmq.LINGER, 0)
+            sock.setsockopt(zmq.RCVTIMEO, 5000)
+            sock.connect(f"tcp://127.0.0.1:{ports['admin']}")
+            try:
+                sock.send_json({"cmd": "stats"})
+                if sock.poll(5000) & zmq.POLLIN:
+                    return int(sock.recv_json().get("ingested", -1))
+            except zmq.ZMQError:
+                pass
+            finally:
+                sock.close(0)
+                actx.term()
+            return -1
+
         # --- warm-up data: ZMQ PUSH ingest -------------------------------
         push = ctx.socket(zmq.PUSH)
-        push.setsockopt(zmq.SNDHWM, 50_000)
+        push.setsockopt(zmq.SNDHWM, 101_000)  # Handler-engine size
         push.setsockopt(zmq.LINGER, 1000)
         push.connect(f"tcp://127.0.0.1:{ports['ingest']}")
         t0 = time.monotonic()
@@ -208,34 +237,80 @@ auto_detect = false
                 time.sleep(0.002)  # let the server drain
         print(f"pumped {n} warm-up rows in {time.monotonic() - t0:.1f}s")
 
+        # The pump offered 400k rows in ~2 s — far faster than the server
+        # absorbs. The sustained-rate baseline is only honest once the
+        # server has absorbed ALL warmup rows: otherwise the stress window
+        # is polluted by warmup-residual catch-up (measured 2026-09-10:
+        # baseline taken early inflated the rate to 13,268/s and left
+        # ~99k pump frames to die at LINGER, faking "unaccounted").
+        # Progress-aware, capped wait for full warmup absorption.
+        warmup_deadline = time.monotonic() + 90.0
+        while True:
+            absorbed = _ingested_now()
+            if absorbed >= n or absorbed < 0:
+                break
+            if time.monotonic() > warmup_deadline:
+                print(f"WARN: warmup absorption incomplete: {absorbed}/{n}")
+                break
+            time.sleep(0.5)
+        print(f"warmup absorbed: {absorbed}/{n}")
+
+        # Baseline for the sustained-ingest-rate measurement: the server's
+        # counter right AFTER warm-up absorption, before any stress clients
+        # exist (so the delta is exactly the stress-window ingest). A fresh
+        # server legitimately reads 0 here — guard with >= 0, never
+        # truthiness.
+        ingested_start = _ingested_now()
+
         # --- sustained pump (ZMQ) at --rate during the whole query phase --
         # The pump runs as a separate PROCESS, not a thread: under the GIL
         # with a dozen churning client threads, a pump thread's sleeps stretch
         # (measured: 2000/s advertised, ~54/s delivered). A process is
         # unaffected by the harness's own concurrency.
+        #
+        # Accounting rules (measured 2026-09-09: counting send_json() calls
+        # with SNDHWM=101k/LINGER=1s overstated delivery by 29% — frames die
+        # silently in the local pipe at exit, and HWM block-time is pacing
+        # time that must be carried into the next schedule, or the pump
+        # overshoots to ~14.3k/s after every stall):
+        #   1. count a point as SENT only after send() returned AND the
+        #      socket is writable (events & POLLOUT) — otherwise it may sit
+        #      in the local HWM queue and be LINGER-discarded at exit;
+        #   2. pace against an absolute schedule that carries overshoot;
+        #   3. on exit, spin on POLLOUT so the pipe drains, then LINGER=0.
         pump_code = f"""
 import json, time, zmq
 ctx = zmq.Context()
 sock = ctx.socket(zmq.PUSH)
-sock.setsockopt(zmq.SNDHWM, 50000)
+sock.setsockopt(zmq.SNDHWM, 101000)
 sock.setsockopt(zmq.LINGER, 1000)
 sock.connect("tcp://127.0.0.1:{ports["ingest"]}")
 rate = {args.rate}
 metrics = [f"stress.m{{i}}" for i in range(25)]
 n = 0
+counted = 0
 batch = 50
 interval = batch / rate
-deadline = time.monotonic() + {args.duration!r}
-while time.monotonic() < deadline:
-    t0 = time.monotonic()
+next_t = time.monotonic()
+deadline = next_t + {args.duration!r}
+while next_t < deadline:
     for i in range(batch):
         sock.send_json({{"metric": metrics[n % 25], "value": (n % 1000) / 10.0,
                          "tags": {{"host": f"h{{n % 10}}"}}}})
         n += 1
-    elapsed = time.monotonic() - t0
-    if elapsed < interval:
-        time.sleep(interval - elapsed)
-print(json.dumps({{"pumped": n}}))
+        if (sock.poll(0, zmq.POLLOUT)):
+            counted = n
+    now = time.monotonic()
+    if now < next_t:
+        time.sleep(next_t - now)
+    next_t += interval
+if n > counted:
+    sock.setsockopt(zmq.LINGER, 3000)
+    while counted < n and time.monotonic() < deadline + 15:
+        if sock.poll(0, zmq.POLLOUT):
+            counted = n
+        time.sleep(0.01)
+print(json.dumps({{"pumped": n, "counted": counted}}))
 """
         pump_proc = subprocess.Popen(  # noqa: S603 - fixed argv, no user input
             [PY, "-c", pump_code],
@@ -315,10 +390,26 @@ print(json.dumps({{"pumped": n}}))
             path_kind = "http_agg" if agg else "http_read"
             metric = f"stress.m{worker % 25}"
             conn = http.client.HTTPConnection("127.0.0.1", ports["http"], timeout=10)
+            # Rolling 1-hour window, refreshed per request: an unwindowed
+            # whole-table aggregate over a 1M+ row table is exactly what the
+            # bounded-read contract rejects (HTTP 413 by design) — a valid
+            # read-path request is bounded.
+            window_ns = 3_600_000_000_000
             while not stop.is_set():
-                url = f"/api/v1/read?metric={metric}"
+                end_ns = time.time_ns()
+                start_ns = end_ns - window_ns
                 if agg:
-                    url += "&aggregation=avg&interval=1m"
+                    url = (
+                        f"/api/v1/read?metric={metric}&limit=1000"
+                        "&aggregation=avg&interval=1m"
+                        f"&start={start_ns}&end={end_ns}"
+                    )
+                else:
+                    # limit=1000: the documented bounded-read pattern. An
+                    # unbounded read materializes up to query.max_rows rows
+                    # per request; by design the SERVER caps that (HTTP 413)
+                    # and a well-behaved client windows or limits instead.
+                    url = f"/api/v1/read?metric={metric}&limit=1000"
                 t = time.perf_counter()
                 try:
                     conn.request("GET", url)
@@ -432,14 +523,104 @@ print(json.dumps({{"pumped": n}}))
         if pump_proc.poll() is None:
             pump_proc.terminate()
         try:
-            out, _ = pump_proc.communicate(timeout=10)
-            results["params"]["pumped_actual"] = json.loads(out or b"{}").get(
-                "pumped", 0
+            out, _ = pump_proc.communicate(timeout=15)
+            payload = json.loads(out or b"{}")
+            results["params"]["pumped_actual"] = payload.get(
+                "counted", payload.get("pumped", 0)
             )
         except Exception:
             pump_proc.kill()
             pump_proc.communicate()
             results["params"]["pumped_actual"] = -1
+
+        # --- end-to-end accounting: sent vs ingested vs persisted vs rows ---
+        # Every point the pump sent must land in exactly one of {persisted,
+        # dropped, invalid} — or still be in flight in the bounded ZMQ pipes
+        # (PUSH has no acks). The server ingests at its own sustained rate;
+        # at 10k/s offered vs ~6-9k/s sustained that backlog can outlive a
+        # fixed grace window, so the grace is PROGRESS-AWARE: keep waiting
+        # while the counter moves, cap at 120 s. Then "unaccounted" really
+        # means lost, not merely queued.
+        try:
+            # Counter right after pump exit: the sustained-rate window end
+            # (a second or two of drain slips in unavoidable; it biases the
+            # rate slightly high).
+            ingested_stress_end = _ingested_now()
+            last = ingested_stress_end
+            stable = 0
+            grace_deadline = time.monotonic() + 120.0
+            # Exit when the counter stops moving for 5 s (drained as far as
+            # it will go) or at the 120 s cap. A worker mid-batch (a 256-row
+            # insert under query load can take seconds) freezes the counter
+            # longer than 1 s, hence the 5 s stability requirement.
+            while stable < 10 and time.monotonic() < grace_deadline and last >= 0:
+                time.sleep(0.5)
+                cur = _ingested_now()
+                if cur == last:
+                    stable += 1
+                else:
+                    stable = 0
+                    last = cur
+            # Full stats payload (fresh socket — same EFSM rule) for the
+            # persisted/dropped/invalid identity, not just ingested.
+            stats: dict = {"ingested": last}
+            try:
+                actx2 = zmq.Context()
+                s2 = actx2.socket(zmq.REQ)
+                s2.setsockopt(zmq.LINGER, 0)
+                s2.setsockopt(zmq.RCVTIMEO, 5000)
+                s2.connect(f"tcp://127.0.0.1:{ports['admin']}")
+                s2.send_json({"cmd": "stats"})
+                if s2.poll(5000) & zmq.POLLIN:
+                    stats = s2.recv_json()
+                s2.close(0)
+                actx2.term()
+            except zmq.ZMQError:
+                pass
+            accounting = {
+                "pump_sent": results["params"]["pumped_actual"]
+                + args.warmup_rows
+                + lat.count("http_write"),
+                "server_ingested": stats.get("ingested", -1),
+                "persisted": stats.get("persisted", -1),
+                "dropped": stats.get("dropped", -1),
+                "invalid": stats.get("invalid", -1),
+            }
+            ing = accounting["server_ingested"]
+            if ing >= 0:
+                accounting["unaccounted"] = accounting["pump_sent"] - ing
+            # Sustained ingest rate over the stress window: server counter
+            # delta from just-after-warmup to just-after-pump-exit, divided
+            # by the pump duration. This is the server's truth (what it
+            # actually absorbed), independent of pipe backlog.
+            if ingested_start >= 0 and ingested_stress_end >= 0:
+                accounting["stress_ingested"] = ingested_stress_end - ingested_start
+                accounting["sustained_ingest_per_s"] = round(
+                    accounting["stress_ingested"] / max(args.duration, 1e-9), 1
+                )
+            db_path = workdir / "db.sqlite"
+            con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                tables = [
+                    r[0]
+                    for r in con.execute(
+                        "SELECT name FROM sqlite_master WHERE name LIKE 'measurements_%'"
+                    )
+                ]
+                # Interpolation is safe: names come from OUR sqlite_master
+                # listing and must match the strict partition pattern.
+                pat = re.compile(r"^measurements_\d{4}_\d{2}$")
+                total = 0
+                for t in filter(pat.match, tables):
+                    total += con.execute(
+                        f'SELECT count(*) FROM "{t}"'  # noqa: S608 - validated name
+                    ).fetchone()[0]
+                accounting["db_rows"] = total
+            finally:
+                con.close()
+        except Exception as exc:
+            accounting = {"error": str(exc)}
+        results["accounting"] = accounting
 
         if ws_samples:
             ws_samples.sort()

@@ -45,9 +45,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# rss-watch line: "  pid=123 rss=45678kB vsz=... threads=6 fds=28 cmd=..."
+# rss-watch line: "  pid=123 rss=45678kB anon=45678kB vsz=... threads=6 fds=28"
+# (anon is optional: older rss-watch logs carry only rss)
 SNAPSHOT_RE = re.compile(
-    r"pid=(?P<pid>\d+)\s+rss=(?P<rss>\d+)kB\s+vsz=\d+kB\s+"
+    r"pid=(?P<pid>\d+)\s+rss=(?P<rss>\d+)kB\s+(?:anon=(?P<anon>\d+)kB\s+)?"
+    r"vsz=\d+kB\s+"
     r"threads=(?P<threads>\d+)\s+fds=(?P<fds>\d+)"
 )
 
@@ -65,15 +67,25 @@ class PidHistory:
     FD_RESTART_MAX = 4
     THREAD_RESTART = 1
     RSS_RESTART_MAX_KB = 8_000
+    ANON_RESTART_MAX_KB = 8_000
 
     def __init__(self, pid: int):
         self.pid = pid
         self.rss: list[int] = []
+        self.anon: list[int] = []
+        # Raw per-snapshot anon samples (None where the log had none) —
+        # preserves presence info across log merges.
+        self._anon_raw: list[int | None] = []
         self.threads: list[int] = []
         self.fds: list[int] = []
+        self._anon_present = False
 
-    def add(self, rss: int, threads: int, fds: int) -> None:
+    def add(self, rss: int, threads: int, fds: int, anon: int | None = None) -> None:
         self.rss.append(rss)
+        self._anon_raw.append(anon)
+        self.anon.append(rss if anon is None else anon)
+        if anon is not None:
+            self._anon_present = True
         self.threads.append(threads)
         self.fds.append(fds)
 
@@ -115,6 +127,32 @@ class PidHistory:
             worst = max(worst, post[-1] - post[0])
         return worst if worst > 0 else None
 
+    def post_warmup_slope(
+        self, values: list[int], restart_max: int, warmup: int
+    ) -> float:
+        """Least-squares slope (units per snapshot) across lifetimes.
+
+        A leak DRIFTS: every extra snapshot adds more. A bounded plateau only
+        OSCILLATES around its level (final > first happens when load arrived
+        inside the judged window). Returns the worst (highest) slope across
+        lifetimes, 0.0 when nothing is judgeable.
+        """
+        worst = 0.0
+        for life in self._lifetimes(values, restart_max):
+            if len(life) <= warmup:
+                continue
+            post = life[warmup:]
+            n = len(post)
+            if n < 2:
+                continue
+            mean_x = (n - 1) / 2
+            mean_y = sum(post) / n
+            num = sum((x - mean_x) * (y - mean_y) for x, y in enumerate(post))
+            den = sum((x - mean_x) ** 2 for x in range(n))
+            slope = num / den if den else 0.0
+            worst = max(worst, slope)
+        return worst
+
     def fd_growth(self, warmup: int) -> int | None:
         return self.sustained_growth(self.fds, self.FD_RESTART_MAX, warmup)
 
@@ -123,6 +161,19 @@ class PidHistory:
 
     def rss_growth_kb(self, warmup: int) -> int | None:
         return self.sustained_growth(self.rss, self.RSS_RESTART_MAX_KB, warmup)
+
+    def memory_series(self) -> tuple[list[int], str]:
+        """The memory series to judge: anonymous when available, else total.
+
+        Anonymous RSS is the real heap — leak evidence. Total RSS also counts
+        file-backed pages (SQLite mmap of DB/WAL: shared page cache,
+        reclaimable, inflated ~5x by the reader pool mapping the same file),
+        which grow with the DATABASE, not with a leak (measured 2026-09-09:
+        total +98MB while anon stayed flat at 70MB under a 9.6k pts/s pump).
+        """
+        if self._anon_present:
+            return self.anon, "anon"
+        return self.rss, "total-rss (no anon in log)"
 
     def min_judgeable(self, warmup: int) -> bool:
         """True if any lifetime is long enough to judge after warm-up."""
@@ -142,7 +193,12 @@ def parse_log(path: Path) -> dict[int, PidHistory]:
                 continue
             pid = int(m.group("pid"))
             h = histories.setdefault(pid, PidHistory(pid=pid))
-            h.add(int(m.group("rss")), int(m.group("threads")), int(m.group("fds")))
+            h.add(
+                int(m.group("rss")),
+                int(m.group("threads")),
+                int(m.group("fds")),
+                int(m.group("anon")) if m.group("anon") else None,
+            )
     return histories
 
 
@@ -164,33 +220,60 @@ def check_histories(
     fd_tolerance: int = 0,
     thread_tolerance: int = 0,
 ) -> list[Violation]:
-    """Return one Violation per leak-shaped observation."""
+    """Return one Violation per leak-shaped observation.
+
+    Leak-shaped = the value BOTH ends higher than its post-warm-up baseline
+    AND still rising (positive regression slope across the whole window).
+    Either condition alone is ambiguous: endpoint growth also happens when
+    load arrives mid-window (bounded caches filling = plateau, not a leak).
+    """
     violations: list[Violation] = []
     for pid in sorted(histories):
         h = histories[pid]
 
         fd = h.fd_growth(warmup)
-        if fd is not None and fd > fd_tolerance:
-            violations.append(
-                Violation(pid, "fd growth", f"+{fd} fds after warm-up, never returned")
-            )
-
-        th = h.thread_growth(warmup)
-        if th is not None and th > thread_tolerance:
-            violations.append(
-                Violation(
-                    pid, "thread growth", f"+{th} threads after warm-up, never returned"
-                )
-            )
-
-        rss = h.rss_growth_kb(warmup)
-        if rss is not None and rss > rss_tolerance_kb:
+        fd_slope = h.post_warmup_slope(h.fds, h.FD_RESTART_MAX, warmup)
+        if fd is not None and fd > fd_tolerance and fd_slope > 0:
             violations.append(
                 Violation(
                     pid,
-                    "rss growth",
-                    f"+{rss} kB sustained after warm-up "
-                    f"(tolerance {rss_tolerance_kb} kB)",
+                    "fd growth",
+                    f"+{fd} fds after warm-up, rising {fd_slope:.3f}/snapshot",
+                )
+            )
+
+        th = h.thread_growth(warmup)
+        th_slope = h.post_warmup_slope(h.threads, h.THREAD_RESTART, warmup)
+        if th is not None and th > thread_tolerance and th_slope > 0:
+            violations.append(
+                Violation(
+                    pid,
+                    "thread growth",
+                    f"+{th} threads after warm-up, rising {th_slope:.3f}/snapshot",
+                )
+            )
+
+        rss, series_name = h.memory_series()
+        rss_growth = h.sustained_growth(
+            rss,
+            h.RSS_RESTART_MAX_KB
+            if series_name.startswith("total")
+            else h.ANON_RESTART_MAX_KB,
+            warmup,
+        )
+        restart_max = (
+            h.RSS_RESTART_MAX_KB
+            if series_name.startswith("total")
+            else h.ANON_RESTART_MAX_KB
+        )
+        rss_slope = h.post_warmup_slope(rss, restart_max, warmup)
+        if rss_growth is not None and rss_growth > rss_tolerance_kb and rss_slope > 0:
+            violations.append(
+                Violation(
+                    pid,
+                    f"{series_name} growth",
+                    f"+{rss_growth} kB sustained after warm-up, rising "
+                    f"{rss_slope:.1f} kB/snapshot (tolerance {rss_tolerance_kb} kB)",
                 )
             )
     return violations
@@ -248,8 +331,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         for pid, h in parse_log(log).items():
             existing = all_histories.setdefault(pid, PidHistory(pid=pid))
-            for r, t, f in zip(h.rss, h.threads, h.fds, strict=False):
-                existing.add(r, t, f)
+            for r, t, f, a in zip(h.rss, h.threads, h.fds, h._anon_raw, strict=False):
+                existing.add(r, t, f, a)
             if h.snapshots:
                 any_snapshots = True
 
@@ -278,9 +361,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"leak-check: {len(judged)} pid(s) judged, {skipped} skipped (short/too-few)")
     for pid in sorted(judged):
         h = judged[pid]
+        mem, series_name = h.memory_series()
         print(
             f"  pid={pid}: snapshots={h.snapshots} "
-            f"rss first={h.rss[0]}kB last={h.rss[-1]}kB "
+            f"{series_name} first={mem[0]}kB last={mem[-1]}kB "
+            f"total-rss first={h.rss[0]}kB last={h.rss[-1]}kB "
             f"threads={min(h.threads)}..{max(h.threads)} fds={min(h.fds)}..{max(h.fds)}"
         )
 

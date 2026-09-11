@@ -22,10 +22,6 @@ from sqtseries.engine import (
 )
 from sqtseries.messaging.broker import QueryBroker
 
-# ---------------------------------------------------------------------------
-# Query timeout
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def context():
@@ -92,7 +88,8 @@ class TestQueryTimeout:
             payload = json.loads(resp)
             assert payload["status"] == "error"
             assert payload["error"]["code"] == "QUERY_TIMEOUT"
-            assert elapsed < 0.9  # answered well before the 1s handler done
+            # Answered well before the 1s handler done.
+            assert elapsed < 0.9
         finally:
             await broker.stop()
 
@@ -210,11 +207,6 @@ class TestQueryTimeout:
             await svc.shutdown()
 
 
-# ---------------------------------------------------------------------------
-# Backup manager
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def backup_engine(tmp_path):
     eng = create_sqlite_engine(str(tmp_path / "db.sqlite"))
@@ -246,12 +238,15 @@ class TestBackupManager:
     async def test_skips_fresh_snapshot(self, backup_engine):
         """A snapshot younger than the interval is not re-created."""
         eng, tmp_path = backup_engine
-        backup_database(eng, str(tmp_path / "bk"))  # fresh file
+        # Fresh file.
+        backup_database(eng, str(tmp_path / "bk"))
         mgr = BackupManager(eng, interval=3600.0, backup_dir=str(tmp_path / "bk"))
 
         await mgr.run_once()
-        assert mgr.backups_created == 0  # nothing new
-        assert mgr.runs == 1  # pass still counted
+        # Nothing new.
+        assert mgr.backups_created == 0
+        # Pass still counted.
+        assert mgr.runs == 1
         # still exactly one backup file
         files = list((tmp_path / "bk").glob("sqtseries-*.db"))
         assert len(files) == 1
@@ -261,10 +256,12 @@ class TestBackupManager:
         mgr = BackupManager(eng, interval=0.05, backup_dir=str(tmp_path / "bk2"))
 
         await mgr.start()
-        await asyncio.sleep(0.15)  # several passes
+        # Several passes.
+        await asyncio.sleep(0.15)
         assert mgr.runs >= 2
         assert mgr.backups_created >= 1
-        await mgr.stop()  # must not raise
+        # Must not raise.
+        await mgr.stop()
         assert mgr._task is None
 
     def test_is_fresh_helper(self, backup_engine):
@@ -331,7 +328,8 @@ class TestBackupServiceIntegration:
 
         pump_task = asyncio.create_task(pump())
         try:
-            await asyncio.sleep(2.0)  # let a pass happen (interval=1s)
+            # Let a pass happen (interval=1s).
+            await asyncio.sleep(2.0)
 
             assert svc.backup_manager is not None
             assert svc.backup_manager.backups_created >= 1

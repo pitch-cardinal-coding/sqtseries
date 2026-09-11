@@ -4,8 +4,8 @@ A time-series database that runs on your machine, keeps everything in one file,
 and answers questions about the past in milliseconds — no matter how many
 millions of readings you have stored.
 
-**6,708 lines** of Python · 52 classes · 334 functions · **93% test coverage**
-(648 tests passing) · Zero binary dependencies beyond Python 3.14+.
+**8,180 lines** of Python · 58 classes · 378 functions · **92% test coverage**
+(745 tests passing) · Zero binary dependencies beyond Python 3.14+.
 
 ## What it does
 
@@ -81,6 +81,7 @@ reading and read it back:
 
 ```python
 from sqtseries import Client
+
 c = Client()
 c.write("temp.outside", 22.5, {"sensor": "garden"})
 
@@ -112,15 +113,23 @@ old partitions are dropped automatically when they pass the retention TTL
 **Hourly summaries so wide queries stay fast.** Every hour, a background task
 pre-aggregates completed hours into a `rollup_hourly` table (count, sum, min,
 max per series). A query that would scan 20,000 raw data points instead reads
-a few rollup rows and merges the edges — same exact answer, about 9× faster.
+a few rollup rows and merges the edges — same exact answer, about 11× faster.
 The current hour is always read live so results are never stale.
 
 **Two transports, same wire format.** ZeroMQ handles high-throughput ingestion
-and live streaming (engine-level benchmarks measure hundreds of thousands of
-rows per second with batched inserts; the live service path writes each
-message in its own transaction). HTTP handles
+and live streaming (ingest frames are batch-drained behind a bounded queue
+and committed one transaction per batch — a sustained 10,000 pts/s pump
+persisted 700,223 of 700,223 points under concurrent query load, 0 dropped,
+0 unaccounted). HTTP handles
 one-off scripts, dashboards, and languages without ZMQ bindings. Both speak
 the same JSON shapes. Choose whichever fits, or use both.
+
+**Measured, not claimed.** Every live path is stress-tested for latency and
+correctness — under a 10,000 pts/s pump with 8 concurrent query clients,
+WebSocket delivery runs at p50 0.05 ms and every HTTP/ZMQ path answers with
+zero errors. Full tables: [benchmarks](dist/docs/benchmarks.md).
+pts/s = points per second; one point is one measurement (metric + value +
+tags + timestamp).
 
 **Query result caching.** Identical queries within a 5-second TTL are served
 from an LRU cache (512 entries) instead of hitting SQLite again. Critical for
@@ -218,10 +227,10 @@ Send `{"cmd": "..."}` to port 12504 (ZMQ REP). Available commands: `ping`,
 `backup`, `vacuum`. The Python Client wraps these:
 
 ```python
-c.admin("stats")                         # full service counters
-c.admin("connections")                   # active WebSocket clients
-c.admin("conncheck", ids=["abc","xyz"])  # which ids are connected
-c.admin("subscribers")                   # per-topic subscriber counts
+c.admin("stats")  # full service counters
+c.admin("connections")  # active WebSocket clients
+c.admin("conncheck", ids=["abc", "xyz"])  # which ids are connected
+c.admin("subscribers")  # per-topic subscriber counts
 ```
 
 Full details on every admin command are in the [API reference](dist/docs/api.html#admin).
@@ -272,7 +281,7 @@ Full details on every admin command are in the [API reference](dist/docs/api.htm
 | [API Reference](dist/docs/api.html) | Embedded Python API, Client, CLI, wire protocol, admin commands |
 | [Architecture](dist/docs/architecture.html) | Engine layout, schema, write path, rollup design, error handling |
 | [Backup & Restore](dist/docs/backup.html) | What to back up, restore procedure, and how vacuum works |
-| [Benchmarks](dist/docs/benchmarks.md) | Reproducible performance numbers on a real workstation |
+| [Benchmarks](dist/docs/benchmarks.md) | Reproducible performance numbers from the development machine (Intel Core Ultra 7 255U, 22 GiB RAM, NVMe SSD) |
 | [Systemd](dist/docs/systemd.html) | Running as a service, hardening, dedicated user setup |
 | [Examples](dist/docs/examples.html) | Real-world scenarios with full code walkthroughs |
 | [Example scripts](examples/) | Standalone runnable scripts for every operation |

@@ -80,6 +80,12 @@ class PubSub:
         self.published = 0
         self._registry = registry
         self._reader_task: asyncio.Task | None = None
+        # Bounded fan-out: publish() hands frames to the hub
+        # in-process; per-subscriber queues are weight-bounded with loud
+        # drop counting. No per-subscriber libzmq pipes involved.
+        from .fanout import DEFAULT_SUBSCRIBER_QUEUE_BYTES, FanoutHub
+
+        self.fanout = FanoutHub(self, queue_bytes=DEFAULT_SUBSCRIBER_QUEUE_BYTES)
 
     async def start(self) -> None:
         from zmq.asyncio import Context as AContext
@@ -113,14 +119,25 @@ class PubSub:
         log.info("pubsub listening (xpub)", endpoint=self.endpoint)
 
     async def publish(self, topic: bytes | str, payload: dict) -> None:
-        """Publish a measurement to subscribers of ``topic``."""
+        """Publish a measurement to external SUB sockets and the fan-out hub.
+
+        The XPUB send serves external (non-WS) SUB clients; the hub serves
+        WS subscribers through bounded in-process queues (never blocks,
+        never silently drops).
+        """
         if self.socket is None:
             raise RuntimeError("pubsub not started")
         if isinstance(topic, str):
+            topic_str = topic
             topic = topic.encode()
+        else:
+            topic_str = topic.decode("utf-8", errors="replace")
         self.tracker.cleanup()
-        await self.socket.send_multipart([topic, dumps(payload)])
+        payload_bytes = dumps(payload)
+        await self.socket.send_multipart([topic, payload_bytes])
         self.published += 1
+        # Bounded fan-out to WS subscribers (drop-new + loud counting).
+        self.fanout.deliver(topic_str, payload_bytes)
 
     async def _read_subscriptions(self) -> None:
         """Decode XPUB subscription messages and update registry + tracker."""
@@ -174,6 +191,7 @@ class PubSub:
         return int(event_type), bytes(frame[1:])
 
     async def stop(self) -> None:
+        await self.fanout.stop()
         if self._reader_task is not None:
             self._reader_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -186,4 +204,5 @@ class PubSub:
     def stats(self) -> dict[str, int]:
         stats = {"published": self.published}
         stats.update(self.tracker.stats())
+        stats["fanout_dropped"] = self.fanout.dropped_total
         return stats

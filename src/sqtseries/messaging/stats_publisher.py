@@ -45,6 +45,11 @@ class StatsPublisher:
         ctx = self._ctx or AContext.instance()
         self.socket = ctx.socket(zmq.PUB)
         self.socket.setsockopt(zmq.LINGER, 0)
+        # SNDHWM bounds a stalled subscriber's queue to 1000 messages (~1 MB
+        # of stats snapshots); PUB drops for slow subscribers beyond that.
+        # CONFLATE was tried here for latest-wins but REVERTED: it collapses
+        # multipart frames to their last part (verified by test), corrupting
+        # the [topic, payload] wire format.
         self.socket.setsockopt(zmq.SNDHWM, 1000)
         from .context import apply_tcp_keepalive
 

@@ -70,7 +70,9 @@ def main() -> int:
             # harness stops the server while this probe may still be
             # sampling); only treat it as a page defect if the server is
             # still alive.
-            if "ERR_CONNECTION_REFUSED" in text and not server_gone:
+            if (
+                "ERR_CONNECTION_REFUSED" in text or "ERR_CONNECTION_RESET" in text
+            ) and not server_gone:
                 try:
                     page.request.get(args.url + "/dashboard", timeout=2000)
                 except Exception:
@@ -82,15 +84,26 @@ def main() -> int:
             "response",
             lambda r: failed.append(f"{r.status} {r.url}") if r.status >= 400 else None,
         )
-        try:
-            page.goto(args.url + "/dashboard")
-            page.wait_for_function(
-                "() => document.getElementById('conn-state-text')"
-                ".textContent === 'connected'",
-                timeout=CONNECT_TIMEOUT_MS,
-            )
-        except Exception as exc:
-            print(f"probe: page never connected: {exc}", file=sys.stderr)
+        # The rig starts the probe before the service exists (it retries
+        # connecting until the harness binds the port), so retry the initial
+        # connect instead of failing on the first refused connection.
+        connected = False
+        last_exc: Exception | None = None
+        connect_deadline = time.monotonic() + min(args.duration, 180.0)
+        while time.monotonic() < connect_deadline and not connected:
+            try:
+                page.goto(args.url + "/dashboard")
+                page.wait_for_function(
+                    "() => document.getElementById('conn-state-text')"
+                    ".textContent === 'connected'",
+                    timeout=CONNECT_TIMEOUT_MS,
+                )
+                connected = True
+            except Exception as exc:
+                last_exc = exc
+                time.sleep(2.0)
+        if not connected:
+            print(f"probe: page never connected: {last_exc}", file=sys.stderr)
             browser.close()
             return 1
         print(f"probe: connected to {args.url}/dashboard")

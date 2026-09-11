@@ -10,10 +10,11 @@ sys.path.insert(0, str(SCRIPTS))
 import leak_check  # noqa: E402
 
 
-def line(pid: int, rss: int, threads: int, fds: int) -> str:
+def line(pid: int, rss: int, threads: int, fds: int, anon: int | None = None) -> str:
+    anon_part = f"anon={anon}kB " if anon is not None else ""
     return (
-        f"  pid={pid} rss={rss}kB vsz=400000kB threads={threads} fds={fds} "
-        f"cmd=/usr/bin/python3 -m sqtseries run"
+        f"  pid={pid} rss={rss}kB {anon_part}vsz=400000kB "
+        f"threads={threads} fds={fds} cmd=/usr/bin/python3 -m sqtseries run"
     )
 
 
@@ -87,7 +88,8 @@ def test_ever_growing_rss_fails(tmp_path):
     )
     code, out = run_cli(str(log), "--warmup-snapshots", "1")
     assert code == 1
-    assert "rss growth" in out
+    # Old-format log (no anon field): judged on total RSS and labelled.
+    assert "total-rss (no anon in log) growth" in out
 
 
 def test_rss_growth_within_tolerance_passes(tmp_path):
@@ -146,9 +148,11 @@ def test_warming_server_passes_with_default_warmup(tmp_path):
     must skip that and pass; this is the regression guard for the
     false-positive the first version had."""
     lines = [line(100, 27776 + i * 6000, 1 + i // 2, 3 + i * 2) for i in range(10)]
-    lines += [line(100, 91476, 6, 27) for _ in range(6)]  # steady state: flat
+    # Steady state: flat.
+    lines += [line(100, 91476, 6, 27) for _ in range(6)]
     log = write_log(tmp_path, lines)
-    code, out = run_cli(str(log))  # default --warmup-snapshots 10
+    # Default --warmup-snapshots 10.
+    code, out = run_cli(str(log))
     assert code == 0
     assert "PASS" in out
 
@@ -156,7 +160,8 @@ def test_warming_server_passes_with_default_warmup(tmp_path):
 def test_leak_after_warmup_is_caught(tmp_path):
     """Same warm-up shape, but fds keep climbing in steady state."""
     lines = [line(100, 27776 + i * 6000, 1 + i // 2, 3 + i * 2) for i in range(10)]
-    lines += [line(100, 91476, 6, 27 + i) for i in range(6)]  # leak: fds never return
+    # Leak: fds never return.
+    lines += [line(100, 91476, 6, 27 + i) for i in range(6)]
     log = write_log(tmp_path, lines)
     code, out = run_cli(str(log))
     assert code == 1
@@ -171,10 +176,13 @@ def test_leak_across_pid_restarts_is_caught(tmp_path):
         [
             line(100, 50000, 6, 28),
             line(100, 50000, 6, 30),
-            line(100, 50000, 6, 34),  # life 1 drifts up
-            line(100, 50000, 6, 3),  # restart marker (fresh process)
+            # Life 1 drifts up.
+            line(100, 50000, 6, 34),
+            # Restart marker (fresh process).
+            line(100, 50000, 6, 3),
             line(100, 50000, 6, 4),
-            line(100, 50000, 6, 5),  # life 2 climbs again
+            # Life 2 climbs again.
+            line(100, 50000, 6, 5),
         ],
     )
     code, out = run_cli(str(log), "--warmup-snapshots", "1")
@@ -221,7 +229,7 @@ def test_multiple_logs_merge_per_pid(tmp_path):
         str(log1), str(second), "--warmup-snapshots", "1", "--rss-tolerance-kb", "1"
     )
     assert code == 1
-    assert "rss growth" in out
+    assert "total-rss (no anon in log) growth" in out
 
 
 def test_real_format_from_documented_rss_watch(tmp_path):
@@ -249,12 +257,14 @@ def test_transient_spike_is_not_leak_shaped():
     h = leak_check.PidHistory(pid=1)
     for fds in (28, 34, 28, 29, 28):
         h.add(50000, 6, fds)
-    assert h.fd_growth(0) is None  # ends where it started
+    # Ends where it started.
+    assert h.fd_growth(0) is None
 
 
 def test_sustained_drift_is_reported():
     h = leak_check.PidHistory(pid=1)
-    for fds in (28, 30, 31):  # never returns
+    for fds in (28, 30, 31):
+        # Never returns.
         h.add(50000, 6, fds)
     assert h.fd_growth(0) == 3
 
@@ -268,7 +278,8 @@ def test_rss_spike_then_trim_passes():
 
 def test_restart_splitting_judges_lifetimes_separately():
     h = leak_check.PidHistory(pid=1)
-    for fds in (28, 34, 3, 5):  # restart marker at fds=3
+    # Restart marker at fds=3.
+    for fds in (28, 34, 3, 5):
         h.add(50000, 6, fds)
     # life1: 28->34 (+6); life2: 3->5 (+2) — worst reported
     assert h.fd_growth(0) == 6
@@ -282,3 +293,56 @@ def test_warmup_trims_before_judging():
     assert h.rss_growth_kb(4) is None
     # warmup=0: judges the whole climb -> +63700
     assert h.rss_growth_kb(0) == 63700
+
+
+# --- plateau vs leak discrimination (slope test) ---
+
+
+def test_bounded_plateau_after_load_passes(tmp_path):
+    """RSS jumps when load arrives mid-window then oscillates flat: a bounded
+    plateau (cache steady state), NOT a leak. Endpoint-only comparison used
+    to fail this; the slope test must pass it."""
+    lines = [line(100, 60000, 10, 40)] * 10
+    lines += [line(100, 60000 + (i % 3) * 2000, 10, 40) for i in range(30)]
+    log = write_log(tmp_path, lines)
+    code, out = run_cli(str(log), "--warmup-snapshots", "5")
+    assert code == 0, out
+
+
+def test_slow_linear_climb_still_fails(tmp_path):
+    """A true leak drifts: every snapshot adds more. Endpoint growth plus
+    positive slope must fail even with a modest per-snapshot increment."""
+    lines = [line(100, 60000, 10, 40)] * 10
+    lines += [line(100, 60000 + i * 1500, 10, 40) for i in range(30)]
+    log = write_log(tmp_path, lines)
+    code, out = run_cli(str(log), "--warmup-snapshots", "5")
+    assert code == 1
+    assert "total-rss (no anon in log) growth" in out
+
+
+def test_anon_growth_fails_even_when_total_flat(tmp_path):
+    """New-format log: anon (heap) is the leak signal. Heap growth with
+    file-backed RSS merely oscillating (mmap page churn) must FAIL."""
+    lines = [line(100, 70000, 10, 40, anon=40000)] * 10
+    lines += [
+        line(100, 70000 + (i % 3) * 800, 10, 40, anon=40000 + i * 1500)
+        for i in range(30)
+    ]
+    log = write_log(tmp_path, lines)
+    code, out = run_cli(str(log), "--warmup-snapshots", "5")
+    assert code == 1
+    assert "anon growth" in out
+
+
+def test_file_backed_growth_but_anon_flat_passes(tmp_path):
+    """The measured 2026-09-09 case: total RSS climbs with the DB (mmap
+    pages resident) while the heap stays flat — a plateau, not a leak."""
+    lines = [line(100, 92160, 8, 32, anon=71680)] * 10
+    lines += [
+        line(100, 92160 + i * 2500, 8, 32, anon=71680 + (i % 4) * 512)
+        for i in range(30)
+    ]
+    log = write_log(tmp_path, lines)
+    code, out = run_cli(str(log), "--warmup-snapshots", "5")
+    assert code == 0
+    assert "anon first=71680kB last=71680kB" in out or "anon first=71680kB" in out

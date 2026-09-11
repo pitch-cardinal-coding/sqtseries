@@ -30,7 +30,11 @@ path = "~/.sqtseries/data/db.sqlite"
 # With auto_detect=true this is IGNORED and the first free port in
 # [ports.port_range_start, ports.port_range_end] is used instead.
 port = 12501
-hwm = 10000
+# PULL RCVHWM (Pushpin handler-engine size): absorbs producer bursts while
+# the persister drains; PUSH senders block only past this bound.
+hwm = 101000
+# Bounded batch queue (batches, not frames) between the receiver loop and
+# the dedicated persister task — explicit backpressure, zero silent loss.
 pending_max = 100
 max_message_size = 52428800
 reject_client_timestamp_skew_s = 300.0
@@ -38,6 +42,10 @@ reject_client_timestamp_skew_s = 300.0
 [query]
 port = 12502
 timeout_s = 30.0
+# Hard cap on raw rows materialized per query — bounds per-request memory
+# (Pushpin doctrine). Exceeding it returns MAX_ROWS_EXCEEDED (ZMQ) / HTTP 413
+# instead of silently truncating. 0 disables the cap (not recommended).
+max_rows = 10000
 
 [streaming]
 port = 12503

@@ -206,14 +206,20 @@ past completion, so a late write can never land in an already-rolled hour.</p>
 </ul>
 
 <h3>Performance</h3>
+<p><strong>Units:</strong> throughput is quoted in <code>pts/s</code> —
+points per second, where one <em>point</em> is a single measurement (a metric
+name + value + optional tags + timestamp). 2,000 pts/s means two thousand
+such measurements ingested per second.</p>
 <p>The server batch-drains the ingest socket (up to 256 frames per tick) and
 commits one transaction per drained batch, so throughput is dominated by the
 storage layer rather than per-message commit overhead. Engine-level
 measurements with batched inserts (<code>scripts/benchmark.py</code>)
 are on the <a href="benchmarks.md">benchmarks</a> page: roughly
 <code>~65K–253K rows/sec</code> depending on dataset size, page-cache-bound up
-to ~1M rows and disk-bound beyond. Run the benchmark on your own machine if
-you need numbers for your hardware.</p>
+to ~1M rows and disk-bound beyond. The reference numbers come from the
+development machine (Intel Core Ultra 7 255U, 12 cores / 14 threads,
+22 GiB RAM, 468 GB NVMe SSD); run the benchmark on your own machine if you
+need numbers for your hardware.</p>
 
 <h3>Where to go next</h3>
 <ul>

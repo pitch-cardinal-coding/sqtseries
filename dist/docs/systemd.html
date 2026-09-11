@@ -84,6 +84,7 @@ ProtectHome=read-only
 ReadWritePaths=/home/user/.sqtseries/data /home/user/.sqtseries/backups
 
 # Environment
+Environment=LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
 Environment=SQT_SERIES_DATABASE__PATH=/home/user/.sqtseries/data/db.sqlite
 Environment=SQT_SERIES_LOGGING__LEVEL=INFO
 
@@ -105,6 +106,7 @@ WantedBy=default.target
   <tr><td><code>ProtectSystem</code></td><td><code>strict</code></td><td>The whole filesystem is read-only for the service.</td></tr>
   <tr><td><code>ProtectHome</code></td><td><code>read-only</code></td><td><code>~</code> is readable but not writable.</td></tr>
   <tr><td><code>ReadWritePaths</code></td><td>database parent dir + <code>backup.path</code> dir</td><td>The only places the service may write: its SQLite file lives in the first, backups written by <code>sqtseries backup</code> go to the second.</td></tr>
+  <tr><td><code>Environment=LD_PRELOAD</code></td><td>path of <code>libjemalloc.so.2</code> when present, otherwise omitted</td><td>Uses the jemalloc allocator when the machine has it (returns freed memory faster under sustained load); plain default allocator otherwise. The service runs correctly either way.</td></tr>
   <tr><td><code>Environment=SQT_SERIES_DATABASE__PATH</code></td><td>resolved <code>database.path</code></td><td>Keeps the service pointed at the same database the CLI resolves to (including any <code>--db</code> you used when installing).</td></tr>
   <tr><td><code>Environment=SQT_SERIES_LOGGING__LEVEL</code></td><td><code>INFO</code></td><td>Stable log level for the journal.</td></tr>
   <tr><td><code>WantedBy</code></td><td><code>default.target</code></td><td>Start (and auto-start) with the default target, i.e. normal boot.</td></tr>

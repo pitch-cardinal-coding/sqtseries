@@ -53,6 +53,8 @@ class PartitionManager:
         return name
 
     def drop_partition(self, year: int, month: int) -> None:
+        # CUD Point: Delete — the only destroyer of user data (TTL-driven
+        # via RetentionPolicy.run; no user-facing delete API exists).
         """DROP an old partition table."""
         name = _safe_partition(partition_name(year, month))
         with self._ddl_lock, self.db.begin() as conn:

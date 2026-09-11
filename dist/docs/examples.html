@@ -529,13 +529,18 @@ print(f"sent 100,000 points in {elapsed:.1f}s "
       f"({100_000 / elapsed:.0f} pts/sec)")
 </code></pre>
 
+<p><span style="color:#888">pts/sec = points per second; one
+<em>point</em> is one measurement (metric + value + tags + timestamp).</span></p>
+
 <p>What to expect: the service batch-drains the ingest socket (up to 256
 frames per tick) and commits <em>one transaction per drained batch</em>, so
 the live path sustains a large fraction of the engine-level numbers (batched
 <code>executemany</code> inserts via <code>scripts/benchmark.py</code>,
 ~65–253K rows/s on an NVMe machine). The PUSH HWM (10,000) still acts as
 backpressure between bursts. Verify the numbers reliably on your own hardware
-with <code>python3 scripts/benchmark.py</code> and
+(the reference figures come from the development machine: Intel Core Ultra 7
+255U, 12 cores / 14 threads, 22 GiB RAM, NVMe SSD) with
+<code>python3 scripts/benchmark.py</code> and
 <code>scripts/stress_percentiles.py</code> (reports P50/P90/P99 per live
 path).</p>
 
