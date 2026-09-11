@@ -75,6 +75,9 @@ stat = c.aggregate("cpu.usage", funcs=["avg", "max", "p95"])   # {func: value}
 for payload in c.subscribe("cpu."):
     if payload is not None:
         print(payload)
+# NOTE (ZMQ semantics): a SUB socket only receives points published AFTER its
+# subscription reaches the server ("slow joiner" — PUB never replays). Points
+# published before you subscribed are still fully queryable via query().
 
 # admin: ping | health | stats | connections | conncheck | subscribers
 #        | optimize | backup | vacuum

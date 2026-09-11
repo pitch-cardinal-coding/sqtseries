@@ -42,6 +42,19 @@ class QueryBroker:
         self.socket: zmq.asyncio.Socket | None = None
         self.requests = 0
         self.errors = 0
+        # Replies that could not be delivered (peer vanished mid-request,
+        # HWM-full pipe). Counted so nothing is silently discarded.
+        self.replies_dropped = 0
+        # Requests NOT dispatched because max_inflight dispatches were already
+        # running: left in the ZMQ pipe (HWM-bounded backpressure), counted
+        # loudly (shed deliberately, never queue without bound).
+        self.shed_total = 0
+        self.max_inflight = getattr(settings, "max_inflight", 64) or 64
+        # In-flight ROUTER dispatch tasks (drained on stop). REP cannot use
+        # this: its strict recv/send alternation allows ONE request at a time,
+        # so N concurrent clients serialize behind each other (measured
+        # 2026-09: 8 REQ clients under load -> p50 ~1.1 s = 8 x handler time).
+        self._router_tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
         from zmq.asyncio import Context as AContext
@@ -54,7 +67,12 @@ class QueryBroker:
 
         apply_options(self.socket, socket_options(hwm=1000))
         if self.use_router:
-            self.socket.router_mandatory = False
+            # MANDATORY routing: a reply to a vanished peer raises
+            # EHOSTUNREACH (counted) instead of being silently discarded —
+            # the silent-drop class we refuse to have anywhere in the data
+            # path. handover=1 keeps reconnect resilience: a re-announced
+            # identity takes over the stale pipe instead of being rejected.
+            self.socket.router_mandatory = True
             self.socket.router_handover = 1
         self.socket.bind(self.endpoint)
         log.info("query broker listening", endpoint=self.endpoint)
@@ -66,10 +84,23 @@ class QueryBroker:
             raise RuntimeError("broker not started")
         try:
             if self.use_router:
+                if len(self._router_tasks) >= self.max_inflight:
+                    self.shed_total += 1
+                    if self.shed_total == 1 or self.shed_total % 1000 == 0:
+                        log.warning(
+                            "query broker at max_inflight, shedding",
+                            max_inflight=self.max_inflight,
+                            shed_total=self.shed_total,
+                        )
+                    return False
                 frames = await self.socket.recv_multipart(
                     flags=0 if block else zmq.NOBLOCK
                 )
-                await self._handle_router(frames)
+                # Dispatch concurrently: the step loop must not serialize
+                # behind this handler (ROUTER allows multiple in-flight).
+                task = asyncio.create_task(self._handle_router(frames))
+                self._router_tasks.add(task)
+                task.add_done_callback(self._router_tasks.discard)
                 return True
             raw = await self.socket.recv(flags=0 if block else zmq.NOBLOCK)
         except zmq.Again:
@@ -195,10 +226,24 @@ class QueryBroker:
             )
         except zmq.Again:
             log.warning("router reply send would block")
+            self.replies_dropped += 1
         except zmq.ZMQError as exc:
-            log.error("router reply send failed: %s", exc)
+            # EHOSTUNREACH (mandatory routing): the requesting peer vanished
+            # before the reply could be delivered — REQ already abandoned the
+            # exchange, so the reply is dropped by design; count it.
+            if getattr(exc, "errno", 0) == zmq.EHOSTUNREACH:
+                self.replies_dropped += 1
+                log.warning(
+                    "router reply dropped: peer gone", identity_len=len(identity)
+                )
+            else:
+                self.replies_dropped += 1
+                log.error("router reply send failed: %s", exc)
 
     async def stop(self) -> None:
+        if self._router_tasks:
+            await asyncio.gather(*self._router_tasks, return_exceptions=True)
+            self._router_tasks.clear()
         if self.socket is not None:
             self.socket.close(linger=0)
             self.socket = None
@@ -207,4 +252,6 @@ class QueryBroker:
         return {
             "requests": self.requests,
             "errors": self.errors,
+            "replies_dropped": self.replies_dropped,
+            "shed_total": self.shed_total,
         }

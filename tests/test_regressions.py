@@ -372,3 +372,29 @@ class TestHealthChecksDb:
         r = TestClient(app).get("/api/v1/health")
         assert r.json()["status"] == "degraded"
         eng2.dispose()
+
+
+def test_no_update_statements_in_service():
+    """Append-only contract: no UPDATE may exist in shipped service code.
+
+    User data is written once via StorageEngine.insert_many (CUD Create)
+    and removed only whole-partition by TTL retention (CUD Delete).
+    Rollup maintenance uses INSERT OR REPLACE on derived tables, never
+    UPDATE on user rows. Comments are ignored (only string literals —
+    where SQL lives — are searched)."""
+    import io
+    import re
+    import tokenize
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "src" / "sqtseries"
+    hits = []
+    for path in sorted(src.rglob("*.py")):
+        tokens = tokenize.generate_tokens(io.StringIO(path.read_text()).readline)
+        hits.extend(
+            f"{path.name}:{tok.start[0]}"
+            for tok in tokens
+            if tok.type == tokenize.STRING
+            and re.search(r"(?<![A-Za-z_])UPDATE(?![A-Za-z_])", tok.string)
+        )
+    assert hits == [], f"UPDATE statements found in service code: {hits}"

@@ -72,3 +72,28 @@ class TestRecovery:
         initialize_schema(eng)
         assert check_integrity_on_startup(eng, strict=False) == 1
         eng.dispose()
+
+
+class TestRecoverWalMode:
+    def test_recover_wal_restores_wal_mode(self, tmp_path):
+        import sqlite3
+
+        from sqtseries.recovery import recover_wal
+
+        path = str(tmp_path / "mode.sqlite")
+        eng = create_sqlite_engine(path)
+        initialize_schema(eng)
+        eng.dispose()
+        raw = sqlite3.connect(path)
+        try:
+            raw.execute("PRAGMA journal_mode = DELETE")
+        finally:
+            raw.close()
+        eng2 = create_sqlite_engine(path)
+        try:
+            recover_wal(eng2)
+            with eng2.connect() as conn:
+                mode = conn.exec_driver_sql("PRAGMA journal_mode").scalar()
+            assert str(mode).lower() == "wal"
+        finally:
+            eng2.dispose()

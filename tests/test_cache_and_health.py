@@ -50,11 +50,6 @@ class TestConnectionHealthSweep:
         assert reg.sweep_stale(expired_timeout_s=0.0) == []
 
 
-# ---------------------------------------------------------------------------
-# Query result cache
-# ---------------------------------------------------------------------------
-
-
 class TestQueryResultCache:
     """Verify the query result cache deduplicates identical queries."""
 
@@ -113,11 +108,15 @@ class TestQueryResultCache:
 
         cache.put(q1, {"status": "ok"})
         cache.put(q2, {"status": "ok"})
-        cache.put(q3, {"status": "ok"})  # evicts q1
+        # Evicts q1.
+        cache.put(q3, {"status": "ok"})
 
-        assert cache.get(q1) is None  # evicted
-        assert cache.get(q2) is not None  # still there
-        assert cache.get(q3) is not None  # still there
+        # Evicted.
+        assert cache.get(q1) is None
+        # Still there.
+        assert cache.get(q2) is not None
+        # Still there.
+        assert cache.get(q3) is not None
 
     def test_cache_stats(self):
         """stats() returns accurate hit/miss counts."""
@@ -126,9 +125,12 @@ class TestQueryResultCache:
         q1 = {"metric": "a", "start": 1, "end": 2}
 
         cache.put(q1, {"status": "ok"})
-        cache.get(q1)  # hit
-        cache.get(q1)  # hit
-        cache.get({"metric": "b"})  # miss
+        # Hit.
+        cache.get(q1)
+        # Hit.
+        cache.get(q1)
+        # Miss.
+        cache.get({"metric": "b"})
 
         stats = cache.stats()
         assert stats["hits"] == 2
@@ -160,7 +162,8 @@ class TestQueryResultCache:
         # This test verifies the cache doesn't break on error results.
         cache.put(query, error_result)
         cached = cache.get(query)
-        assert cached == error_result  # cache doesn't filter, caller decides
+        # Cache doesn't filter, caller decides.
+        assert cached == error_result
 
     def test_cache_with_list_aggregations(self):
         """aggregations as a list (from query handler) must be hashable."""
@@ -377,3 +380,54 @@ class TestStatsKeepaliveLive:
             assert pub.socket.getsockopt(zmq.TCP_KEEPALIVE_IDLE) == 60
         finally:
             await pub.stop()
+
+
+class TestCacheWeightBound:
+    """Bounded-queue doctrine: bound memory (rows), not just entry count."""
+
+    def _q(self, i: int) -> dict:
+        return {
+            "metric": f"m{i}",
+            "start": 0,
+            "end": i,
+            "aggregation": None,
+            "interval": None,
+            "aggregations": None,
+            "limit": None,
+        }
+
+    def test_oversize_result_never_cached(self):
+        from sqtseries.messaging.query_cache import QueryResultCache
+
+        c = QueryResultCache()
+        big = {"status": "ok", "data": [{"ts": i, "v": 1.0} for i in range(50_000)]}
+        c.put(self._q(1), big)
+        assert c.get(self._q(1)) is None
+        assert c.stats()["oversize_skips"] == 1
+        assert c.stats()["weight"] == 0
+
+    def test_weight_bound_evicts_lru(self):
+        from sqtseries.messaging.query_cache import QueryResultCache
+
+        c = QueryResultCache(maxsize=512, max_weight=1_000)
+        # 3 results x 400 rows = 1200 weight > 1000 -> oldest evicted
+        for i in range(3):
+            c.put(self._q(i), {"status": "ok", "data": [{"ts": j} for j in range(400)]})
+        s = c.stats()
+        assert s["size"] == 2
+        assert s["weight"] <= 1_000
+        # Oldest gone.
+        assert c.get(self._q(0)) is None
+        # Newest kept.
+        assert c.get(self._q(2)) is not None
+
+    def test_replace_key_does_not_double_count_weight(self):
+        from sqtseries.messaging.query_cache import QueryResultCache
+
+        c = QueryResultCache(max_weight=1_000)
+        q = self._q(7)
+        c.put(q, {"status": "ok", "data": [{"ts": j} for j in range(800)]})
+        c.put(q, {"status": "ok", "data": [{"ts": j} for j in range(200)]})
+        # Not 1000.
+        assert c.stats()["weight"] == 200
+        assert c.stats()["size"] == 1

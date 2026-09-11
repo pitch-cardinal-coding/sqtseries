@@ -110,6 +110,24 @@ def test_template_rejects_control_chars():
         sd.unit_template_contents("/usr/bin/python3", "/data/db\r\n.sqlite")
 
 
+def test_template_includes_jemalloc_when_present():
+    unit = sd.unit_template_contents(
+        "/usr/bin/python3",
+        "/data/db.sqlite",
+        jemalloc_path="/usr/lib/x86_64-linux-gnu/libjemalloc.so.2",
+    )
+
+    assert "Environment=LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2" in unit
+
+
+def test_template_skips_jemalloc_when_absent(monkeypatch):
+    monkeypatch.setattr(sd, "_find_jemalloc", lambda: None)
+    unit = sd.unit_template_contents("/usr/bin/python3", "/data/db.sqlite")
+
+    assert "LD_PRELOAD" not in unit
+    assert "Environment=SQT_SERIES_DATABASE__PATH=/data/db.sqlite" in unit
+
+
 def test_install_system_reanchors_home(monkeypatch, isolated, tmp_path):
     monkeypatch.setattr(sd, "_installing_user", lambda: ("iam", "/home/iam"))
     sd.install_systemd_unit(
@@ -120,3 +138,21 @@ def test_install_system_reanchors_home(monkeypatch, isolated, tmp_path):
     unit = (tmp_path / "system" / sd.UNIT_NAME).read_text()
     assert "User=iam" in unit
     assert "/home/iam/.sqtseries/data/db.sqlite" in unit
+
+
+def test_install_system_reanchors_root_expanded_default(
+    monkeypatch, isolated, tmp_path
+):
+    """Under sudo, ~ already expanded to /root before reaching install —
+    the unit must still serve the installing user's database, not /root's."""
+    monkeypatch.setattr(sd, "_installing_user", lambda: ("iam", "/home/iam"))
+    sd.install_systemd_unit(
+        python="/usr/bin/python3",
+        db_path="/root/.sqtseries/data/db.sqlite",
+        backup_path="/root/.sqtseries/backups",
+        system=True,
+    )
+    unit = (tmp_path / "system" / sd.UNIT_NAME).read_text()
+    assert "/root/" not in unit
+    assert "/home/iam/.sqtseries/data/db.sqlite" in unit
+    assert "/home/iam/.sqtseries/backups" in unit

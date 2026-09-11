@@ -42,7 +42,7 @@ from .messaging.query_cache import QueryResultCache
 from .partition import RetentionManager, RollupManager
 from .partition.retention import parse_ttl
 from .ports import PortAllocator
-from .query import TimeSeriesDB
+from .query import MaxRowsExceededError, TimeSeriesDB
 from .query.agg import parse_interval
 from .recovery import check_integrity_on_startup, recover_wal
 from .runtime import RuntimeState
@@ -82,9 +82,17 @@ class Service:
         self._publish_tasks: set[asyncio.Task] = set()
         self.runtime = RuntimeState(_runtime_path(settings))
         self._runtime_owned = False
+        # Actual bound ports (auto-detect can move ingest off its configured
+        # value); filled in _start alongside the runtime file so snapshots
+        # show real ports, not configured ones.
+        self._runtime_ports: dict[str, int] | None = None
         self.connection_registry = ConnectionRegistry()
         self._query_cache = QueryResultCache()
         self._http_counters: dict[str, int] = {"writes": 0, "queries": 0}
+        # End-to-end ingest accounting: every accepted row must land in one
+        # of {persisted, dropped} — nothing vanishes silently.
+        self._persisted_count = 0
+        self._dropped_count = 0
 
     async def start(self) -> None:
         """Start the service; on partial failure, clean up what started."""
@@ -104,7 +112,7 @@ class Service:
         recover_wal(self.engine)
 
         self.store = StorageEngine(self.engine)
-        self.ts = TimeSeriesDB(self.store)
+        self.ts = TimeSeriesDB(self.store, max_rows=self.settings.query.max_rows)
 
         self.checkpoint_manager = CheckpointManager(self.engine)
         await self.checkpoint_manager.start()
@@ -175,11 +183,14 @@ class Service:
         )
         await self.ingress.start()
 
+        # ROUTER (not REP): concurrent REQ clients dispatch in parallel and
+        # replies go out as handlers finish. Wire-compatible with REQ.
         self.broker = QueryBroker(
             f"tcp://127.0.0.1:{self.settings.query.port}",
             self.settings.query,
             handler=self._query_handler,
             handler_timeout_s=self.settings.query.timeout_s,
+            use_router=True,
         )
         await self.broker.start()
 
@@ -200,14 +211,22 @@ class Service:
             # socket had work; the worker sleeps longer when idle (see
             # WorkerPool._run).
             did = False
-            # Batch-drain ingress: one sink transaction per burst instead of
-            # one per point (per-point BEGIN IMMEDIATE commits were the ingest
-            # bottleneck under concurrent query load — measured 2026-09).
-            if await self.ingress.drain_many() > 0:
-                did = True
+            # Query/admin first: serving one request per step serializes N
+            # tight clients behind each drain_many parse, which inflates
+            # tail latency under adversarial fan-in (measured 2026-09: 12
+            # tight clients -> zmq p50 ~1.6s for ~20ms of handler work).
+            # That serialization is load-bearing for memory: burst-serving
+            # the brokers lets tight clients complete faster, which raises
+            # the per-second allocation churn until the allocator holds GBs
+            # (measured: 1.3GB at 300s). One recv per step keeps churn at
+            # the rate a single worker can absorb; real (non-tight) clients
+            # still see handler-time latency via the SQL query path.
             if await self.broker.run_once(block=False):
                 did = True
             if await self.admin_broker.run_once(block=False):
+                did = True
+            # Batch-drain ingress: one sink transaction per burst.
+            if await self.ingress.drain_many() > 0:
                 did = True
             return did
 
@@ -240,6 +259,14 @@ class Service:
             },
             db_path=db_path,
         )
+        self._runtime_ports = {
+            "ingest": ingest_port,
+            "query": self.settings.query.port,
+            "stream": self.settings.streaming.port,
+            "admin": self.settings.admin.port,
+            "http": self.settings.http.port,
+            "stats": self.settings.stats.port,
+        }
         self._runtime_owned = True
         log.info(
             "service started",
@@ -266,6 +293,7 @@ class Service:
             ingestion=self.settings.ingestion,
             registry=self.connection_registry,
             query_timeout_s=self.settings.query.timeout_s,
+            query_max_rows=self.settings.query.max_rows,
             stats_provider=self.dashboard_snapshot,
         )
         self._http_counters = app.state.http_counters
@@ -318,23 +346,32 @@ class Service:
         )
 
     def _sink(self, rows: list[tuple[str, Any, float, int]]) -> None:
+        # Create ingress: the ZMQ drain path converges on
+        # StorageEngine.insert_many (the CUD Create funnel) below.
         """Persist a drained batch in ONE transaction.
 
         ``insert_many`` groups rows by partition and wraps everything (series
-        resolution + measurement inserts) in a single BEGIN IMMEDIATE, so a
-        256-point burst costs one commit instead of 256. The single-writer
-        invariant is unchanged (same serialisation as a per-point path).
-        Writes are serialized by SQLite itself (single-writer + BEGIN
-        IMMEDIATE in ``Database.begin()`` + busy_timeout), so a separate
-        app-level write queue would only add flush latency.
+        resolution + measurement inserts) in a single BEGIN IMMEDIATE — a
+        256-point burst commits once. The single-writer invariant is
+        unchanged: writes are serialized by SQLite itself (single-writer +
+        BEGIN IMMEDIATE in ``Database.begin()`` + busy_timeout), so a
+        separate app-level write queue would only add flush latency.
+
+        The service tallies rows actually persisted vs dropped so the
+        accounting identity ``recv == persisted + dropped + invalid`` holds
+        and a failed batch is visible in /stats and the dashboard.
         """
         if self.store is not None and rows:
             try:
-                self.store.insert_many(rows)
+                inserted = self.store.insert_many(rows)
+                self._persisted_count += inserted
+                return
             except Exception:
                 # Never let one bad batch kill the worker step: drop the batch
-                # (PULL has no acks — the producer has already moved on) but
-                # keep the process serving.
+                # (PULL has no acks — the producer has made its send) but keep
+                # the process serving. Counted so the drop is visible in
+                # /stats and the dashboard instead of vanishing silently.
+                self._dropped_count += len(rows)
                 log.exception("sink batch insert failed", batch_size=len(rows))
 
     def _on_publish(self, batch: list[tuple[bytes, dict[str, Any]]]) -> None:
@@ -396,6 +433,11 @@ class Service:
                 limit=limit,
                 order=query.get("order", "asc"),
             )
+        except MaxRowsExceededError as exc:
+            return {
+                "status": "error",
+                "error": {"code": "MAX_ROWS_EXCEEDED", "message": str(exc)},
+            }
         except (ValueError, KeyError, TypeError, IndexError, OverflowError) as exc:
             return {
                 "status": "error",
@@ -470,9 +512,15 @@ class Service:
             payload["ingested"] = istats["recv"] + http_writes
             payload["invalid"] = istats["invalid"]
             payload["ingest_errors"] = istats["errors"]
+            payload["persisted"] = self._persisted_count + http_writes
+            payload["dropped"] = self._dropped_count
         if self.broker is not None:
             http_queries = getattr(self, "_http_counters", {}).get("queries", 0)
-            payload["queries"] = self.broker.stats()["requests"] + http_queries
+            bstats = self.broker.stats()
+            payload["queries"] = bstats["requests"] + http_queries
+            payload["query_errors"] = bstats["errors"]
+            payload["queries_shed"] = bstats["shed_total"]
+            payload["replies_dropped"] = bstats["replies_dropped"]
         if self.admin_broker is not None:
             payload["admin_requests"] = self.admin_broker.stats()["requests"]
         if self.checkpoint_manager is not None:
@@ -523,13 +571,21 @@ class Service:
             payload["db_bytes"] = Path(db_path).stat().st_size
         except OSError:
             payload["db_bytes"] = None
-        payload["ports"] = {
+        ports = self._runtime_ports or {
             "ingest": self.settings.ingestion.port,
             "query": self.settings.query.port,
-            "streaming": self.settings.streaming.port,
+            "stream": self.settings.streaming.port,
             "admin": self.settings.admin.port,
             "http": self.settings.http.port,
             "stats": self.settings.stats.port,
+        }
+        payload["ports"] = {
+            "ingest": ports["ingest"],
+            "query": ports["query"],
+            "streaming": ports["stream"],
+            "admin": ports["admin"],
+            "http": ports["http"],
+            "stats": ports["stats"],
         }
         try:
             names = self.store.db.get_table_names() if self.store else []
@@ -615,7 +671,24 @@ class Service:
             await self.backup_manager.stop()
         if self.pool is not None:
             await self.pool.stop()
+        # Final ingress drain BEFORE closing the socket: frames already
+        # sitting in the PULL queue must be persisted, not silently dropped
+        # by close (libzmq discards undelivered messages on close; the
+        # ffmpeg-zmq receiver's drain-before-finalize discipline). Bounded:
+        # producers may still be sending during shutdown, so cap the sweeps.
         if self.ingress is not None:
+            # Remaining PULL frames first: swept batches are ENQUEUED for
+            # the (still-running) persister, so the sweep must happen BEFORE
+            # the flush (libzmq discards undelivered frames on close — the
+            # ffmpeg-zmq drain-before-finalize discipline). Idempotent: a
+            # second shutdown() finds the socket already closed.
+            if self.ingress.socket is not None:
+                for _ in range(10):
+                    if await self.ingress.drain_many() == 0:
+                        break
+            # Flush every queued batch, then stop the persister cleanly
+            # (exit sentinel behind all real batches).
+            await self.ingress.drain_inflight()
             await self.ingress.stop()
         if self.broker is not None:
             await self.broker.stop()

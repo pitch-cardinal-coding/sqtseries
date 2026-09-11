@@ -11,10 +11,11 @@ from .agg import (
     p99,
     parse_interval,
 )
-from .builder import QueryError, TimeSeriesDB
+from .builder import MaxRowsExceededError, QueryError, TimeSeriesDB
 
 __all__ = [
     "AggregationFunction",
+    "MaxRowsExceededError",
     "QueryError",
     "TimeSeriesDB",
     "aggregate_series",

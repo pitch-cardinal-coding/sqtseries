@@ -10,6 +10,31 @@ from pathlib import Path
 UNIT_NAME = "sqtseries.service"
 
 
+def _find_jemalloc() -> str | None:
+    """Full path of libjemalloc.so.2, or None when absent.
+
+    The service runs correctly without jemalloc; preloading it only trims
+    retained memory under sustained load. Returns None (plain default
+    allocator) when ldconfig is missing, the library is absent, or the
+    reported path is unsafe for a unit file.
+    """
+    try:
+        out = subprocess.check_output(["ldconfig", "-p"], text=True, timeout=10)
+    except Exception:
+        return None
+    for line in out.splitlines():
+        if "libjemalloc.so.2" not in line:
+            continue
+        parts = line.split("=>")
+        if len(parts) != 2:
+            continue
+        path = parts[1].strip()
+        if not path or any(ch.isspace() or ord(ch) < 32 for ch in path):
+            continue
+        return path
+    return None
+
+
 def _installing_user() -> tuple[str, str] | None:
     """Resolve (name, home dir) of the human installing a system unit.
 
@@ -59,6 +84,20 @@ def _against_home(path: str | None, home: str) -> str | None:
     return path
 
 
+def _against_root(path: str | None, home: str) -> str | None:
+    """Re-anchor a /root-prefixed path to an explicit home dir.
+
+    Under sudo, ``~`` already expanded to /root before this module ever saw
+    it (absolute path, so _against_home cannot help). A unit running as the
+    installing user cannot touch /root, so such paths are always accidental.
+    """
+    if path is None:
+        return None
+    if path == "/root" or path.startswith("/root/"):
+        return home + path[len("/root") :]
+    return path
+
+
 def unit_template_contents(
     python: str,
     db_path: str,
@@ -66,12 +105,17 @@ def unit_template_contents(
     config_file: str | None = None,
     system: bool = False,
     user_home: str | None = None,
+    jemalloc_path: str | None = None,
 ) -> str:
     """Render the systemd unit file. Uses `python -m sqtseries run`."""
 
     for _p in (db_path, backup_path, config_file):
         if _p and any(ch in _p for ch in "\r\n"):
             raise ValueError("paths must not contain control characters")
+    if jemalloc_path is None:
+        jemalloc_path = _find_jemalloc()
+    jemalloc_line = f"Environment=LD_PRELOAD={jemalloc_path}\n" if jemalloc_path else ""
+
     cmd_parts = [python, "-m", "sqtseries"]
     if config_file:
         cmd_parts += ["--config", str(config_file)]
@@ -123,6 +167,7 @@ ProtectHome={protect_home}
 ReadWritePaths={read_write}
 
 # Environment
+{jemalloc_line}\
 Environment=SQT_SERIES_DATABASE__PATH={db_path}
 Environment=SQT_SERIES_LOGGING__LEVEL=INFO
 
@@ -160,9 +205,13 @@ def install_systemd_unit(
     if user_home:
         # Under sudo "~" expands to /root: re-anchor explicit home paths
         # to the installing user's home so the unit serves their database.
-        db_path = _against_home(db_path, user_home[1]) or db_path
-        backup_path = _against_home(backup_path, user_home[1])
-        config_file = _against_home(config_file, user_home[1])
+        # _against_home handles "~"-prefixed paths; _against_root handles
+        # paths that already expanded to /root before reaching us (e.g. the
+        # default db path) — the unit runs as the user and cannot use /root.
+        home = user_home[1]
+        db_path = _against_root(_against_home(db_path, home), home) or db_path
+        backup_path = _against_root(_against_home(backup_path, home), home)
+        config_file = _against_root(_against_home(config_file, home), home)
 
     path = _unit_path(system)
     path.parent.mkdir(parents=True, exist_ok=True)

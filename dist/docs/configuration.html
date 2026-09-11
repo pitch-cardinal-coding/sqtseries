@@ -361,9 +361,10 @@ written to <code>runtime.json</code> (next to the database) and shown by
       <code>journal_size_limit</code>, <code>threads</code>, and
       <code>flush_interval</code> are not consumed at all — the engine uses its
       fixed values (see the PRAGMA tables below). <code>ingestion.pending_max</code>
-      is likewise validated but not consumed. The write path ingests one row per
-      message in its own transaction, so these knobs have no effect today.
-      They exist so a future write path can honor them.</li>
+      is likewise validated but not consumed. The write path drains ingest
+      frames in bursts (up to 256 per tick) and commits one transaction per
+      burst, so these knobs have no effect today. They exist so a future
+      write path can honor them.</li>
   <li><code>ingestion.max_message_size</code> (50 MiB) — frames larger than
       this are dropped at the socket level (the peer is disconnected) and
       never ingested.</li>

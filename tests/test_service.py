@@ -152,3 +152,101 @@ class TestService:
             assert buckets[0][1] == pytest.approx(15.0)
         finally:
             await svc.shutdown()
+
+    async def test_sink_accounting_persisted_and_dropped(self, settings, monkeypatch):
+        """Accounting identity: recv == persisted + dropped + invalid.
+
+        Successful batches tally into _persisted_count; a failed insert_many
+        (SQLite rolls the whole transaction back atomically) lands wholly in
+        _dropped_count and is visible in _admin_stats instead of vanishing.
+        """
+        import time
+
+        svc = Service(settings)
+        await svc.start()
+        try:
+            base = time.time_ns()
+            svc._sink([("acct.ok", None, float(i), base + i) for i in range(7)])
+            assert svc._persisted_count == 7
+            assert svc._dropped_count == 0
+
+            # Force a sink failure exactly where it happens in production:
+            # inside insert_many's transaction (disk full / lock timeout).
+            def failing_insert_many(rows):
+                raise RuntimeError("simulated commit failure")
+
+            monkeypatch.setattr(svc.store, "insert_many", failing_insert_many)
+            svc._sink([("acct.fail", None, 1.0, base)])
+            assert svc._dropped_count == 1
+            assert svc._persisted_count == 7
+
+            # The failure must be visible in the admin stats payload.
+            stats = svc._admin_stats()
+            assert stats["persisted"] >= 7
+            assert stats["dropped"] == 1
+        finally:
+            await svc.shutdown()
+
+    async def test_shutdown_drains_queued_ingest_frames(self, settings):
+        """Frames still sitting in the PULL socket at shutdown must be
+        persisted, not dropped by close (libzmq discards undelivered
+        messages on close — the ffmpeg-zmq drain-before-finalize lesson).
+        Whatever the worker already drained plus what the shutdown sweeps
+        drain must account for every frame sent."""
+        import time
+
+        import zmq
+
+        svc = Service(settings)
+        await svc.start()
+        sent = 50
+        try:
+            ctx = zmq.Context()
+            push = ctx.socket(zmq.PUSH)
+            push.setsockopt(zmq.LINGER, 1000)
+            push.connect(f"tcp://127.0.0.1:{settings.ingestion.port}")
+            # The ZMTP handshake is asynchronous: sending (or closing with
+            # LINGER 0) before it completes silently discards the frames.
+            # Wait for the connection, send, then let the worker fall idle
+            # so the frames are still queued when shutdown drains them.
+            await asyncio.sleep(0.2)
+            base = time.time()
+            for i in range(sent):
+                push.send_json(
+                    {
+                        "metric": "drain.test",
+                        "value": float(i),
+                        "timestamp": base + i * 1e-6,
+                    }
+                )
+            push.close(1000)
+            ctx.term()
+        finally:
+            await svc.shutdown()
+        # Every frame must have landed: worker-drained or shutdown-drained.
+        assert svc._persisted_count == sent
+        assert svc._dropped_count == 0
+
+    async def test_sink_dropped_on_engine_failure(self, settings, monkeypatch):
+        """A DB-level failure (the realistic shape: sqlite3.OperationalError
+        from disk-full or lock timeout) must count the batch as dropped
+        (visible in stats), not lose it silently."""
+        import sqlite3
+        import time
+
+        svc = Service(settings)
+        await svc.start()
+        try:
+
+            def failing_begin(*args, **kwargs):
+                raise sqlite3.OperationalError("database or disk is full")
+
+            monkeypatch.setattr(svc.store.db, "begin", failing_begin)
+            base = time.time_ns()
+            svc._sink([("gone.metric", None, 1.0, base)])
+            assert svc._dropped_count == 1
+            assert svc._persisted_count == 0
+            stats = svc._admin_stats()
+            assert stats["dropped"] == 1
+        finally:
+            await svc.shutdown()

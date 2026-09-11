@@ -34,7 +34,14 @@ class IngestionSettings(BaseModel):
     """Ingestion pipeline configuration."""
 
     port: int = 12501
-    hwm: int = 10000
+    # PULL RCVHWM. Handler-engine size (DEFAULT_HWM
+    # 101000): absorbs a producer burst while the persister drains, so
+    # senders only block past ~101k frames instead of thousands. Backpressure
+    # still applies — the bound is real, not unbounded.
+    hwm: int = 101_000
+    # Bounded batch queue between the receiver drain loop and the dedicated
+    # persister task (bounded-queue doctrine: explicit bound + real
+    # backpressure, never silent loss).
     pending_max: int = 100
     max_message_size: int = 50 * 1024 * 1024
     reject_client_timestamp_skew_s: float = 300.0
@@ -45,6 +52,21 @@ class QuerySettings(BaseModel):
 
     port: int = 12502
     timeout_s: float = 30.0
+    # Hard cap on raw rows materialized per query (bounded-queue doctrine: bound
+    # the work per request, not just the queue). Without it, a windowless
+    # read materializes the WHOLE partition set — transient allocations grow
+    # with the table and RSS climbs linearly with ingest rate (measured
+    # 2026-09-09: +28 MB/snapshot of anon heap at 10k pts/s). 10k rows keeps
+    # a serialized response ~3-6 MB even at full cap; clients needing more
+    # should window, aggregate, or paginate with order=desc+limit. The
+    # protocol layer raises MAX_ROWS_EXCEEDED (HTTP 413) instead of
+    # silently truncating.
+    max_rows: int = 10_000
+    # Cap on concurrent in-flight ROUTER query dispatches (bounded-queue doctrine:
+    # explicit bound + real backpressure, never an unbounded task pile). Past
+    # the cap the broker leaves requests in the ZMQ pipe (HWM-bounded) and
+    # counts the shed loudly instead of spawning another handler task.
+    max_inflight: int = 64
 
 
 class StreamingSettings(BaseModel):
@@ -352,6 +374,10 @@ def validate_settings(settings: Settings) -> list[str]:
     if settings.ingestion.pending_max < 1:
         errors.append(
             f"ingestion.pending_max must be >= 1, got {settings.ingestion.pending_max}"
+        )
+    if settings.query.max_rows < 0:
+        errors.append(
+            f"query.max_rows must be >= 0 (0 = unbounded), got {settings.query.max_rows}"
         )
     if settings.database.batch_size < 1:
         errors.append(

@@ -17,22 +17,40 @@ from .agg import (
 # Aggregations exactly expressible from the rollup's count/sum/min/max columns.
 ROLLUP_FUNCS = frozenset({"avg", "sum", "min", "max", "count"})
 
+# Downsample functions computable from per-bucket count/sum/min/max partials
+# without materializing any raw row (same set as ROLLUP_FUNCS by construction).
+_SQL_DOWNSAMPLE_FUNCS = ROLLUP_FUNCS
+
 
 class QueryError(Exception):
     """Base error for query failures."""
+
+
+class MaxRowsExceededError(QueryError):
+    """A query tried to materialize more raw rows than the configured cap."""
 
 
 class TimeSeriesDB:
     """High-level query facade over a StorageEngine.
     Provides the spec's API: insert / query / query_stream / aggregate /
 
-    downsample. Aggregations and downsampling run in Python over streamed
-
+    downsample. Rollup-eligible queries read pre-aggregated hours;
+    SQL-expressible downsamples group per bucket inside SQLite; only
+    median/p95/p99/first/last and gap filling run in Python over streamed
     samples (partition tables are queried per-partition by the store).
     """
 
-    def __init__(self, store: StorageEngine):
+    def __init__(self, store: StorageEngine, max_rows: int = 10_000):
+        """``max_rows`` caps raw rows materialized per query (0 = unbounded).
+
+        Bounded-queue doctrine: bound the work per request. A windowless read must
+        not materialize the whole partition set — transient allocations
+        would grow with the table and RSS would climb with ingest rate
+        (measured 2026-09-09: +27 MB/snapshot at 10k pts/s). Raises
+        MaxRowsExceeded instead of silently truncating.
+        """
         self.store = store
+        self.max_rows = max_rows
 
     def insert(
         self,
@@ -79,11 +97,41 @@ class TimeSeriesDB:
                 limit=limit,
                 order=order,
             )
-        rows = self._fetch(
-            metric=metric, series_ids=series_ids, start=start, end=end, order=order
+        # A caller limit only bounds the SQL fetch on the pure raw path:
+        # with aggregation/downsample/gap-fill the transform needs every
+        # row in the window, and `limit` is applied to the result instead.
+        # SQL-expressible downsamples skip the fetch entirely: SQLite
+        # aggregates per bucket and Python only ever sees one small partial
+        # per bucket, however many raw points the window holds.
+        use_sql_downsample = (
+            aggregation is not None
+            and interval is not None
+            and _name(aggregation).lower() in _SQL_DOWNSAMPLE_FUNCS
+        )
+        raw_limited = aggregation is None and not fill_gaps_ns
+        rows = (
+            []
+            if use_sql_downsample
+            else self._fetch(
+                metric=metric,
+                series_ids=series_ids,
+                start=start,
+                end=end,
+                order=order,
+                caller_limit=limit if raw_limited else None,
+            )
         )
 
-        if aggregation is not None and interval is not None:
+        if use_sql_downsample:
+            rows = self._downsample_sql(
+                metric=metric,
+                series_ids=series_ids,
+                start=start,
+                end=end,
+                aggregation=aggregation,
+                interval=interval,
+            )
+        elif aggregation is not None and interval is not None:
             rows = downsample(rows, interval, aggregation)
         elif aggregation is not None:
             if rows:
@@ -137,6 +185,21 @@ class TimeSeriesDB:
                 result[_name(f)] = self._rollup_whole_window(metric, start, end, name)
             else:
                 if raw_rows is None:
+                    # Enforce the cap with a cheap COUNT(*) before paying for
+                    # a 10k-row fetch that only ends in MaxRowsExceeded: same
+                    # trigger as _fetch, none of the churn.
+                    sids = self._resolve_series_ids(metric, None)
+                    cap = self.max_rows
+                    if (
+                        cap
+                        and cap > 0
+                        and self.store.count_in_range(sids, start, end) > cap
+                    ):
+                        raise MaxRowsExceededError(
+                            f"query would materialize more than max_rows={cap} raw rows; "
+                            "narrow the time window, use an aggregation+interval, or "
+                            "raise query.max_rows"
+                        )
                     raw_rows = self._fetch(metric=metric, start=start, end=end)
                 result[_name(f)] = aggregate_series(raw_rows, f)
         return result
@@ -158,6 +221,44 @@ class TimeSeriesDB:
             interval=interval,
         )
 
+    def _downsample_sql(
+        self,
+        metric: str | None,
+        series_ids: Iterable[int] | None,
+        start: int | None,
+        end: int | None,
+        aggregation: str | AggregationFunction,
+        interval: str,
+    ) -> list[tuple[int, float]]:
+        name = _name(aggregation).lower()
+        bucket_ns = parse_interval(interval) * 1_000_000_000
+        sids = self._resolve_series_ids(metric, series_ids)
+        if not sids:
+            return []
+        partials = self.store.downsample_sqlite(sids, start, end, bucket_ns)
+        cap = self.max_rows
+        if cap and cap > 0 and len(partials) > cap:
+            raise MaxRowsExceededError(
+                f"query would return more than max_rows={cap} buckets; "
+                "widen the interval, narrow the time window, or "
+                "raise query.max_rows"
+            )
+        out = []
+        for bkey in sorted(partials):
+            cnt, total, mn, mx = partials[bkey]
+            if name == "avg":
+                value = total / cnt
+            elif name == "sum":
+                value = total
+            elif name == "min":
+                value = mn
+            elif name == "max":
+                value = mx
+            else:
+                value = float(cnt)
+            out.append((bkey * bucket_ns, value))
+        return out
+
     def _resolve_series_ids(
         self, metric: str | None, series_ids: Iterable[int] | None
     ) -> list[int]:
@@ -174,18 +275,40 @@ class TimeSeriesDB:
         start: int | None = None,
         end: int | None = None,
         order: str = "asc",
+        caller_limit: int | None = None,
     ) -> list[tuple[int, float]]:
         series_ids = self._resolve_series_ids(metric, series_ids)
         if not series_ids:
             return []
-        return list(
+        # Bound the materialization (bounded-queue doctrine: bounded work per
+        # request). Fetch cap+1 so we can distinguish "exactly full" from
+        # "over" without a second count query; the store enforces the limit
+        # globally across partitions, so the cursor stops early — the excess
+        # rows are never even read from SQLite. A caller-supplied limit
+        # ("give me the newest point") stays O(limit): the cap exists to
+        # bound unbounded windows, not to punish bounded asks.
+        cap = self.max_rows
+        fetch_limit = cap + 1 if cap and cap > 0 else None
+        if caller_limit is not None and (
+            fetch_limit is None or caller_limit < fetch_limit
+        ):
+            fetch_limit = caller_limit
+        rows = list(
             self.store.query_time_range(
                 series_ids=series_ids,
                 start_ns=start,
                 end_ns=end,
+                limit=fetch_limit,
                 order=order,
             )
         )
+        if cap and cap > 0 and len(rows) > cap:
+            raise MaxRowsExceededError(
+                f"query would materialize more than max_rows={cap} raw rows; "
+                "narrow the time window, use an aggregation+interval, or "
+                "raise query.max_rows"
+            )
+        return rows
 
     def _rollup_eligible(
         self,

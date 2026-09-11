@@ -1,8 +1,6 @@
 """Raw sqlite3 layer for sqtseries.
 Why raw sqlite3: benchmark-validated 2026-08-07 — ~6.7x faster on point
-lookups and 1.2x on bulk inserts than alternatives (see
-sqtseries-research-2026.md §8). aiosqlite is slower sequentially (thread
-hops) — rejected.
+lookups and 1.2x on bulk inserts than the ORM prototype.
 API: ``connect()`` (reader), ``begin()`` (writer, BEGIN IMMEDIATE),
 ``execute()``, ``exec_driver_sql()``, ``scalar()/fetchall()/fetchone()/first()``,
 ``lastrowid``, ``dispose()``.
@@ -30,6 +28,7 @@ import contextlib
 import queue
 import sqlite3
 import threading
+import time
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -42,7 +41,16 @@ from ..config import DatabaseSettings
 CONNECTION_PRAGMAS: dict[str, str] = {
     "journal_mode": "WAL",
     "synchronous": "NORMAL",
-    "cache_size": "-64000",
+    # 8 MB per connection (negative = KiB). 64 MB-class caches on handles
+    # shared across executor threads made glibc arenas balloon: pages cached
+    # on thread A's arena stay in A even when thread B runs the same handle
+    # (free() returns memory to its ALLOCATING thread's arena), so total
+    # resident ~= threads x working set and climbed ~linearly under a 10k
+    # pts/s pump (measured 2026-09-09: [anon] arena mappings of 60-100 MB
+    # each in smaps; anon growth +25 MB/snapshot). 8 MB keeps the hot
+    # working set of a steady-state run resident per handle without the
+    # cross-thread duplication; misses hit the OS page cache (shared).
+    "cache_size": "-8000",
     "mmap_size": "268435456",
     "busy_timeout": "5000",
     "temp_store": "MEMORY",
@@ -86,18 +94,14 @@ class _ReaderSlots:
     """Bounded reader concurrency: pool size, with BOUNDED waiting.
 
     Deadlock prevention per the Coffman conditions (Wikipedia, "Deadlock
-    (computer science)"): the previous per-thread re-entrant design created
-    hold-and-wait (a thread holding a slot while waiting for another), and
-    its threading.local depth counter was corrupted whenever a
-    @contextmanager's finally ran on a different thread (GC finalization,
-    anyio portal handoffs) — each corruption permanently leaked a slot until
-    every acquire blocked forever (observed as a full-suite hang 2026-09).
-
-    This design breaks hold-and-wait and circular wait: a checkout NEVER
-    waits indefinitely. ``acquire`` polls the BoundedSemaphore with a
-    timeout; on timeout it reports no-slot and the caller opens a TRANSIENT
-    handle (small page cache, closed at check-in) instead of queueing
-    forever. Queueing for up to the timeout IS the intended backpressure.
+    (computer science)"): no checkout ever waits indefinitely — ``acquire``
+    polls the BoundedSemaphore with a timeout, and on timeout the caller
+    opens a TRANSIENT handle (small page cache, closed at check-in) instead
+    of queueing forever. This breaks hold-and-wait and circular wait by
+    construction, and queueing for up to the timeout IS the intended
+    backpressure. BoundedSemaphore.release() is owner-agnostic, so a
+    @contextmanager's finally running on a different thread (GC
+    finalization, anyio portal handoffs) can never corrupt the count.
     """
 
     __slots__ = ("_sem",)
@@ -291,6 +295,8 @@ class Database:
 
     @contextmanager
     def connect(self) -> Generator[Connection]:
+        # Read-only side: no CUD happens through here (autocommit SELECTs).
+        # All writes go through begin() below.
         # Bounded wait: take a pool slot or fall back to a transient handle.
         # No indefinite waiting → no circular wait → no deadlock (Coffman).
         # The module global is passed explicitly (looked up per call) so the
@@ -305,12 +311,13 @@ class Database:
             # partial SELECT would pin its WAL read snapshot and block
             # TRUNCATE checkpoints for as long as the handle sits in the pool.
             wrapper._release_snapshots()
-            self._checkin_reader(raw)
+            self._checkin_reader(raw, pooled=slot)
             if slot:
                 self._reader_slots.release()
 
     @contextmanager
     def begin(self) -> Generator[Connection]:
+        # CUD Point: every Create/Delete in the service passes through here.
         """Writer transaction — serialised by _writer_lock.
 
         Uses ``BEGIN IMMEDIATE``: takes the write lock up front (busy_timeout
@@ -395,14 +402,57 @@ class Database:
         cache_size: str | None = None,
     ) -> sqlite3.Connection:
         raw = sqlite3.connect(self.path, check_same_thread=False, timeout=30)
+        try:
+            self._open_pragmas(raw, autocheckpoint, cache_size)
+        except BaseException:
+            # Setup failed mid-way (e.g. journal_mode race on a fresh file):
+            # the handle must not escape unclosed to die at GC time.
+            with contextlib.suppress(Exception):
+                raw.close()
+            raise
+        return raw
+
+    def _open_pragmas(
+        self,
+        raw: sqlite3.Connection,
+        autocheckpoint: int,
+        cache_size: str | None,
+    ) -> None:
+        # busy_timeout FIRST: it must cover every statement below. (The
+        # connect(timeout=30) driver default also applies, but PRAGMA order
+        # makes the guarantee explicit.)
         raw.execute("PRAGMA foreign_keys = ON")
+        raw.execute(f"PRAGMA busy_timeout = {CONNECTION_PRAGMAS['busy_timeout']}")
+        self._set_wal(raw)
         pragmas = CONNECTION_PRAGMAS
         if cache_size is not None:
             pragmas = {**CONNECTION_PRAGMAS, "cache_size": cache_size}
         for name, value in pragmas.items():
+            if name in ("busy_timeout", "journal_mode"):
+                # Applied above, before the loop.
+                continue
             raw.execute(f"PRAGMA {name} = {value}")
         raw.execute(f"PRAGMA wal_autocheckpoint = {autocheckpoint}")
         return raw
+
+    def _set_wal(self, raw: sqlite3.Connection) -> None:
+        """Re-affirm WAL with a short retry.
+
+        On a FRESH file (created outside create_sqlite_engine's bootstrap) the
+        journal-mode conversion needs a brief exclusive lock, and SQLite does
+        NOT invoke the busy handler for journal_mode changes — two connections
+        racing their first _open() otherwise fail instantly with
+        'database is locked' (reproduced in test_concurrent_checkouts, 2026-09).
+        Re-affirming WAL on an already-WAL file is a no-op and never races.
+        """
+        for attempt in range(5):
+            try:
+                raw.execute("PRAGMA journal_mode = WAL")
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) or attempt == 4:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
 
     def _checkout_reader(self, pooled: bool = True) -> sqlite3.Connection:
         if pooled:

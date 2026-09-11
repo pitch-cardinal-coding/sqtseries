@@ -57,11 +57,19 @@ while true; do
         {
             CMD=$(tr '\0' ' ' < /proc/"$PID"/cmdline 2>/dev/null | head -c 120 || echo "unknown")
             STATUS=$(cat /proc/"$PID"/status 2>/dev/null || true)
+            ROLLUP=$(cat /proc/"$PID"/smaps_rollup 2>/dev/null || true)
             VmRSS=$(echo "$STATUS" | grep "^VmRSS:" | awk '{print $2}')
             VmSize=$(echo "$STATUS" | grep "^VmSize:" | awk '{print $2}')
+            # Anonymous RSS = real heap (leak evidence). Total RSS also counts
+            # file-backed pages (SQLite mmap of DB/WAL — shared page cache,
+            # reclaimable, inflated ~5x by the reader pool mapping the same
+            # file). Measured 2026-09-09: total RSS grew +98MB under a 9.6k
+            # pts/s pump while anon stayed FLAT at 70MB — judging total RSS
+            # as a leak was a false positive.
+            Anon=$(echo "$ROLLUP" | grep "^Anonymous:" | awk '{print $2}')
             Threads=$(echo "$STATUS" | grep "^Threads:" | awk '{print $2}')
             FDs=$(ls /proc/"$PID"/fd 2>/dev/null | wc -l)
-            echo "  pid=$PID rss=${VmRSS:-?}kB vsz=${VmSize:-?}kB threads=${Threads:-?} fds=${FDs:-?} cmd=$CMD"
+            echo "  pid=$PID rss=${VmRSS:-?}kB anon=${Anon:-?}kB vsz=${VmSize:-?}kB threads=${Threads:-?} fds=${FDs:-?} cmd=$CMD"
         } >> "$OUT"
     done
     sleep "$INTERVAL"

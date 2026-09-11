@@ -18,6 +18,17 @@ venv: build → install → functional validation → unit subset).
 * `docs/` — the documentation site (same pages as the repo `docs/`)
 * `HOW-TO-INSTALL.md` — this file
 
+## Prerequisites
+
+```bash
+sudo apt install libjemalloc2 -y
+```
+
+Recommended, not required: when present, `sqtseries install` preloads the
+jemalloc allocator in the service unit (returns freed memory faster under
+sustained load). Without it the service runs correctly on the default
+allocator.
+
 ## Quick install
 
 ```bash

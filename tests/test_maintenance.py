@@ -90,3 +90,23 @@ async def test_checkpoint_no_wal_no_tracking(tmp_path):
     assert mgr.wal_bytes == 0
     assert mgr.busy_runs == 0
     eng.dispose()
+
+
+async def test_run_once_swallows_worker_failure(tmp_path, monkeypatch):
+    eng = create_sqlite_engine(str(tmp_path / "fail.sqlite"))
+    initialize_schema(eng)
+
+    import sqtseries.engine.maintenance as maint
+
+    def boom(db):
+        raise RuntimeError("analyze exploded")
+
+    monkeypatch.setattr(maint, "run_analyze_once", boom)
+    mgr = MaintenanceManager(eng, interval=3600.0)
+    try:
+        # A failing ANALYZE must not kill the loop or propagate.
+        await mgr.run_once()
+        assert mgr.runs == 0
+    finally:
+        await mgr.stop()
+        eng.dispose()

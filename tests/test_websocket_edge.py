@@ -69,7 +69,8 @@ class TestSubscribeFunctionality:
 
         svc, ports = running_service
         async with websockets.connect(_ws_url(ports, "cpu.")) as ws:
-            await asyncio.sleep(0.5)  # let the subscription register
+            # Let the subscription register.
+            await asyncio.sleep(0.5)
             await svc.pubsub.publish(
                 b"cpu.load", {"metric": "cpu.load", "tags": None, "value": 1.0}
             )
@@ -185,7 +186,8 @@ class TestSubscribeResilience:
             bad = await websockets.connect(_ws_url(ports, "abrupt."))
             await asyncio.sleep(0.5)
             transport = bad.transport
-            transport.abort()  # hard kill, no close handshake
+            # Hard kill, no close handshake.
+            transport.abort()
             await asyncio.sleep(0.5)
 
             await svc.pubsub.publish(
@@ -232,7 +234,8 @@ class TestSubscribeResilience:
         svc, ports = running_service
         reader = await websockets.connect(_ws_url(ports, "iso."))
 
-        slow = await websockets.connect(_ws_url(ports, "iso."))  # never reads
+        # Never reads.
+        slow = await websockets.connect(_ws_url(ports, "iso."))
 
         await asyncio.sleep(0.5)
 
@@ -242,7 +245,8 @@ class TestSubscribeResilience:
                     b"iso.x", {"metric": "iso.x", "tags": None, "value": float(i)}
                 )
                 if i % 200 == 0:
-                    await asyncio.sleep(0)  # yield so the reader can drain
+                    # Yield so the reader can drain.
+                    await asyncio.sleep(0)
 
         await asyncio.wait_for(pump(), timeout=20)
         await asyncio.sleep(0.5)
@@ -284,7 +288,8 @@ class TestSubscribeResilience:
         svc, ports = running_service
         subs = [await websockets.connect(_ws_url(ports, "fan.")) for _ in range(15)]
 
-        await asyncio.sleep(0.7)  # let all subscriptions register
+        # Let all subscriptions register.
+        await asyncio.sleep(0.7)
         try:
             got = [False] * len(subs)
 
@@ -329,7 +334,8 @@ class TestStreamingDisabledCloseCode:
         eng = create_sqlite_engine(str(tmp_path / "no_pubsub.sqlite"))
         initialize_schema(eng)
         store = StorageEngine(eng)
-        app = create_app(store=store)  # no pubsub, no registry
+        app = create_app(store=store)
+        # No pubsub, no registry.
         client = TestClient(app)
 
         with client.websocket_connect("/ws/subscribe?metric=*") as ws:
@@ -376,7 +382,8 @@ class TestConnectionCap:
             url = f"ws://127.0.0.1:{ports['http']}/ws/subscribe?metric=cap."
             a = await websockets.connect(url)
             b = await websockets.connect(url)
-            await asyncio.sleep(0.3)  # let both register
+            # Let both register.
+            await asyncio.sleep(0.3)
             # third connection exceeds the cap -> 1013
             with pytest.raises(websockets.exceptions.ConnectionClosedError) as exc:
                 c = await websockets.connect(url)

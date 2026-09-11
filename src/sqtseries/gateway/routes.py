@@ -6,9 +6,13 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Body, HTTPException, Query, Request
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_504_GATEWAY_TIMEOUT
+from starlette.status import (
+    HTTP_400_BAD_REQUEST,
+    HTTP_413_CONTENT_TOO_LARGE,
+    HTTP_504_GATEWAY_TIMEOUT,
+)
 
-from ..query import TimeSeriesDB
+from ..query import MaxRowsExceededError, TimeSeriesDB
 
 router = APIRouter(prefix="/api/v1")
 log = structlog.get_logger(__name__)
@@ -42,6 +46,8 @@ def _to_ns(seconds: float | None) -> int | None:
 
 @router.post("/write")
 async def write(request: Request, payload: Any = _WRITE_BODY) -> dict[str, Any]:
+    # Create ingress: validated rows converge on StorageEngine.insert_many
+    # (the CUD Create funnel) via _insert_validated_batch below.
     """Ingest one or many measurements."""
     tsdb = _tsdb(request)
 
@@ -55,7 +61,12 @@ async def write(request: Request, payload: Any = _WRITE_BODY) -> dict[str, Any]:
         # validate the WHOLE batch first, so a bad item rejects the batch
         # without partially persisting the earlier ones (retry-safe)
         validated = [_validate_row(item, max_skew) for item in payload]
-        written = _insert_validated_batch(tsdb, validated)
+        # insert_many is a blocking BEGIN IMMEDIATE + commit — run it off the
+        # event loop (same treatment as /read) so a sustained write load can
+        # never stall WS streaming, pings, or other HTTP requests.
+        written = await _run_query(
+            request, lambda: _insert_validated_batch(tsdb, validated)
+        )
 
         if pubsub is not None:
             await _broadcast(pubsub, validated)
@@ -69,7 +80,7 @@ async def write(request: Request, payload: Any = _WRITE_BODY) -> dict[str, Any]:
             status_code=HTTP_400_BAD_REQUEST, detail="body must be an object or array"
         )
     validated = _validate_row(payload, max_skew)
-    written = _insert_validated(tsdb, validated)
+    written = await _run_query(request, lambda: _insert_validated(tsdb, validated))
 
     if pubsub is not None:
         await _broadcast(pubsub, [validated])
@@ -251,6 +262,13 @@ async def read(
                 order=order,
             ),
         )
+    except MaxRowsExceededError as exc:
+        # 413: the request is valid, but its result size exceeds the server's
+        # bounded-work policy (bounded-queue doctrine) — narrow the window or use
+        # an aggregation.
+        raise HTTPException(
+            status_code=HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)
+        ) from None
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     _count_http(request, "queries")
@@ -278,6 +296,10 @@ async def aggregate(
                 metric=metric, start=_to_ns(start), end=_to_ns(end), funcs=wanted
             ),
         )
+    except MaxRowsExceededError as exc:
+        raise HTTPException(
+            status_code=HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)
+        ) from None
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     _count_http(request, "queries")

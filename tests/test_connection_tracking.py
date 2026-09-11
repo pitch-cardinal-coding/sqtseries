@@ -180,8 +180,10 @@ class TestConnectionRegistry:
         reg = ConnectionRegistry()
         reg.on_event(lambda etype, payload: events.append((etype, payload)))
 
-        reg.unregister_ws("ghost")  # unknown ws id -> no event
-        reg.unregister_zmq_sub("cpu.")  # unknown topic -> still an event, count 0
+        # Unknown ws id -> no event.
+        reg.unregister_ws("ghost")
+        # Unknown topic -> still an event, count 0.
+        reg.unregister_zmq_sub("cpu.")
 
         assert len(events) == 1
         assert events[0][0] == "sub"
@@ -194,13 +196,15 @@ class TestConnectionRegistry:
         reg = ConnectionRegistry()
         reg.register_zmq_sub("cpu.")
         first = reg._zmq_first_seen["cpu."]
-        reg.register_zmq_sub("cpu.")  # 2nd subscriber: first_seen unchanged
+        # 2nd subscriber: first_seen unchanged.
+        reg.register_zmq_sub("cpu.")
 
         assert reg._zmq_first_seen["cpu."] == first
         reg.unregister_zmq_sub("cpu.")
         reg.unregister_zmq_sub("cpu.")
         assert "cpu." not in reg._zmq_first_seen
-        reg.register_zmq_sub("cpu.")  # rejoin: fresh first_seen
+        # Rejoin: fresh first_seen.
+        reg.register_zmq_sub("cpu.")
         assert reg._zmq_first_seen["cpu."] >= first
         assert reg.snapshot()["subscriptions"][0]["first_seen"] is not None
 
@@ -393,6 +397,7 @@ class TestAdminCommands:
     async def _pump(self, svc):
         while True:
             await svc.ingress.drain_many()
+            await svc.ingress.flush()
             await svc.broker.run_once(block=False)
             await svc.admin_broker.run_once(block=False)
             await asyncio.sleep(0.005)
@@ -476,10 +481,6 @@ class TestAdminCommands:
 class TestConnectionEdgeCases:
     """Edge cases for join/leave, event emission, and registry consistency."""
 
-    # ------------------------------------------------------------------
-    # WebSocket edge cases
-    # ------------------------------------------------------------------
-
     def test_register_same_id_twice_overwrites(self):
         """Registering the same conn_id twice overwrites the first entry."""
 
@@ -507,7 +508,8 @@ class TestConnectionEdgeCases:
     def test_touch_ws_unknown_id_no_crash(self):
         """touch_ws on an unknown ID must not raise."""
         reg = ConnectionRegistry()
-        reg.touch_ws("nonexistent")  # no crash
+        # No crash on unknown id.
+        reg.touch_ws("nonexistent")
 
     def test_touch_ws_updates_last_activity(self):
         """touch_ws refreshes last_activity_at."""
@@ -619,10 +621,6 @@ class TestConnectionEdgeCases:
         assert isinstance(leave["left_at"], float)
         assert leave["left_at"] >= leave["connected_at"]
 
-    # ------------------------------------------------------------------
-    # ZMQ SUB edge cases
-    # ------------------------------------------------------------------
-
     def test_zmq_unsubscribe_more_than_subscribed(self):
         """Unsubscribing more times than subscribed clamps to 0."""
         reg = ConnectionRegistry()
@@ -732,10 +730,6 @@ class TestConnectionEdgeCases:
         assert isinstance(join["arrived_at"], float)
         assert "ttl" in join
 
-    # ------------------------------------------------------------------
-    # Mixed WS + ZMQ edge cases
-    # ------------------------------------------------------------------
-
     def test_mixed_ws_and_zmq_events_no_cross_contamination(self):
         """WS and ZMQ events are independent."""
         events = []
@@ -762,10 +756,6 @@ class TestConnectionEdgeCases:
         sub_events = [e for e in events if e[0] == "sub"]
         assert len(conn_events) == 3  # 2 joins + 1 leave
         assert len(sub_events) == 3  # 2 joins + 1 leave
-
-    # ------------------------------------------------------------------
-    # Event listener edge cases
-    # ------------------------------------------------------------------
 
     def test_listener_exception_does_not_break_other_listeners(self):
         """A listener that throws does not prevent other listeners from firing."""
@@ -812,20 +802,20 @@ class TestConnectionEdgeCases:
         reg.on_event(remover)
         reg.on_event(lambda et, p: events.append(et))
 
-        reg.register_ws("x", "peer", "t")  # remover fires, removes itself
+        # Remover fires, removes itself.
+        reg.register_ws("x", "peer", "t")
 
-        reg.unregister_ws("x")  # remover not called again
-        assert len(events) == 2  # both conn events received by second listener
+        # Remover not called again.
+        reg.unregister_ws("x")
+        # Both conn events received by second listener.
+        assert len(events) == 2
 
     def test_no_listeners_no_crash(self):
         """Emitting with zero listeners is a no-op."""
         reg = ConnectionRegistry()
-        reg.register_ws("x", "peer", "t")  # no listeners, no crash
+        # No listeners, no crash.
+        reg.register_ws("x", "peer", "t")
         reg.unregister_ws("x")
-
-    # ------------------------------------------------------------------
-    # Snapshot consistency
-    # ------------------------------------------------------------------
 
     def test_snapshot_reflects_state_at_call_time(self):
         """Snapshot shows the state when called, not when created."""
@@ -837,7 +827,8 @@ class TestConnectionEdgeCases:
         reg.register_ws("b", "peer", "t")
         snap2 = reg.snapshot()
         assert snap2["ws_connections"] == 2
-        assert snap1["ws_connections"] == 1  # snap1 is a separate dict
+        # snap1 is a separate dict.
+        assert snap1["ws_connections"] == 1
 
     def test_snapshot_empty_registry(self):
         """Snapshot of empty registry returns zeroed counts."""
@@ -849,16 +840,13 @@ class TestConnectionEdgeCases:
         assert snap["connections"] == []
         assert snap["subscriptions"] == []
 
-    # ------------------------------------------------------------------
-    # Connection ID edge cases
-    # ------------------------------------------------------------------
-
     def test_connection_id_uniqueness(self):
         """Generated connection IDs are unique over many calls."""
         from sqtseries.messaging.connection_registry import new_connection_id
 
         ids = {new_connection_id() for _ in range(10000)}
-        assert len(ids) == 10000  # all unique
+        # All unique.
+        assert len(ids) == 10000
 
     def test_connection_id_format(self):
         """Connection ID is a 12-char hex string."""
@@ -867,11 +855,6 @@ class TestConnectionEdgeCases:
         cid = new_connection_id()
         assert len(cid) == 12
         assert all(c in "0123456789abcdef" for c in cid)
-
-
-# ---------------------------------------------------------------------------
-# Deep edge cases — API boundary, state transitions, data integrity
-# ---------------------------------------------------------------------------
 
 
 class TestDeepEdgeCases:
@@ -885,10 +868,6 @@ class TestDeepEdgeCases:
     - SubscriptionTracker direct testing
     - StatsPublisher edge cases
     """
-
-    # ------------------------------------------------------------------
-    # 1. subscriber_count API boundary
-    # ------------------------------------------------------------------
 
     def test_subscriber_count_empty_string_returns_total(self):
         """subscriber_count('') treats empty string as falsy → returns total.
@@ -921,10 +900,6 @@ class TestDeepEdgeCases:
         assert reg.subscriber_count() == 0
         assert reg.subscriber_count("any") == 0
 
-    # ------------------------------------------------------------------
-    # 2. Duplicate listener registration
-    # ------------------------------------------------------------------
-
     def test_same_callback_registered_twice_fires_twice(self):
         """Registering the same callback twice makes it fire twice per event."""
 
@@ -936,9 +911,11 @@ class TestDeepEdgeCases:
             calls.append(etype)
 
         reg.on_event(listener)
-        reg.on_event(listener)  # duplicate
+        # Duplicate.
+        reg.on_event(listener)
         reg.register_ws("x", "peer", "t")
-        assert len(calls) == 2  # listener fired twice
+        # Listener fired twice.
+        assert len(calls) == 2
 
     def test_remove_listener_only_removes_first_occurrence(self):
         """remove_listener removes only the first occurrence of a duplicate."""
@@ -951,10 +928,13 @@ class TestDeepEdgeCases:
             calls.append(etype)
 
         reg.on_event(listener)
-        reg.on_event(listener)  # duplicate
-        reg.remove_listener(listener)  # removes first only
+        # Duplicate.
+        reg.on_event(listener)
+        # Removes first only.
+        reg.remove_listener(listener)
         reg.register_ws("x", "peer", "t")
-        assert len(calls) == 1  # second copy still fires
+        # Second copy still fires.
+        assert len(calls) == 1
 
     def test_remove_all_copies_of_duplicate(self):
         """Removing twice removes both copies of a duplicate listener."""
@@ -971,11 +951,8 @@ class TestDeepEdgeCases:
         reg.remove_listener(listener)
         reg.remove_listener(listener)
         reg.register_ws("x", "peer", "t")
-        assert len(calls) == 0  # both copies removed
-
-    # ------------------------------------------------------------------
-    # 3. Listener adds another listener during emit
-    # ------------------------------------------------------------------
+        # Both copies removed.
+        assert len(calls) == 0
 
     def test_listener_adds_listener_during_emit(self):
         """A listener that adds a new listener mid-emit: new listener does NOT
@@ -990,7 +967,8 @@ class TestDeepEdgeCases:
             reg.on_event(lambda et, p: calls.append("added"))
 
         reg.on_event(adder)
-        reg.register_ws("x", "peer", "t")  # adder fires, adds "added"
+        # Adder fires, adds "added".
+        reg.register_ws("x", "peer", "t")
         # "added" was in the snapshot? No — snapshot was taken before emit.
         # Actually the snapshot IS list(self._listeners) at the time of _emit.
         # adder appends to self._listeners, but the snapshot was already taken.
@@ -998,7 +976,8 @@ class TestDeepEdgeCases:
         assert calls == ["adder"]
 
         calls.clear()
-        reg.register_ws("y", "peer", "t")  # now "added" is in the snapshot
+        # Now "added" is in the snapshot.
+        reg.register_ws("y", "peer", "t")
         # Both adder and added fire, and adder adds another "added"
         assert "adder" in calls
         assert "added" in calls
@@ -1026,18 +1005,16 @@ class TestDeepEdgeCases:
         # Snapshot [a, b] — both fire. A removes B from _listeners.
         reg.register_ws("x", "peer", "t")
         assert len(calls_a) == 1
-        assert len(calls_b) == 1  # B fired because snapshot included it
+        # B fired because snapshot included it.
+        assert len(calls_b) == 1
 
         calls_a.clear()
         calls_b.clear()
         # Now _listeners = [a] — only A fires.
         reg.register_ws("y", "peer", "t")
         assert len(calls_a) == 1
-        assert len(calls_b) == 0  # B was removed
-
-    # ------------------------------------------------------------------
-    # 4. Empty / boundary conn_id
-    # ------------------------------------------------------------------
+        # B was removed.
+        assert len(calls_b) == 0
 
     def test_empty_conn_id_register_unregister(self):
         """Empty string is a valid conn_id — register/unregister works."""
@@ -1058,10 +1035,6 @@ class TestDeepEdgeCases:
         assert reg.ws_count == 1
         assert reg.list_connections()[0]["peer"] == "peer2"
 
-    # ------------------------------------------------------------------
-    # 5. ZMQ state transition correctness
-    # ------------------------------------------------------------------
-
     def test_zmq_first_seen_set_on_first_subscribe(self):
         """first_seen is set when topic goes 0 -> 1."""
         reg = ConnectionRegistry()
@@ -1078,7 +1051,8 @@ class TestDeepEdgeCases:
         first = reg._zmq_first_seen["cpu"]
         time.sleep(0.01)
         reg.register_zmq_sub("cpu")
-        assert reg._zmq_first_seen["cpu"] == first  # unchanged
+        # Unchanged.
+        assert reg._zmq_first_seen["cpu"] == first
 
     def test_zmq_first_seen_cleared_when_count_reaches_zero(self):
         """first_seen is removed from dict when last subscriber leaves."""
@@ -1110,7 +1084,8 @@ class TestDeepEdgeCases:
         reg.register_zmq_sub("cpu")
         second = reg._zmq_first_seen["cpu"]
         assert second >= first
-        assert second > first  # strictly later (due to sleep)
+        # Strictly later (due to sleep).
+        assert second > first
 
     def test_zmq_unsubscribe_unknown_topic_emits_zero(self):
         """Unsubscribing an unknown topic emits event with count=0, first_seen=None."""
@@ -1126,10 +1101,6 @@ class TestDeepEdgeCases:
         assert payload["subscribers"] == 0
         assert payload["first_seen"] is None
         assert payload["topic"] == "ghost"
-
-    # ------------------------------------------------------------------
-    # 6. Data integrity — shallow copy leak testing
-    # ------------------------------------------------------------------
 
     def test_list_connections_returns_copies_not_references(self):
         """Mutating a returned entry does NOT affect the registry."""
@@ -1159,10 +1130,6 @@ class TestDeepEdgeCases:
         assert actual["subscriptions"][0]["topic"] == "cpu"
         assert actual["ws_connections"] == 1
         assert actual["zmq_subscribers"] == 1
-
-    # ------------------------------------------------------------------
-    # 7. Event payload field completeness
-    # ------------------------------------------------------------------
 
     def test_ws_connect_event_has_all_fields(self):
         """WS connect event payload has every expected field with correct types."""
@@ -1231,10 +1198,6 @@ class TestDeepEdgeCases:
         assert isinstance(payload["first_seen"], float)
         assert payload["left_at"] >= payload["first_seen"]
 
-    # ------------------------------------------------------------------
-    # 8. TTL values in events
-    # ------------------------------------------------------------------
-
     def test_ws_connect_event_ttl_is_60(self):
         """WS connect events carry ttl=60."""
         events = []
@@ -1252,10 +1215,6 @@ class TestDeepEdgeCases:
         reg.on_event(lambda et, p: events.append((et, p)))
         reg.register_zmq_sub("cpu")
         assert events[0][1]["ttl"] == 30
-
-    # ------------------------------------------------------------------
-    # 9. check_connection state transitions
-    # ------------------------------------------------------------------
 
     def test_check_connection_true_only_while_registered(self):
         """check_connection returns True only between register and unregister."""
@@ -1276,10 +1235,6 @@ class TestDeepEdgeCases:
         conns = reg.list_connections()
         assert conns[0]["peer"] == "p2"
 
-    # ------------------------------------------------------------------
-    # 10. connected_at stability
-    # ------------------------------------------------------------------
-
     def test_connected_at_immutable_after_register(self):
         """connected_at does not change across multiple list_connections calls."""
 
@@ -1288,11 +1243,8 @@ class TestDeepEdgeCases:
         t1 = reg.list_connections()[0]["connected_at"]
         time.sleep(0.01)
         t2 = reg.list_connections()[0]["connected_at"]
-        assert t1 == t2  # same timestamp, not re-evaluated
-
-    # ------------------------------------------------------------------
-    # 11. ws_count and zmq_sub_count properties
-    # ------------------------------------------------------------------
+        # Same timestamp, not re-evaluated.
+        assert t1 == t2
 
     def test_ws_count_reflects_real_time(self):
         """ws_count property returns live count, not cached."""
@@ -1321,10 +1273,6 @@ class TestDeepEdgeCases:
         reg.unregister_zmq_sub("b")
         assert reg.zmq_sub_count == 0
 
-    # ------------------------------------------------------------------
-    # 12. Multiple registries isolated
-    # ------------------------------------------------------------------
-
     def test_multiple_registries_are_isolated(self):
         """Two ConnectionRegistry instances share no state."""
         reg1 = ConnectionRegistry()
@@ -1336,10 +1284,6 @@ class TestDeepEdgeCases:
         assert reg2.ws_count == 0
         assert reg1.zmq_sub_count == 1
         assert reg2.zmq_sub_count == 0
-
-    # ------------------------------------------------------------------
-    # 13. SubscriptionTracker direct testing
-    # ------------------------------------------------------------------
 
     def test_subscription_tracker_subscribe_unsubscribe_cycle(self):
         """Subscribe -> unsubscribe -> subscribe: topic is active, not lingering."""
@@ -1355,7 +1299,8 @@ class TestDeepEdgeCases:
         assert "cpu" not in t.active_topics
         assert t.stats()["lingering"] == 1
 
-        t.subscribe("cpu")  # re-subscribe clears linger
+        # Re-subscribe clears linger.
+        t.subscribe("cpu")
         assert "cpu" in t.active_topics
         assert t.stats()["lingering"] == 0
         assert t.stats()["active"] == 1
@@ -1396,9 +1341,11 @@ class TestDeepEdgeCases:
         from sqtseries.messaging.pubsub import SubscriptionTracker
 
         t = SubscriptionTracker()
-        t.unsubscribe("ghost")  # no crash
+        # No crash.
+        t.unsubscribe("ghost")
         assert t.stats()["active"] == 0
-        assert t.stats()["lingering"] == 1  # lingers even if never active
+        # Lingers even if never active.
+        assert t.stats()["lingering"] == 1
 
     def test_subscription_tracker_double_subscribe(self):
         """Subscribing twice to the same topic: active_topics still shows it once."""
@@ -1407,13 +1354,11 @@ class TestDeepEdgeCases:
 
         t = SubscriptionTracker()
         t.subscribe("cpu")
-        t.subscribe("cpu")  # duplicate
+        # Duplicate.
+        t.subscribe("cpu")
         assert t.active_topics == {"cpu"}
-        assert t.stats()["active"] == 1  # set, not counter
-
-    # ------------------------------------------------------------------
-    # 14. StatsPublisher edge cases
-    # ------------------------------------------------------------------
+        # Set, not counter.
+        assert t.stats()["active"] == 1
 
     async def test_stats_publisher_event_hook_after_stop_is_noop(self):
         """After stop(), registry events are silently dropped."""
@@ -1470,10 +1415,6 @@ class TestDeepEdgeCases:
         ctx.term()
         await pub.stop()
 
-    # ------------------------------------------------------------------
-    # 15. Cross-cutting: WS + ZMQ events don't interfere
-    # ------------------------------------------------------------------
-
     def test_zmq_events_do_not_affect_ws_count(self):
         """Registering ZMQ subscribers does not change ws_count."""
         reg = ConnectionRegistry()
@@ -1481,7 +1422,8 @@ class TestDeepEdgeCases:
         assert reg.ws_count == 1
         reg.register_zmq_sub("cpu")
         reg.register_zmq_sub("mem")
-        assert reg.ws_count == 1  # unchanged
+        # Unchanged.
+        assert reg.ws_count == 1
 
     def test_ws_events_do_not_affect_zmq_count(self):
         """Registering WS connections does not change zmq_sub_count."""
@@ -1491,11 +1433,8 @@ class TestDeepEdgeCases:
         assert reg.zmq_sub_count == 1
         reg.register_ws("x", "p", "t")
         reg.register_ws("y", "p", "t")
-        assert reg.zmq_sub_count == 1  # unchanged
-
-    # ------------------------------------------------------------------
-    # 16. Edge: unregister_zmq_sub emits event even for unknown topic
-    # ------------------------------------------------------------------
+        # Unchanged.
+        assert reg.zmq_sub_count == 1
 
     def test_unregister_zmq_sub_unknown_still_emits_event(self):
         """Unsubscribing an unknown topic emits a 'sub' event with count=0.
@@ -1516,26 +1455,21 @@ class TestDeepEdgeCases:
         assert events[0][1]["subscribers"] == 0
         assert events[0][1]["topic"] == "never_existed"
 
-    # ------------------------------------------------------------------
-    # 17. Edge: list_connections with many connections sorted correctly
-    # ------------------------------------------------------------------
-
     def test_list_connections_sorts_by_connected_at(self):
         """Connections are returned in registration order (by connected_at)."""
 
         reg = ConnectionRegistry()
-        reg.register_ws("c", "p", "t")  # third
+        # Third.
+        reg.register_ws("c", "p", "t")
         time.sleep(0.01)
-        reg.register_ws("a", "p", "t")  # first (registered earlier)
+        # First (registered earlier).
+        reg.register_ws("a", "p", "t")
         time.sleep(0.01)
-        reg.register_ws("b", "p", "t")  # second
+        # Second.
+        reg.register_ws("b", "p", "t")
         ids = [c["id"] for c in reg.list_connections()]
         # c was registered first, then a, then b
         assert ids == ["c", "a", "b"]
-
-    # ------------------------------------------------------------------
-    # 18. Edge: snapshot subscriptions have first_seen
-    # ------------------------------------------------------------------
 
     def test_snapshot_subscriptions_include_first_seen(self):
         """Snapshot subscriptions list includes first_seen for each topic."""
