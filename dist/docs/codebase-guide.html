@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a class="here" href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a class="here" href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -251,10 +251,10 @@ ports — so it is usually <strong>12500</strong>, not the configured 12501. The
 <h3>3.1 Measurement &rarr; series &rarr; partition</h3>
 <ul>
   <li>A <strong>measurement</strong> is one number: <code>metric</code> (string), <code>value</code> (finite number),
-      optional <code>tags</code> (string&rarr;string map), optional <code>timestamp</code> (epoch <em>seconds</em>;
+      optional <code>tags</code> (string&rarr;string map), optional <code>timestamp</code> (epoch <em>seconds</em> or ISO-8601;
       server time when omitted).</li>
   <li>Internally storage uses nanosecond epoch integers (<code>timestamp_ns</code>); the wire protocol
-      sends seconds, ZMQ queries take nanosecond bounds, and HTTP uses seconds.</li>
+      sends seconds or ISO-8601, ZMQ queries take nanosecond bounds (or ISO-8601), and HTTP uses seconds (or ISO-8601).</li>
   <li>A <strong>series</strong> is the unique pair <code>(metric, tags)</code>. It gets an integer
       <code>series_id</code> from the <code>series</code> table (unique index on <code>(metric, tags)</code>).
       Writing the same <code>(metric, tags)</code> again appends to the same series; different tag sets
@@ -415,7 +415,7 @@ of env-set leaf paths and only merges file keys the env did <em>not</em> set.</p
   <code>_get_*_sock</code> helpers. All four sockets are created on demand from one <code>zmq.Context()</code>.</p></div>
 
   <div class="sym"><span class="kind">method</span><br><span class="sig">write(metric, value, tags=None, timestamp=None) -> None</span>
-  <p class="desc">Send one measurement (PUSH, fire-and-forget). Optional <code>timestamp</code> is epoch seconds.
+  <p class="desc">Send one measurement (PUSH, fire-and-forget). Optional <code>timestamp</code> is epoch seconds or ISO-8601.
   Serialized with orjson.</p></div>
 
   <div class="sym"><span class="kind">method</span><br><span class="sig">write_many(points: list[dict]) -> None</span>
@@ -1225,21 +1225,21 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
   error shape; in the ingress it increments the invalid counter.</p></div>
   <div class="sym"><span class="kind">dataclass</span><br><span class="sig">IngestMessage</span>
   <p class="desc">Validated ingest message: <code>metric</code> (str), <code>value</code> (float),
-  <code>tags</code> (dict|None), <code>timestamp</code> (epoch seconds, optional).
+  <code>tags</code> (dict|None), <code>timestamp</code> (epoch seconds or ISO-8601-derived ns, optional).
   Method <span class="sig">to_rows() -> (metric, tags, value, ts_ns)</span> — defaults to server time,
-  converts seconds &rarr; ns.</p></div>
+  converts seconds &rarr; ns (ISO input keeps exact ns).</p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">dumps(obj) -> bytes</span>
   <p class="desc">orjson with OPT_NON_STR_KEYS (non-string keys allowed, e.g. numeric bucket keys).</p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">loads(data) -> Any</span>
   <p class="desc">orjson parse; JSON errors &rarr; ProtocolError.</p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">parse_ingest(raw, reject_client_timestamp_skew_s=None) -> IngestMessage</span>
   <p class="desc">Validates: object body; non-empty string metric; numeric non-bool finite value; tags
-  string&rarr;string (keys and values); numeric finite optional timestamp. When
+  string&rarr;string (keys and values); numeric or ISO-8601 optional timestamp. When
   <code>reject_client_timestamp_skew_s &gt; 0</code> and a timestamp is present, skew beyond the limit
   raises ProtocolError (the clock-skew guard that protects rollup ordering).</p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">parse_query(raw) -> dict</span>
   <p class="desc">Validates a query: object body, type "query" or omitted, non-empty metric, start/end
-  integers when present; returns the normalized dict.</p></div>
+  integers (ns) or ISO-8601 strings when present; returns the normalized dict.</p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">parse_admin(raw) -> str</span>
   <p class="desc">Validates an admin message and returns the command string.</p></div>
 </div>
@@ -2114,14 +2114,14 @@ README links and is itself validated by <code>test_docs_claims.py</code>. Pages:
 
 <div class="part">
 <h2 id="protocol">16. Wire Protocol Reference</h2>
-<p>Both transports carry the same JSON shapes. Timestamps: <em>seconds</em> on the wire
-(ingest/HTTP and returned rows); ZMQ query <em>bounds</em> are nanoseconds; HTTP query bounds are
-seconds.</p>
+<p>Both transports carry the same JSON shapes. Timestamps: <em>seconds</em> or ISO-8601 on the wire
+(ingest/HTTP and returned rows); ZMQ query <em>bounds</em> are nanoseconds or ISO-8601; HTTP query bounds are
+seconds or ISO-8601.</p>
 
 <h3>16.1 Ingest (ZMQ PUSH &rarr; 12501, or POST /api/v1/write)</h3>
 <pre>{"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}, "timestamp": 1691234567.5}
 (fields: metric required non-empty string; value required finite number (no bool);
- tags optional string→string object; timestamp optional finite number, epoch seconds)</pre>
+  tags optional string→string object; timestamp optional finite number, epoch seconds, or ISO-8601 string)</pre>
 <p class="note">Clock-skew guard: a client timestamp more than <code>reject_client_timestamp_skew_s</code>
 (300 s default) from server time is rejected (ProtocolError / HTTP 400). This protects the
 rollup's in-order assumption. HTTP accepts a single object or an array (atomic batch).</p>

@@ -324,6 +324,22 @@ class TestPubSubXpub:
 
         await pubsub.stop()
 
+    async def test_topic_totals_count_publishes(self):
+        """PubSub counts publish attempts per topic."""
+
+        port = free_port()
+
+        reg = ConnectionRegistry()
+        pubsub = PubSub(f"tcp://127.0.0.1:{port}", registry=reg)
+        await pubsub.start()
+        try:
+            for _ in range(3):
+                await pubsub.publish("cpu", {"metric": "cpu", "value": 1.0})
+            await pubsub.publish("mem", {"metric": "mem", "value": 2.0})
+            assert pubsub.topic_totals() == {"cpu": 3, "mem": 1}
+        finally:
+            await pubsub.stop()
+
     async def test_sigkilled_subscriber_evicts(self):
         """A subscriber killed without closing still leaves the registry."""
         import signal
@@ -1495,3 +1511,35 @@ class TestDeepEdgeCases:
         snap = reg.snapshot()
         topics = [s["topic"] for s in snap["subscriptions"]]
         assert "cpu" not in topics
+
+
+class TestKnownTopics:
+    def test_idle_topic_listed_with_zero(self):
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        reg.register_zmq_sub("mem")
+        reg.unregister_zmq_sub("cpu")
+        known = {t["topic"]: t for t in reg.known_topics()}
+        assert known["cpu"]["subscribers"] == 0
+        assert known["mem"]["subscribers"] == 1
+        assert isinstance(known["cpu"]["first_seen"], float)
+
+    def test_first_seen_never_moves(self):
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        first = reg.known_topics()[0]["first_seen"]
+        reg.unregister_zmq_sub("cpu")
+        reg.register_zmq_sub("cpu")
+        reg.register_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        assert reg.known_topics()[0]["first_seen"] == first
+        assert reg.known_topics()[0]["subscribers"] == 0
+
+    def test_snapshot_includes_known_topics(self):
+        reg = ConnectionRegistry()
+        reg.register_zmq_sub("cpu")
+        reg.unregister_zmq_sub("cpu")
+        snap = reg.snapshot()
+        assert [t["topic"] for t in snap["known_topics"]] == ["cpu"]
+        assert snap["subscriptions"] == []

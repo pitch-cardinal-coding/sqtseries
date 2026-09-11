@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a class="here" href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a class="here" href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -26,7 +26,8 @@ two transports use different time units, described in the warning below.</p>
 <div class="note">
   <strong>Time units differ by transport.</strong> The ZMQ query path takes
   <code>start</code>/<code>end</code> in <em>epoch nanoseconds</em>; the HTTP
-  gateway takes them in <em>epoch seconds</em>. Query results always return
+  gateway takes them in <em>epoch seconds</em>. Both also accept ISO-8601
+  strings (<code>2026-09-11T14:04:00Z</code>). Query results always return
   timestamps in <em>seconds</em>. Ingestion timestamps are seconds on both.
 </div>
 
@@ -37,8 +38,8 @@ completeness and for other languages.</p>
 <pre><code>{
   "type": "query",                    // optional — omitted is treated as a query
   "metric": "cpu.usage",             // required: non-empty string
-  "start": 1720000000000000000,      // epoch NANOSECONDS (optional, inclusive)
-  "end":   1720003600000000000,      // epoch NANOSECONDS (optional, inclusive)
+  "start": 1720000000000000000,      // epoch NANOSECONDS (optional, inclusive) — or "2026-09-11T14:00:00Z"
+  "end":   1720003600000000000,      // epoch NANOSECONDS (optional, inclusive) — or "2026-09-11T15:00:00Z"
   "aggregation": "avg",              // optional
   "interval": "15m",                 // optional bucket size
   "limit": 100,                      // optional, first N in the selected order
@@ -125,17 +126,17 @@ row is anchored at the window's oldest sample (the last one when
 
 <h3>HTTP queries</h3>
 <p>HTTP is the easiest path from scripts, browsers, and languages without a
-ZMQ binding. Timestamps are in <em>seconds</em> here; results are identical in
+ZMQ binding. Timestamps are in <em>seconds</em> (or ISO-8601) here; results are identical in
 shape to the ZMQ path.</p>
 <div class="table-wrap"><table>
   <tr><th>Endpoint</th><th>Params</th><th>Returns</th></tr>
   <tr><td><code>GET /api/v1/read</code></td>
-      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds),
+      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds or ISO-8601),
           <code>aggregation</code>, <code>interval</code>, <code>limit</code> (1–100000),
           <code>order</code> (asc|desc)</td>
       <td><code>{"status":"ok","data":[{timestamp,value}]}</code></td></tr>
   <tr><td><code>GET /api/v1/aggregate</code></td>
-      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds),
+      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds or ISO-8601),
           <code>funcs</code> (comma list, default <code>avg</code>)</td>
       <td><code>{"status":"ok","aggregations":{func:value}}</code></td></tr>
   <tr><td><code>GET /api/v1/stats</code></td>
@@ -148,9 +149,9 @@ curl "http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.usage&amp;funcs=avg,min
 curl "http://127.0.0.1:12505/api/v1/stats"
 curl "http://127.0.0.1:12505/api/v1/health"</code></pre>
 <p>Bad parameters (<code>limit</code> outside 1–100000, invalid
-<code>order</code>, missing <code>metric</code>, non-numeric
-<code>start</code>/<code>end</code>) are rejected with
-<code>422</code>; an unknown <code>aggregation</code>, or an invalid
+<code>order</code>, missing <code>metric</code>) are rejected with
+<code>422</code>; <code>start</code>/<code>end</code> that are neither numeric
+nor ISO-8601 with <code>400</code>; an unknown <code>aggregation</code>, or an invalid
 <code>interval</code> used together with an <code>aggregation</code>, with
 <code>400</code>.</p>
 
@@ -193,8 +194,13 @@ sock.send(orjson.dumps({
 reply = orjson.loads(sock.recv())
 print(reply)</code></pre>
 
-<h4>HTTP (seconds)</h4>
-<pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=1720000000&amp;end=1720003600&amp;aggregation=avg&amp;interval=1m"</code></pre>
+<h4>HTTP (seconds or ISO-8601)</h4>
+<pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=1720000000&amp;end=1720003600&amp;aggregation=avg&amp;interval=1m"
+curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=2026-09-11T14:00:00Z&amp;end=2026-09-11T15:00:00Z"</code></pre>
+<p>Prefer clicking to curl? Every endpoint above is live in
+<a href="../api-docs" target="_blank" rel="noopener">Swagger UI</a> (or
+<a href="../redoc" target="_blank" rel="noopener">ReDoc</a>) on your running
+service — fill the parameters and hit <em>Try it out</em>.</p>
 
 <h3 id="series-id">Querying by series_id (embedded API)</h3>
 <p>Each unique <code>(metric, tags)</code> pair is a <em>series</em>. The
@@ -266,8 +272,8 @@ of scanning every raw row. The exact eligibility rules:</p>
       fall back to raw rows.</li>
   <li><strong>The window</strong> must span at least two completed hours and
       its end-hour boundary must be at or below the rollup watermark (which
-      tracks the last completed, rolled hour) — i.e. the window's tail cannot
-      reach into the current hour.</li>
+      tracks the last completed, rolled hour) — a tail reaching into the
+      current hour simply falls back to raw rows instead.</li>
   <li><strong>Not eligible:</strong> <code>first</code>, <code>last</code>,
       <code>median</code>, <code>p95</code>, <code>p99</code>; non-whole-hour
       intervals; windows shorter than two completed hours.</li>
@@ -276,8 +282,8 @@ of scanning every raw row. The exact eligibility rules:</p>
       acceleration, never an approximation.</li>
 </ul>
 <p>Measured effect (<a href="benchmarks.md">benchmarks</a>, 2M rows at 20K
-points per series): the same wide-window query drops from ~13ms linear
-(raw scan) to ~1.3ms near-constant (~10x). The rollup runs in the background
+points per series): the same wide-window query drops from 11.22ms linear
+(raw scan) to 0.97ms near-constant (~11.6x). The rollup runs in the background
 (<code>rollup.interval</code>, default every 5 minutes); hours are only
 rolled once they are at least the client-skew window past completion.</p>
 

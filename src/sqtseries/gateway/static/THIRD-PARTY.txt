@@ -17,3 +17,11 @@ Files used:
 Deliberately NOT vendored: jQuery, popper, bootstrap JS, demo.js,
 Google Fonts, Font Awesome, sidebar images. dashboard.js is vanilla
 (no framework) and dashboard.css carries the project-specific rules.
+
+API reference UI (self-hosted so the gateway CSP and offline LANs work —
+no CDN, no inline scripts):
+- specs/swagger-ui-bundle.js + specs/swagger-ui.css (Swagger UI,
+  Apache-2.0; https://github.com/swagger-api/swagger-ui)
+- specs/redoc.standalone.js (ReDoc, MIT; https://github.com/Redocly/redoc)
+- specs/swagger-init.js (project-owned bootstrap)
+Retrieved 2026-09-11 (swagger-ui-dist@5, redoc@2).

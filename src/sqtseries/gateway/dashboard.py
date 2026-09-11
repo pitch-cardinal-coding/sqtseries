@@ -38,6 +38,9 @@ def fallback_snapshot(store: Any, registry: Any) -> dict[str, Any]:
         payload["zmq_subscribers"] = snap["zmq_subscribers"]
         payload["connections"] = registry.list_connections()
         payload["subscriptions"] = snap["subscriptions"]
+        payload["topics"] = [
+            {**entry, "total": None} for entry in registry.known_topics()
+        ]
     return payload
 
 

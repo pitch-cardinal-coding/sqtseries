@@ -54,7 +54,9 @@ systemd-install:
 	$(PREFIX)/bin/python3 -m sqtseries --config $(CONFIG) install --system
 	systemctl daemon-reload
 	systemctl enable sqtseries
-	systemctl start sqtseries
+	# restart (not start): on upgrade the old process is still running the
+	# previous venv, and plain start would leave it in place silently.
+	systemctl restart sqtseries
 	@echo "$(GREEN)Service active. Check: sudo make systemd-status$(NC)"
 
 systemd-uninstall:

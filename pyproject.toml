@@ -30,6 +30,7 @@ dependencies = [
     "pyzmq>=27",
     "structlog>=25",
     "uvicorn>=0.34",
+    "websockets>=17.0",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +60,7 @@ Documentation = "https://github.com/yourname/sqtseries/docs"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sqtseries = ["gateway/static/*", "gateway/static/vendor/*"]
+sqtseries = ["gateway/static/*", "gateway/static/vendor/*", "gateway/static/specs/*", "docs_data/**/*"]
 
 [tool.ruff]
 line-length = 88

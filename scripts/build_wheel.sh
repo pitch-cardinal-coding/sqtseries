@@ -34,6 +34,10 @@ sleep 1
 info "Building wheel (pure Python, setuptools)..."
 cd "$REPO_DIR"
 rm -rf build src/*.egg-info src/sqtseries.egg-info .eggs 2>/dev/null || true
+# Ship the docs inside the wheel (served by the gateway at /docs): remove
+# first so no stale page survives an upgrade, then copy fresh.
+rm -rf src/sqtseries/docs_data
+cp -r "$REPO_DIR/dist/docs" src/sqtseries/docs_data
 "$PY" -m pip wheel . --no-deps -w "$DIST_DIR" 2>&1 | tail -2
 WHL=$(ls -t "$DIST_DIR"/sqtseries-*.whl 2>/dev/null | head -1 || true)
 [ -n "$WHL" ] || fail "no wheel produced"
@@ -47,6 +51,7 @@ assert any(n.endswith("METADATA") for n in names), "no METADATA"
 assert any("entry_points" in n.lower() or n.endswith("entry_points.txt") for n in names), "no entry_points"
 assert any(n == "sqtseries/cli.py" or n.endswith("/sqtseries/cli.py") for n in names), "no cli.py"
 assert not any(n.startswith("tests/") for n in names), "tests leaked into wheel"
+assert any(n.startswith("sqtseries/docs_data/") and n.endswith("index.html") for n in names), "docs not packaged"
 rec = [n for n in names if n.endswith("RECORD")]
 assert rec, "no RECORD"
 print("OK: entry_points + cli.py present, no tests leakage, RECORD present")
@@ -64,7 +69,7 @@ sed 's#](dist/docs/#](docs/#g' "$REPO_DIR/README.md" > "$DIST_DIR/README.md"
 ok "dist/ assembled ($(ls "$DIST_DIR" | tr '\n' ' '))"
 
 # 5. clean temp artifacts (dist stays)
-rm -rf "$REPO_DIR/build" "$REPO_DIR/src"/*.egg-info "$REPO_DIR/src/sqtseries.egg-info" "$REPO_DIR/.eggs" 2>/dev/null || true
+rm -rf "$REPO_DIR/build" "$REPO_DIR/src"/*.egg-info "$REPO_DIR/src/sqtseries.egg-info" "$REPO_DIR/.eggs" src/sqtseries/docs_data 2>/dev/null || true
 ok "Wheel: $(basename "$WHL") ($(du -h "$WHL" | cut -f1))"
 ok "Build and verification complete!"
 echo

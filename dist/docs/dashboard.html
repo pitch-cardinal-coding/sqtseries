@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a class="here" href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a class="here" href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -41,7 +41,7 @@ separate local files with no external requests.</p>
   <tr><td>Ingest (points/sec, totals, invalid, errors)</td><td>tick deltas (ZMQ + HTTP paths both counted)</td></tr>
   <tr><td>Queries (rate, totals, cache hit ratio and size)</td><td>tick deltas</td></tr>
   <tr><td>Connections (id, peer, topic, activity age, stale flag)</td><td>snapshot + live events, newest first</td></tr>
-  <tr><td>Topics (per-topic subscriber counts)</td><td>snapshot + live events</td></tr>
+  <tr><td>Topics (every known topic, live subscriber counts, per-topic point totals)</td><td>snapshot + 1s tick</td></tr>
   <tr><td>Storage (series, metrics, partitions, backups, rollup watermark)</td><td>snapshot + tick</td></tr>
   <tr><td>Events ticker (joins, leaves, subscribes)</td><td>live events, newest first</td></tr>
 </table></div>
@@ -63,7 +63,22 @@ separate local files with no external requests.</p>
 <p>Raw access to the same feed: <code>/ws/connections</code> (snapshot plus
 per-change frames) and the admin <code>connections</code> /
 <code>subscribers</code> commands documented in <a href="api.html#admin">API
-Reference</a>.</p>
+Reference</a>. The Topics panel lists every topic the service has ever seen —
+idle topics stay visible with a 0 count — alongside each topic's total
+published points (<code>GET /api/v1/subscribers</code> returns the same
+<code>topics</code> list as JSON).</p>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <div class="card"><h3><a href="api.html">API Reference</a></h3>
+    <p>Every endpoint behind these panels — try them live in Swagger UI or
+    ReDoc, or read the wire formats.</p></div>
+  <div class="card"><h3><a href="streaming.html">Streaming</a></h3>
+    <p>The live feeds this page watches: WebSocket, ZMQ SUB, and stats
+    events.</p></div>
+  <div class="card"><h3><a href="examples.html">Examples</a></h3>
+    <p>Dashboards, alerting, and monitoring built on these same feeds.</p></div>
+</div>
 
   </div>
   <aside class="toc" aria-label="On this page">

@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a class="here" href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a class="here" href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -44,10 +44,10 @@ sqtseries run --config c.toml       # ERROR: No such option</code></pre>
 <code>--db</code> in front of them:</p>
 <div class="table-wrap"><table>
   <tr><th>Command</th><th>What it does</th></tr>
-  <tr><td><code>run</code></td><td>Start the service in the foreground. Refuses to start when the same database is already being served, or when a different database in the same directory is live (it names the offending pid and database). Ctrl-C stops gracefully with exit code 0.</td></tr>
+  <tr><td><code>run</code></td><td>Start the service in the foreground. Prints <code>Serving &lt;db&gt;</code> plus dashboard/docs/health/help links, then the log. Refuses to start when the same database is already being served, or when a different database in the same directory is live (it names the offending pid and database). Ctrl-C stops gracefully with exit code 0.</td></tr>
   <tr><td><code>stop</code></td><td>Send SIGTERM to the running instance (read from <code>runtime.json</code>). Refuses when the runtime database differs from the resolved one.</td></tr>
-  <tr><td><code>status</code></td><td>Show pid, version, database path, and per-port lines; warns when the runtime database differs from the configured one.</td></tr>
-  <tr><td><code>ports</code></td><td>Show the active ports; when not running, show the configured ones (ingest/query/stream/admin/http).</td></tr>
+  <tr><td><code>status</code></td><td>Show pid, version, database path, and per-port lines, followed by dashboard/docs/health/help links; warns when the runtime database differs from the configured one.</td></tr>
+  <tr><td><code>ports</code></td><td>Show the active ports plus dashboard/docs/health/help links; when not running, show the configured ones (ingest/query/stream/admin/http) with the same links.</td></tr>
   <tr><td><code>health</code></td><td>Read-only <code>PRAGMA quick_check</code> probe; prints "ok" or "degraded: ...", exits 0/1 accordingly.</td></tr>
   <tr><td><code>stats</code></td><td>Print metric and series counts.</td></tr>
   <tr><td><code>vacuum</code></td><td>Full <code>VACUUM</code> (stop the service first).</td></tr>
@@ -108,7 +108,7 @@ flush_interval = 1.0                    # config-only; see note below
 
 [ingestion]
 port = 12501
-hwm = 10000
+hwm = 101000
 pending_max = 100                       # validated; unused
 max_message_size = 52428800             # 50 MiB
 reject_client_timestamp_skew_s = 300.0  # reject timestamps skewed &gt; 5 min
@@ -116,6 +116,8 @@ reject_client_timestamp_skew_s = 300.0  # reject timestamps skewed &gt; 5 min
 [query]
 port = 12502
 timeout_s = 30.0                         # see note below
+max_rows = 10000                         # raw-row cap per query (0 = unbounded)
+max_inflight = 64                        # concurrent query dispatch cap
 
 [streaming]
 port = 12503
@@ -215,8 +217,8 @@ SQT_SERIES_CONFIG_FILE=~/prod.toml sqtseries run</code></pre>
 <div class="table-wrap"><table>
   <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
   <tr><td><code>port</code></td><td><code>12501</code></td><td><code>SQT_SERIES_INGESTION__PORT</code></td><td>Auto-detected PULL socket (the only one)</td></tr>
-  <tr><td><code>hwm</code></td><td><code>10000</code></td><td><code>SQT_SERIES_INGESTION__HWM</code></td><td>PUSH/PULL high-water mark</td></tr>
-  <tr><td><code>pending_max</code></td><td><code>100</code></td><td><code>SQT_SERIES_INGESTION__PENDING_MAX</code></td><td>Validated (≥1), config-only</td></tr>
+  <tr><td><code>hwm</code></td><td><code>101000</code></td><td><code>SQT_SERIES_INGESTION__HWM</code></td><td>PUSH/PULL high-water mark</td></tr>
+  <tr><td><code>pending_max</code></td><td><code>100</code></td><td><code>SQT_SERIES_INGESTION__PENDING_MAX</code></td><td>Max outstanding ingest batches (semaphore-bound hand-off)</td></tr>
   <tr><td><code>max_message_size</code></td><td><code>52428800</code></td><td><code>SQT_SERIES_INGESTION__MAX_MESSAGE_SIZE</code></td><td>Max frame size (50 MiB); larger frames are dropped</td></tr>
   <tr><td><code>reject_client_timestamp_skew_s</code></td><td><code>300.0</code></td><td><code>SQT_SERIES_INGESTION__REJECT_CLIENT_TIMESTAMP_SKEW_S</code></td><td>Skew guard for timestamps (±5 min)</td></tr>
 </table></div>
@@ -226,6 +228,8 @@ SQT_SERIES_CONFIG_FILE=~/prod.toml sqtseries run</code></pre>
   <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
   <tr><td><code>port</code></td><td><code>12502</code></td><td><code>SQT_SERIES_QUERY__PORT</code></td><td>Query REP socket</td></tr>
   <tr><td><code>timeout_s</code></td><td><code>30.0</code></td><td><code>SQT_SERIES_QUERY__TIMEOUT_S</code></td><td>Query budget on the wire: a query running longer gets <code>QUERY_TIMEOUT</code> back (0 disables)</td></tr>
+  <tr><td><code>max_rows</code></td><td><code>10000</code></td><td><code>SQT_SERIES_QUERY__MAX_ROWS</code></td><td>Max raw rows materialized per query (0 = unbounded); over-limit reads fail with <code>MAX_ROWS_EXCEEDED</code> (HTTP 413) instead of truncating</td></tr>
+  <tr><td><code>max_inflight</code></td><td><code>64</code></td><td><code>SQT_SERIES_QUERY__MAX_INFLIGHT</code></td><td>Max concurrent in-flight query dispatches; excess stays queued and is counted, not spawned</td></tr>
 </table></div>
 
 <h4>streaming</h4>
@@ -356,14 +360,15 @@ written to <code>runtime.json</code> (next to the database) and shown by
 <ul>
   <li>Every <code>[database]</code> key except <code>path</code> is
       <em>config-only</em>: <code>batch_size</code> is validated (1–8191) but
-      not consumed, and <code>page_size</code>, <code>cache_size</code>,
+      not consumed by the write path (benchmark tooling batches with it), and <code>page_size</code>, <code>cache_size</code>,
       <code>mmap_size</code>, <code>busy_timeout</code>,
       <code>journal_size_limit</code>, <code>threads</code>, and
       <code>flush_interval</code> are not consumed at all — the engine uses its
-      fixed values (see the PRAGMA tables below). <code>ingestion.pending_max</code>
-      is likewise validated but not consumed. The write path drains ingest
-      frames in bursts (up to 256 per tick) and commits one transaction per
-      burst, so these knobs have no effect today. They exist so a future
+      fixed values (see the PRAGMA tables below). <code>ingestion.pending_max</code>,
+      by contrast, is live: it bounds outstanding ingest batches through a
+      semaphore between the drain loop and the persister. The write path drains ingest
+      frames in bursts (up to 1024 per tick) and commits one transaction per
+      burst, so the remaining knobs have no effect today. They exist so a future
       write path can honor them.</li>
   <li><code>ingestion.max_message_size</code> (50 MiB) — frames larger than
       this are dropped at the socket level (the peer is disconnected) and
@@ -417,7 +422,7 @@ storage/engine terms, then transports and project/tech terms.</p>
 <tr><td>TSDB</td><td>Time-Series Database</td><td>A database optimized for timestamped measurements; sqtseries is an embedded TSDB on SQLite.</td></tr>
 <tr><td>WAL</td><td>Write-Ahead Log</td><td>SQLite journal mode for crash-atomic writes; checkpointed periodically and on shutdown.</td></tr>
 <tr><td>TTL</td><td>Time To Live</td><td>Retention horizon (e.g., "30d") after which whole monthly partitions are dropped.</td></tr>
-<tr><td>HWM</td><td>High Water Mark</td><td>ZeroMQ socket queue limit before backpressure/drop (default 10000).</td></tr>
+<tr><td>HWM</td><td>High Water Mark</td><td>ZeroMQ socket queue limit before backpressure/drop (ingest default 101000).</td></tr>
 <tr><td>XPUB</td><td>Extended PUB</td><td>ZMQ PUB socket that also emits subscription events — used to track live subscribers exactly.</td></tr>
 <tr><td>REQ / REP</td><td>Request / Reply</td><td>ZMQ socket pattern for synchronous command/response (query port 12502, admin port 12504).</td></tr>
 <tr><td>PUSH / PULL</td><td>Push / Pull</td><td>ZMQ socket pattern for fire-and-forget ingestion (ingest port 12501).</td></tr>
@@ -446,6 +451,19 @@ are defined in the <a href="codebase-guide.html#glossary">Codebase Guide glossar
 <div class="note">
   <strong>Local-only service.</strong> Every socket binds to 127.0.0.1. There
   is no authentication — never expose sqtseries to a network.
+</div>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <div class="card"><h3><a href="quickstart.html">Quick Start</a></h3>
+    <p>Put these settings to work: run, send data, and query it back.</p></div>
+  <div class="card"><h3><a href="systemd.html">Systemd</a></h3>
+    <p>Run with your config file as a service that stays up.</p></div>
+  <div class="card"><h3><a href="backup.html">Backup &amp; Restore</a></h3>
+    <p>Protect the database file these settings point at.</p></div>
+  <div class="card"><h3><a href="api.html">API Reference</a></h3>
+    <p>Every CLI command, wire message, and error code in one page — plus
+    live Swagger UI and ReDoc specs.</p></div>
 </div>
 
 

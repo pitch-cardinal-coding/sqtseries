@@ -9,10 +9,6 @@
   var STORAGE_KEY = "sqtseries-theme";
   var VERSION = "v0.1.0";
 
-  /* ------------------------------------------------------------------ */
-  /*  Single source of truth: page order + nav labels.                   */
-  /*  To add a page: append to NAV_ITEMS and add the .html file.         */
-  /* ------------------------------------------------------------------ */
   var NAV_ITEMS = [
     { href: "index.html",              label: "Home" },
     { href: "quickstart.html",         label: "Quick Start" },
@@ -34,8 +30,11 @@
   var FOOTER_LINKS = [
     { href: "index.html",      label: "Home" },
     { href: "quickstart.html", label: "Quick Start" },
+    { href: "queries.html",    label: "Queries" },
+    { href: "configuration.html", label: "Configuration" },
     { href: "api.html",        label: "API Reference" },
-    { href: "examples.html",   label: "Examples" }
+    { href: "examples.html",   label: "Examples" },
+    { href: "/dashboard",      label: "Live Dashboard" }
   ];
 
   var HEADER_HTML =
@@ -49,10 +48,6 @@
       '<svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
       '<svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>' +
     '</button>';
-
-  /* ------------------------------------------------------------------ */
-  /*  Helpers                                                            */
-  /* ------------------------------------------------------------------ */
 
   function getInitialTheme() {
     try {
@@ -92,18 +87,10 @@
     return path.split("/").pop() || "index.html";
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Dynamic header injection                                           */
-  /* ------------------------------------------------------------------ */
-
   function injectHeader() {
     var header = document.querySelector("header");
     if (header) header.innerHTML = HEADER_HTML;
   }
-
-  /* ------------------------------------------------------------------ */
-  /*  Dynamic nav injection                                              */
-  /* ------------------------------------------------------------------ */
 
   function injectNav() {
     var existing = document.querySelector('nav[aria-label="Main"]');
@@ -116,6 +103,7 @@
       var cur = isCurrent ? ' aria-current="page"' : "";
       html += "<li><a" + cls + cur + ' href="' + item.href + '">' + item.label + "</a></li>";
     });
+    html += '<li><a href="../api-docs" target="_blank" rel="noopener">API Specs</a></li>';
     existing.innerHTML = '<ul id="main-nav-list">' + html + "</ul>";
   }
 
@@ -186,10 +174,6 @@
     syncForWidth();
   }
 
-  /* ------------------------------------------------------------------ */
-  /*  Dynamic footer links injection                                     */
-  /* ------------------------------------------------------------------ */
-
   function injectFooterLinks() {
     var container = document.querySelector(".footer-links");
     if (!container) return;
@@ -197,23 +181,18 @@
     FOOTER_LINKS.forEach(function (item) {
       html += '<a href="' + item.href + '">' + item.label + '</a>';
     });
+    html += '<a href="../api-docs" target="_blank" rel="noopener">API Specs</a>';
     container.innerHTML = html;
   }
-
-  /* ------------------------------------------------------------------ */
-  /*  Init                                                               */
-  /* ------------------------------------------------------------------ */
 
   onReady(function () {
     applyTheme(getInitialTheme());
 
-    /* ---- inject header/nav/footer from data ---- */
     injectHeader();
     injectNav();
     injectNavToggle();
     injectFooterLinks();
 
-    /* ---- theme toggle ---- */
     var toggle = document.getElementById("theme-toggle");
     if (toggle) {
       toggle.addEventListener("click", function () {
@@ -222,7 +201,6 @@
       });
     }
 
-    /* ---- breadcrumb ---- */
     var main = document.querySelector("main");
     var currentHref = detectCurrentHref();
     var navItem = NAV_ITEMS.find(function (n) { return n.href === currentHref; });
@@ -244,7 +222,6 @@
       main.insertBefore(crumbs, main.firstChild);
     }
 
-    /* ---- on-this-page TOC ---- */
     var content = document.querySelector(".docs-content");
     var tocList = document.getElementById("toc-list");
     if (content && tocList) {
@@ -279,7 +256,6 @@
       }
     }
 
-    /* ---- code copy buttons ---- */
     document.querySelectorAll("pre").forEach(function (pre) {
       var btn = document.createElement("button");
       btn.className = "copy-btn";
@@ -305,7 +281,6 @@
       pre.appendChild(btn);
     });
 
-    /* ---- prev / next pagination ---- */
     var footer = document.querySelector("footer");
     if (footer) {
       var order = NAV_ITEMS.map(function (n) { return n.href; });

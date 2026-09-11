@@ -174,9 +174,10 @@ p50/p95 over 50 runs, single series (the script default is 100 query runs).
   points). Raw `avg`/`sum`/`min`/`max`/`count` buckets are grouped inside
   SQLite (no row materialization); only `median`/`p95`/`p99`/`first`/`last`
   and gap filling stream rows to Python.
-- **The rollup fast path is near-constant** (0.8–1.3ms regardless of how many
+- **The rollup fast path is near-constant** (p50 0.19–0.97ms regardless of how many
   points the series holds): it reads a handful of pre-aggregated hourly rows.
-  It wins ~3.9–10x as soon as the raw scan dominates.
+  It wins up to ~11.6x as soon as the raw scan dominates (2M rows at 20K
+  points per series: 11.22ms → 0.97ms).
 - **Crossover point:** the rollup carries a fixed overhead (~0.3–0.5ms) from
   its eligibility check + edge queries + merge. Below ~1,000 points per series
   over a multi-hour window, raw and rollup are within noise of each other

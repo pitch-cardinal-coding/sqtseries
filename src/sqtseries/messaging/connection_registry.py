@@ -30,6 +30,10 @@ class ConnectionRegistry:
         self._zmq_subs: dict[str, int] = {}
         # topic -> epoch seconds when its count first went 0 -> 1
         self._zmq_first_seen: dict[str, float] = {}
+        # topic -> epoch seconds of its first 0 -> 1 transition. Append-only
+        # (unlike _zmq_first_seen, never cleared): dashboards list every known
+        # topic with its live count. One float per distinct topic ever seen.
+        self._zmq_known: dict[str, float] = {}
         self._listeners: list[Callable[[str, dict[str, Any]], None]] = []
 
     def on_event(self, callback: Callable[[str, dict[str, Any]], None]) -> None:
@@ -105,6 +109,7 @@ class ConnectionRegistry:
 
         if count == 1:
             self._zmq_first_seen[topic] = now
+        self._zmq_known.setdefault(topic, now)
         payload = {
             "kind": "zmq",
             "topic": topic,
@@ -205,6 +210,22 @@ class ConnectionRegistry:
         """Topics that have at least one ZMQ SUB subscriber."""
         return sorted(self._zmq_subs.keys())
 
+    def known_topics(self) -> list[dict[str, Any]]:
+        """Every topic ever seen, with its live subscriber count.
+
+        Idle topics report 0 rather than disappearing, so dashboards can
+        list the full set. ``first_seen`` is the topic's very first
+        appearance and never moves.
+        """
+        return [
+            {
+                "topic": topic,
+                "subscribers": self._zmq_subs.get(topic, 0),
+                "first_seen": first,
+            }
+            for topic, first in sorted(self._zmq_known.items())
+        ]
+
     @property
     def ws_count(self) -> int:
         return len(self._ws)
@@ -236,6 +257,7 @@ class ConnectionRegistry:
                 }
                 for topic, count in sorted(self._zmq_subs.items())
             ],
+            "known_topics": self.known_topics(),
         }
 
 

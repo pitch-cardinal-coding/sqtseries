@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -24,6 +24,26 @@ from .routes import router as api_router
 from .websocket import subscribe_and_forward
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def _find_docs_dir() -> Path | None:
+    """Documentation directory for the /docs mount, if shipped.
+
+    Release wheels carry a docs_data copy (see scripts/build_wheel.sh);
+    a source checkout falls back to dist/docs next to the repo root.
+    None when neither exists — the dashboard Docs link then 404s instead
+    of serving stale or missing pages.
+    """
+    packaged = Path(__file__).resolve().parent.parent / "docs_data"
+    if (packaged / "index.html").is_file():
+        return packaged
+    repo = Path(__file__).resolve().parent.parent.parent.parent / "dist" / "docs"
+    if (repo / "index.html").is_file():
+        return repo
+    return None
+
+
+DOCS_DIR = _find_docs_dir()
 
 
 class HeaderMiddleware:
@@ -65,7 +85,12 @@ class HeaderMiddleware:
                 headers["Permissions-Policy"] = (
                     "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
                 )
-                headers["Content-Security-Policy"] = "default-src 'self'"
+                # A route may set its own CSP (e.g. ReDoc needs inline
+                # styles); the default stays tight everywhere else.
+                if "content-security-policy" not in headers:
+                    headers["Content-Security-Policy"] = (
+                        "default-src 'self'; img-src 'self' data:"
+                    )
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
@@ -109,7 +134,19 @@ def create_app(
     # class as orjson) when a response model / return type is declared — the
     # recommended path per FastAPI docs. No custom response class needed.
 
-    app = FastAPI(title="sqtseries", version="0.1.0")
+    app = FastAPI(
+        title="sqtseries",
+        version="0.1.0",
+        # The /docs path serves the shipped user documentation instead, and
+        # the gateway CSP blocks FastAPI's CDN-backed stock pages — so the
+        # stock UI is off and /api-docs + /redoc below serve self-hosted
+        # equivalents from vendored assets (no CDN, no inline scripts).
+        # img-src allows data: for library icons (inert in image context).
+        # Machine-readable schema: /openapi.json.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url="/openapi.json",
+    )
 
     app.state.tsdb = tsdb
     app.state.store = store
@@ -161,8 +198,47 @@ def create_app(
         )
 
         @app.get("/dashboard", include_in_schema=False)
+        @app.get("/", include_in_schema=False)
         async def dashboard_page() -> FileResponse:
             return FileResponse(STATIC_DIR / "dashboard.html")
+
+        @app.get("/api-docs", include_in_schema=False)
+        async def swagger_page() -> HTMLResponse:
+            return HTMLResponse(
+                "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<title>sqtseries - Swagger UI</title>"
+                "<link rel='icon' href='/dashboard-assets/favicon.svg' type='image/svg+xml'>"
+                "<link rel='stylesheet' href='/dashboard-assets/specs/swagger-ui.css'>"
+                "</head><body><div id='swagger-ui'></div>"
+                "<script src='/dashboard-assets/specs/swagger-ui-bundle.js'></script>"
+                "<script src='/dashboard-assets/specs/swagger-init.js'></script>"
+                "</body></html>"
+            )
+
+        @app.get("/redoc", include_in_schema=False)
+        async def redoc_page() -> HTMLResponse:
+            return HTMLResponse(
+                "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<title>sqtseries - ReDoc</title>"
+                "<link rel='icon' href='/dashboard-assets/favicon.svg' type='image/svg+xml'>"
+                "</head><body><redoc spec-url='/openapi.json'></redoc>"
+                "<script src='/dashboard-assets/specs/redoc.standalone.js'></script>"
+                "</body></html>",
+                headers={
+                    "Content-Security-Policy": (
+                        "default-src 'self'; "
+                        "img-src 'self' data: https://cdn.redoc.ly; "
+                        "style-src 'self' 'unsafe-inline'; "
+                        "worker-src 'self' blob:"
+                    )
+                },
+            )
+
+    # Shipped documentation (release wheel) or the repo copy in dev.
+    if DOCS_DIR is not None and DOCS_DIR.is_dir():
+        app.mount("/docs", StaticFiles(directory=DOCS_DIR, html=True), name="docs")
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, str]:

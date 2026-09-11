@@ -250,3 +250,25 @@ class TestService:
             assert stats["dropped"] == 1
         finally:
             await svc.shutdown()
+
+
+class TestDashboardTopics:
+    async def test_snapshot_lists_known_topics_with_totals(self, settings):
+        """dashboard_snapshot 'topics' covers idle topics (0) with totals."""
+        svc = Service(settings)
+        await svc.start()
+        try:
+            reg = svc.connection_registry
+            reg.register_zmq_sub("cpu")
+            reg.register_zmq_sub("mem")
+            reg.unregister_zmq_sub("mem")
+            await svc.pubsub.publish("cpu", {"metric": "cpu", "value": 1.0})
+            await svc.pubsub.publish("cpu", {"metric": "cpu", "value": 2.0})
+            snap = svc.dashboard_snapshot()
+            by_topic = {t["topic"]: t for t in snap["topics"]}
+            assert by_topic["cpu"]["subscribers"] == 1
+            assert by_topic["cpu"]["total"] == 2
+            assert by_topic["mem"]["subscribers"] == 0
+            assert by_topic["mem"]["total"] == 0
+        finally:
+            await svc.shutdown()

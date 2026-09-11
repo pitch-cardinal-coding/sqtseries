@@ -69,8 +69,8 @@ class TimeSeriesDB:
         self,
         metric: str | None = None,
         series_ids: Iterable[int] | None = None,
-        start: int | None = None,
-        end: int | None = None,
+        start: int | str | None = None,
+        end: int | str | None = None,
         *,
         aggregation: str | AggregationFunction | None = None,
         interval: str | None = None,
@@ -79,11 +79,13 @@ class TimeSeriesDB:
         fill_gaps_ns: int | None = None,
     ) -> list[tuple[int, float]]:
         """Return (timestamp_ns, value) pairs.
-        - ``start``/``end`` are nanosecond epoch.
+        - ``start``/``end`` are nanosecond epoch or ISO-8601 strings.
         - With ``aggregation``+``interval``: downsample into buckets.
         - With ``aggregation`` alone: one value over the whole window.
         - ``fill_gaps_ns`` linearly interpolates gaps <= that size.
         """
+        start = _coerce_ns(start)
+        end = _coerce_ns(end)
         if aggregation is not None and _name(aggregation).lower() not in AGGREGATORS:
             raise ValueError(f"unsupported aggregation: {aggregation}")
         if self._rollup_eligible(metric, series_ids, start, end, aggregation, interval):
@@ -154,12 +156,14 @@ class TimeSeriesDB:
     def query_stream(
         self,
         metric: str,
-        start: int | None = None,
-        end: int | None = None,
+        start: int | str | None = None,
+        end: int | str | None = None,
         *,
         order: str = "asc",
     ) -> Iterator[tuple[int, float]]:
         """Stream raw samples in bounded memory."""
+        start = _coerce_ns(start)
+        end = _coerce_ns(end)
         series_ids = self.store.series_ids_for_metric(metric)
         for sid in series_ids:
             yield from self.store.query_time_range(
@@ -169,13 +173,15 @@ class TimeSeriesDB:
     def aggregate(
         self,
         metric: str,
-        start: int | None = None,
-        end: int | None = None,
+        start: int | str | None = None,
+        end: int | str | None = None,
         *,
         funcs: list[str | AggregationFunction] | None = None,
     ) -> dict[str, float]:
         """Compute aggregations over the whole window; returns {func: value}."""
 
+        start = _coerce_ns(start)
+        end = _coerce_ns(end)
         funcs = funcs or ["avg"]
         raw_rows: list[tuple[int, float]] | None = None
         result: dict[str, float] = {}
@@ -207,8 +213,8 @@ class TimeSeriesDB:
     def downsample(
         self,
         metric: str,
-        start: int | None = None,
-        end: int | None = None,
+        start: int | str | None = None,
+        end: int | str | None = None,
         *,
         interval: str = "5m",
         aggregation: str | AggregationFunction = "avg",
@@ -483,6 +489,14 @@ class TimeSeriesDB:
 
 def _name(f: str | AggregationFunction) -> str:
     return f.value if isinstance(f, AggregationFunction) else str(f)
+
+
+def _coerce_ns(value: int | str | None) -> int | None:
+    if isinstance(value, str):
+        from ..messaging.protocol import iso_to_ns
+
+        return iso_to_ns(value)
+    return value
 
 
 def _bucket_partials(

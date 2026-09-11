@@ -8,6 +8,7 @@
 
   var MAX_TICKER = 50;
   var MAX_ROWS = 200;
+  var PAGE_SIZE = 5;
   var MAX_BACKOFF_MS = 10000;
   var REFRESH_DEBOUNCE_MS = 150;
 
@@ -20,6 +21,8 @@
   var prevTickAt = 0;
   var refreshTimer = null;
   var refreshGeneration = 0;
+  var topicView = { rows: [], page: 0, q: "" };
+  var connView = { rows: [], page: 0, q: "" };
 
   function el(id) {
     if (!els[id]) {
@@ -186,6 +189,59 @@
     setText("stat-published", fmtInt(tick.published));
   }
 
+  function matchQuery(q, values) {
+    if (!q) {
+      return true;
+    }
+    var needle = q.toLowerCase();
+    for (var i = 0; i < values.length; i += 1) {
+      var v = values[i];
+      if (
+        v !== undefined &&
+        v !== null &&
+        String(v).toLowerCase().indexOf(needle) !== -1
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function renderPage(view, total) {
+    var pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (view.page > pages - 1) {
+      view.page = pages - 1;
+    }
+    if (view.page < 0) {
+      view.page = 0;
+    }
+    return {
+      page: view.page,
+      pages: pages,
+      start: view.page * PAGE_SIZE,
+    };
+  }
+
+  function paintPager(prefix, view, total) {
+    var info = renderPage(view, total);
+    var from = total === 0 ? 0 : info.start + 1;
+    var to = Math.min(total, info.start + PAGE_SIZE);
+    setText(
+      prefix + "-page-info",
+      from + "–" + to + " of " + total + " · page " + (info.page + 1) +
+        " of " + info.pages,
+    );
+    var prev = el(prefix + "-prev");
+    var next = el(prefix + "-next");
+    if (prev) {
+      prev.disabled = info.page === 0;
+    }
+    if (next) {
+      next.disabled = info.page >= info.pages - 1;
+    }
+    return info;
+  }
+
   function renderConnections(list) {
     var body = el("conn-rows");
     var note = el("conn-note");
@@ -195,11 +251,16 @@
     while (body.firstChild) {
       body.removeChild(body.firstChild);
     }
+    connView.rows = list.slice();
+    var rows = connView.rows
+      .slice()
+      .reverse()
+      .filter(function (c) {
+        return matchQuery(connView.q, [c.id, c.peer, c.topic]);
+      });
+    var info = paintPager("conn", connView, rows.length);
     var frag = document.createDocumentFragment();
-    // Server sends oldest-first; newest connections read first here.
-    var ordered = list.slice().reverse();
-    var shown = ordered.slice(0, MAX_ROWS);
-    shown.forEach(function (c) {
+    rows.slice(info.start, info.start + PAGE_SIZE).forEach(function (c) {
       var tr = document.createElement("tr");
       ["id", "peer", "topic"].forEach(function (k) {
         var td = document.createElement("td");
@@ -224,10 +285,7 @@
     body.appendChild(frag);
     setText("stat-connections", fmtInt(list.length));
     if (note) {
-      note.textContent =
-        list.length > MAX_ROWS
-          ? "showing " + MAX_ROWS + " of " + list.length
-          : fmtInt(list.length) + " active";
+      note.textContent = fmtInt(list.length) + " active";
     }
   }
 
@@ -239,8 +297,22 @@
     while (body.firstChild) {
       body.removeChild(body.firstChild);
     }
+    topicView.rows = subs.slice();
+    var rows = topicView.rows
+      .slice()
+      .sort(function (a, b) {
+        var fa =
+          a.first_seen === undefined || a.first_seen === null ? -1 : a.first_seen;
+        var fb =
+          b.first_seen === undefined || b.first_seen === null ? -1 : b.first_seen;
+        return fb - fa;
+      })
+      .filter(function (s) {
+        return matchQuery(topicView.q, [s.topic]);
+      });
+    var info = paintPager("topic", topicView, rows.length);
     var frag = document.createDocumentFragment();
-    subs.slice(0, MAX_ROWS).forEach(function (s) {
+    rows.slice(info.start, info.start + PAGE_SIZE).forEach(function (s) {
       var tr = document.createElement("tr");
       var topicCell = document.createElement("td");
       topicCell.textContent =
@@ -254,6 +326,10 @@
           ? "0"
           : String(s.subscribers);
       tr.appendChild(countCell);
+      var totalCell = document.createElement("td");
+      totalCell.textContent =
+        s.total === undefined || s.total === null ? "—" : fmtInt(s.total);
+      tr.appendChild(totalCell);
       frag.appendChild(tr);
     });
     body.appendChild(frag);
@@ -284,7 +360,7 @@
     renderStrip(snap);
     renderRates(snap);
     renderConnections(snap.connections || []);
-    renderTopics(snap.subscriptions || []);
+    renderTopics(snap.topics || snap.subscriptions || []);
     renderStorage(snap);
     tickRow("snapshot received", "tick");
   }
@@ -340,7 +416,7 @@
       })
       .then(function (body) {
         if (gen === refreshGeneration) {
-          renderTopics(body.subscriptions || []);
+          renderTopics(body.topics || body.subscriptions || []);
         }
       })
       .catch(function () {});
@@ -405,6 +481,9 @@
           renderStrip(msg);
           renderRates(msg);
           renderStorage(msg);
+          if (msg.topics) {
+            renderTopics(msg.topics);
+          }
         }
       } else {
         applyEvent(msg);
@@ -452,19 +531,52 @@
     els = {};
   }
 
+  function wirePager(prefix, view, rerender) {
+    var search = el(prefix + "-search");
+    if (search && !search.dataset.wired) {
+      search.dataset.wired = "1";
+      search.addEventListener("input", function () {
+        view.q = search.value;
+        view.page = 0;
+        rerender();
+      });
+    }
+    var prev = el(prefix + "-prev");
+    if (prev && !prev.dataset.wired) {
+      prev.dataset.wired = "1";
+      prev.addEventListener("click", function () {
+        if (view.page > 0) {
+          view.page -= 1;
+          rerender();
+        }
+      });
+    }
+    var next = el(prefix + "-next");
+    if (next && !next.dataset.wired) {
+      next.dataset.wired = "1";
+      next.addEventListener("click", function () {
+        view.page += 1;
+        rerender();
+      });
+    }
+  }
+
+  function rerenderTopics() {
+    renderTopics(topicView.rows);
+  }
+
+  function rerenderConns() {
+    renderConnections(connView.rows);
+  }
+
   function init() {
     if (!("WebSocket" in window)) {
       setPill(false);
       setText("conn-state-text", "unsupported");
       return;
     }
-    var toggle = document.getElementById("nav-toggle");
-    if (toggle) {
-      toggle.addEventListener("click", function () {
-        var open = document.body.classList.toggle("nav-open");
-        toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      });
-    }
+    wirePager("topic", topicView, rerenderTopics);
+    wirePager("conn", connView, rerenderConns);
     ageTimer = window.setInterval(refreshAges, 1000);
     window.addEventListener("pagehide", teardown);
     connect();

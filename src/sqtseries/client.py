@@ -28,7 +28,8 @@ class Client:
         from sqtseries.client import Client
         client = Client()
         client.write("cpu.usage", 0.72, {"host": "web1"})
-        # query start/end are epoch NANOSECONDS; rows carry epoch-seconds timestamps
+        # query start/end are epoch NANOSECONDS or ISO-8601 strings;
+        # rows carry epoch-seconds timestamps
 
         rows = client.query(
             "cpu.usage",
@@ -53,9 +54,9 @@ class Client:
         metric: str,
         value: float,
         tags: dict[str, str] | None = None,
-        timestamp: float | None = None,
+        timestamp: float | str | None = None,
     ) -> None:
-        """Send one measurement (PUSH, fire-and-forget)."""
+        """Send one measurement (PUSH, fire-and-forget). Timestamp is epoch seconds or ISO-8601."""
         payload: dict[str, Any] = {"metric": metric, "value": value}
         if tags:
             payload["tags"] = tags
@@ -74,8 +75,8 @@ class Client:
     def query(
         self,
         metric: str,
-        start: int | None = None,
-        end: int | None = None,
+        start: int | str | None = None,
+        end: int | str | None = None,
         *,
         aggregation: str | None = None,
         interval: str | None = None,
@@ -93,7 +94,7 @@ class Client:
             req["aggregation"] = aggregation
         if interval:
             req["interval"] = interval
-        if limit:
+        if limit is not None:
             req["limit"] = limit
         if order != "asc":
             req["order"] = order
@@ -117,8 +118,8 @@ class Client:
     def aggregate(
         self,
         metric: str,
-        start: int | None = None,
-        end: int | None = None,
+        start: int | str | None = None,
+        end: int | str | None = None,
         *,
         funcs: list[str] | None = None,
     ) -> dict[str, float]:

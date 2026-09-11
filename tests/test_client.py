@@ -252,3 +252,12 @@ class TestClientErrors:
 
         with pytest.raises(ClientError):
             await asyncio.to_thread(client.admin, "bogus-cmd")
+
+    async def test_zero_limit_reaches_server(self, client):
+        """limit=0 is sent (not silently dropped) and rejected by the server."""
+        from sqtseries.client import ClientError
+
+        await asyncio.to_thread(client.write, "cpu.usage", 0.5)
+        await asyncio.sleep(0.3)
+        with pytest.raises(ClientError):
+            await asyncio.to_thread(client.query, "cpu.usage", limit=0)

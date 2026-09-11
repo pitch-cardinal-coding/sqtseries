@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a class="here" href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a class="here" href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -34,7 +34,8 @@ without a special driver:</p>
 
 <p>Both transports use the same JSON shapes. The one consistent difference:
 <strong>query <code>start</code>/<code>end</code> are epoch nanoseconds on the
-ZMQ path and epoch seconds on the HTTP path</strong>. Ingestion timestamps are
+ZMQ path and epoch seconds on the HTTP path</strong> (both also accept
+ISO-8601 strings like <code>2026-09-11T14:04:00Z</code>). Ingestion timestamps are
 seconds on both; query results are always seconds.</p>
 
 <h3>Choose your language</h3>
@@ -64,7 +65,7 @@ c.write_many([
     {"metric": "mem.usage", "tags": {"host": "web1"}, "value": 512.0},
 ])
 
-# query (start/end in NANOSECONDS; rows carry epoch-seconds timestamps)
+# query (start/end in NANOSECONDS or ISO-8601; rows carry epoch-seconds timestamps)
 import time
 now_ns = time.time_ns()
 rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns,
@@ -128,7 +129,7 @@ func main() {
     data, _ := json.Marshal(p)
     sock.SendBytes(data, 0)
 
-    // query (REQ) — start/end are NANOSECONDS; set a receive timeout
+    // query (REQ) — start/end are NANOSECONDS or ISO-8601; set a receive timeout
     qs, _ := zmq.NewSocket(zmq.REQ)
     defer qs.Close()
     qs.Connect("tcp://127.0.0.1:12502")
@@ -159,7 +160,7 @@ fn main() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
     sock.connect("tcp://127.0.0.1:12501")?;
     sock.send(json!({"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72}).to_string().as_bytes(), 0)?;
 
-    // query (REQ) — start/end are NANOSECONDS
+    // query (REQ) — start/end are NANOSECONDS or ISO-8601 strings
     let qs = ctx.socket(zmq::REQ)?;
     qs.set_rcvtimeo(30_000)?;
     qs.connect("tcp://127.0.0.1:12502")?;
@@ -175,7 +176,7 @@ fn main() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 
 <h3 id="php">PHP</h3>
 <p>PHP has no widely available ZMQ extension — use the HTTP gateway.
-Timestamps here are epoch <em>seconds</em>:</p>
+Timestamps here are epoch <em>seconds</em> or ISO-8601:</p>
 <pre><code>&lt;?php
 // write
 $ch = curl_init("http://127.0.0.1:12505/api/v1/write");
@@ -187,7 +188,7 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 echo curl_exec($ch);
 
-// query (seconds on HTTP)
+// query (seconds or ISO-8601 on HTTP)
 echo file_get_contents(
     "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
 );
@@ -203,7 +204,7 @@ await fetch("http://127.0.0.1:12505/api/v1/write", {
   body: JSON.stringify({ metric: "cpu.usage", tags: { host: "web1" }, value: 0.72 }),
 });
 
-// query (seconds on HTTP)
+// query (seconds or ISO-8601 on HTTP)
 const r = await fetch(
   "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
 );
@@ -230,10 +231,10 @@ browsers):</p>
 
 c = httpx.Client(base_url="http://127.0.0.1:12505")
 
-# write (timestamp optional; epoch seconds)
+# write (timestamp optional; epoch seconds or ISO-8601 "2026-09-11T00:28:51.740Z")
 c.post("/api/v1/write", json={"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}})
 
-# read — start/end are epoch SECONDS on HTTP
+# read — start/end are epoch SECONDS or ISO-8601 on HTTP
 import time
 now = time.time()
 rows = c.get("/api/v1/read", params={
@@ -254,13 +255,13 @@ admin; needs a ZMQ binding such as <code>pyzmq</code>):</p>
 
 ctx = zmq.Context()
 
-# write (PUSH, fire-and-forget; timestamp epoch seconds, optional)
+# write (PUSH, fire-and-forget; timestamp epoch seconds or ISO-8601, optional)
 push = ctx.socket(zmq.PUSH)
 push.setsockopt(zmq.LINGER, 500)
 push.connect("tcp://127.0.0.1:12501")
 push.send(orjson.dumps({"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}}))
 
-# query (REQ; start/end are epoch NANOSECONDS)
+# query (REQ; start/end are epoch NANOSECONDS or ISO-8601)
 now_ns = time.time_ns()
 req = ctx.socket(zmq.REQ)
 req.setsockopt(zmq.RCVTIMEO, 30000)
@@ -284,9 +285,9 @@ adm.send(orjson.dumps({"cmd": "stats"}))
 print(orjson.loads(adm.recv()))
 </code></pre>
 <div class="note">
-  Time units at a glance: ingestion timestamps are epoch <em>seconds</em> on
-  both paths; query bounds are <em>nanoseconds</em> on ZMQ and
-  <em>seconds</em> on HTTP; query results are always seconds.
+  Time units at a glance: ingestion timestamps are epoch <em>seconds</em> or
+  ISO-8601 on both paths; query bounds are <em>nanoseconds</em> or ISO-8601 on
+  ZMQ and <em>seconds</em> or ISO-8601 on HTTP; query results are always seconds.
 </div>
 
 <hr>
