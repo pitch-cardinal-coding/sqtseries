@@ -91,3 +91,13 @@ class TestValidation:
         s = Settings(ingestion={"port": 12505})
         errors = validate_settings(s)
         assert any("unique" in e for e in errors)
+
+    def test_zero_rate_limit_rejected(self):
+        s = Settings(http={"rate_limit_per_minute": 0})
+        errors = validate_settings(s)
+        assert any("rate_limit_per_minute" in e for e in errors)
+
+    def test_zero_max_inflight_rejected(self):
+        s = Settings(query={"max_inflight": 0})
+        errors = validate_settings(s)
+        assert any("max_inflight" in e for e in errors)

@@ -12,14 +12,41 @@ body {
 }
 
 .sidebar .logo {
-  padding: 16px 12px;
+  padding: 10px 12px;
   color: #fff;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.sidebar-wrapper {
-  overflow-x: hidden;
+/* Compact nav so all six links fit without scrolling. */
+.sidebar .nav {
+  margin-top: 8px;
+}
+
+.sidebar .nav li .nav-link {
+  margin: 2px 15px;
+  padding: 8px;
+}
+
+.sidebar .sidebar-wrapper {
+  overflow: hidden;
+}
+
+/* The template scrolls .sidebar itself when the nav outgrows the viewport;
+   this dashboard has six short links — no sidebar scrolling, ever. */
+.sidebar {
+  overflow: hidden;
+}
+
+/* Top bar: breathing room between the connection pill and the feed age. */
+.navbar .navbar-nav {
+  gap: 12px;
+  align-items: center;
+}
+
+.feed-inline {
+  margin-left: 12px;
+  white-space: nowrap;
 }
 
 /* The mobile drawer rests translated off-canvas; it must not widen the
@@ -28,20 +55,34 @@ body {
   overflow-x: hidden;
 }
 
-#nav-toggle {
+/* Top section menu: mobile only. Desktop uses the sidebar. */
+.topmenu {
   display: none;
 }
 
 @media (max-width: 991px) {
-  /* Off-canvas behavior comes from the vendored template: the sidebar
-     rests translated off the right edge and body.nav-open slides it in.
-     Only the toggle visibility is ours. */
-  #nav-toggle {
-    display: inline-block;
+  /* No drawer on mobile: the sidebar is replaced by the top menu. */
+  .sidebar {
+    display: none;
   }
 
-  body .main-panel {
-    width: 100%;
+  .topmenu {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 8px 12px;
+    background: #fff;
+    border-bottom: 1px solid #eee;
+  }
+
+  .topmenu a {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1f3a5f;
+    text-decoration: none;
+    border-radius: 6px;
   }
 }
 
@@ -127,9 +168,43 @@ body {
   font-weight: 600;
 }
 
+.kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 0.25rem;
+}
+
+.kv > .k {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.kv > span:last-child {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 .table-responsive {
   max-height: 320px;
   overflow-y: auto;
+}
+
+/* Small screens: cards stack (Bootstrap grid), key/value rows may wrap
+   instead of squeezing, and the drawer toggle is a comfortable target. */
+@media (max-width: 575px) {
+  .kv {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+
+  .stat-value {
+    font-size: 1.3rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -137,4 +212,50 @@ body {
     animation: none !important;
     transition: none !important;
   }
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 0;
+  font-size: 13px;
+}
+.pager input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.pager button {
+  padding: 4px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f5f5f5;
+  cursor: pointer;
+  font-size: 13px;
+}
+.pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pager span {
+  white-space: nowrap;
+  color: #666;
+}
+
+#conn-rows td,
+#topic-rows td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  font-size: 12px;
+}
+
+.nav-item .api-sub p {
+  padding-left: 22px;
+  font-size: 13px;
 }

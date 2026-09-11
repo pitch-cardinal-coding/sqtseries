@@ -6,6 +6,7 @@ ingest/query/admin; pubsub uses two-part frames: [topic, json-payload].
 import math
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import orjson
@@ -23,6 +24,49 @@ class ProtocolError(ValueError):
     """Raised on malformed or invalid messages."""
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def iso_to_ns(text: str) -> int:
+    """Parse ISO-8601 to epoch nanoseconds (int).
+
+    Accepts ``2026-09-11T14:04:00Z`` and ``2026-09-11T00:28:51.740Z``,
+    numeric offsets (``+02:00``), and naive strings (assumed UTC).
+    Fractional seconds up to 9 digits (``.123456789``); fewer digits
+    pad right (``.123`` = 123ms); more than 9 truncate.
+    """
+    import re
+
+    s = text.strip()
+    if not s:
+        raise ProtocolError("timestamp string is empty")
+    if s.endswith(("Z", "z")):
+        s = s[:-1] + "+00:00"
+    extra_ns = 0
+    m = re.search(r"\.(\d+)", s)
+    if m and len(m.group(1)) > 6:
+        frac = m.group(1)
+        # datetime keeps microseconds only; carry nanosecond remainder.
+        frac9 = (frac[:9] + "0" * 9)[:9]
+        micro9 = (frac[:6] + "0" * 9)[:9]
+        extra_ns = int(frac9) - int(micro9)
+        s = s.replace("." + frac, "." + frac[:6], 1)
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        raise ProtocolError(f"timestamp not ISO-8601: {text!r}") from None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    else:
+        dt = dt.astimezone(UTC)
+    delta = dt - _EPOCH
+    return (
+        (delta.days * 86400 + delta.seconds) * 1_000_000_000
+        + delta.microseconds * 1000
+        + extra_ns
+    )
+
+
 @dataclass
 class IngestMessage:
     """Validated ingest message."""
@@ -30,12 +74,15 @@ class IngestMessage:
     metric: str
     value: float
     tags: dict[str, str] | None = None
-    # Unix epoch seconds (optional; server time default)
-    timestamp: float | None = None
+    # Unix epoch seconds (optional; server time default). ISO-8601 input
+    # arrives here as integer nanoseconds (>1e12) to keep exact precision.
+    timestamp: float | int | None = None
 
     def to_rows(self) -> tuple[str, dict[str, str] | None, float, int]:
         import time
 
+        if isinstance(self.timestamp, int) and abs(self.timestamp) > 10**12:
+            return (self.metric, self.tags, self.value, self.timestamp)
         ts = self.timestamp if self.timestamp is not None else time.time()
         ts_ns = int(ts * 1_000_000_000)
         if self.timestamp is None:
@@ -93,10 +140,12 @@ def parse_ingest(
         if not all(isinstance(k, str) and isinstance(v, str) for k, v in tags.items()):
             raise ProtocolError("tags must be string->string")
     timestamp = raw.get("timestamp")
+    if isinstance(timestamp, str):
+        timestamp = iso_to_ns(timestamp)
     if timestamp is not None and (
         not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool)
     ):
-        raise ProtocolError("timestamp must be a number")
+        raise ProtocolError("timestamp must be a number or ISO-8601 string")
     if (
         timestamp is not None
         and isinstance(timestamp, float)
@@ -107,7 +156,12 @@ def parse_ingest(
     if reject_client_timestamp_skew_s and timestamp is not None:
         import time
 
-        skew = abs(time.time() - float(timestamp))
+        ts_s = (
+            timestamp / 1_000_000_000
+            if isinstance(timestamp, int) and abs(timestamp) > 10**12
+            else float(timestamp)
+        )
+        skew = abs(time.time() - ts_s)
         if skew > reject_client_timestamp_skew_s:
             raise ProtocolError(
                 f"client timestamp skew {skew:.1f}s exceeds {reject_client_timestamp_skew_s}s"
@@ -129,8 +183,15 @@ def parse_query(raw: Any) -> dict[str, Any]:
         raise ProtocolError("query metric must be a non-empty string")
     for key in ("start", "end"):
         value = raw.get(key)
-        if value is not None and not isinstance(value, int):
-            raise ProtocolError(f"{key} must be an integer")
+        if isinstance(value, str):
+            raw = dict(raw)
+            raw[key] = iso_to_ns(value)
+        elif value is not None and (
+            not isinstance(value, int) or isinstance(value, bool)
+        ):
+            raise ProtocolError(
+                f"{key} must be an integer nanoseconds or ISO-8601 string"
+            )
     return dict(raw)
 
 

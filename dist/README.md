@@ -4,8 +4,8 @@ A time-series database that runs on your machine, keeps everything in one file,
 and answers questions about the past in milliseconds — no matter how many
 millions of readings you have stored.
 
-**8,180 lines** of Python · 58 classes · 378 functions · **92% test coverage**
-(745 tests passing) · Zero binary dependencies beyond Python 3.14+.
+**8,413 lines** of Python · 58 classes · 385 functions · **766 tests passing**
+· `pip install`, no compiler, no separate server, Python 3.14+.
 
 ## What it does
 
@@ -24,35 +24,57 @@ near-constant even for queries spanning months. It does this by maintaining a
 background summary of every hour, so a year-wide query reads a few dozen rows
 instead of scanning millions.
 
-## Why you would use it
+## Why it stands out
 
-**You want a database you can copy like a file.** Everything lives in one
-SQLite file on your disk. Back it up by copying the file. Move it to another
-machine by copying the file. Inspect it with any SQLite tool. No server to
-install, no cluster to manage.
+**It respects your time.** `pip install sqtseries` and `sqtseries run` — two
+commands and you are storing data. No server to provision, no schema to
+design, no query language to learn. Timestamps accept epoch numbers or
+everyday ISO-8601 strings (`2026-09-11T14:04:00Z`), and every CLI command
+tells you where the dashboard, the docs, and the health check live.
 
-**You write in Python but your colleagues write in Go, Rust, PHP, or
-JavaScript.** sqtseries speaks JSON over two transports — a fast ZeroMQ
-message bus and plain HTTP — so any language can send it data and read it
-back. There are no special client libraries required for most languages.
+**It is honest software.** Every number in these docs was measured on a real
+machine and is reproducible with the scripts in the repo. Throughput,
+latencies, and accounting identities (every pumped point lands in exactly one
+of *persisted*, *dropped*, or *invalid*) are verified by the test suite, not
+asserted. When the hourly summary answers instead of raw rows, the answer is
+exact — never an approximation.
 
-**You need to know who is connected right now.** sqtseries tracks every
-WebSocket client and every subscriber in real time. You can query active
-connections, check if a specific client is still connected, or stream
-connect/disconnect events to a monitoring dashboard — all from a few admin
-commands or a stats PUB socket. No polling, no guesswork.
+**It never loses your data.** SQLite's write-ahead log makes every write
+crash-atomic. Ingestion is a bounded pipeline with real backpressure: bursts
+are drained and committed one transaction per batch, slow subscribers are
+counted instead of silently dropped, and nothing vanishes without being
+tallied somewhere you can read.
 
-**You want to publish live data.** Every measurement accepted is republished
-to live subscribers over the same transports. A browser dashboard can open a
-WebSocket and see readings arrive in real time, or a Go service can subscribe
-via ZeroMQ and react to every data point.
+**It tells you what it is doing.** A live admin dashboard streams health,
+rates, connections, topics, and storage second by second. Every WebSocket
+client and every subscriber is tracked exactly — connect, disconnect, and
+subscription events flow to a stats socket you can watch, and the Topics
+panel remembers every topic ever seen (with live counts, zero when idle)
+alongside per-topic totals. Repeated questions are served from a short-lived
+cache. Old data is retired automatically by retention, and the service runs
+for years as a hardened systemd unit you install once and forget.
 
-**You will run this for years.** The service recovers from crashes without
-data loss (SQLite WAL is crash-atomic). Background tasks handle partition
-rollup, retention cleanup, and query-plan optimization automatically. It can
-run as a hardened systemd service with read-only filesystem protection out of
-the box. You install it, start it, and forget about it — until you need to ask
-a question.
+**It meets you where you are.** Python, Go, Rust, PHP, Node.js, shell
+scripts, browsers — if your language speaks JSON over ZeroMQ or HTTP, it
+speaks to sqtseries. No special client libraries, no IDL (Interface Definition Language), 
+no codegen. One wire format, two transports, five languages with copy-paste samples 
+in the docs.
+
+## Speak to it from any language
+
+| Language | How | What you get |
+|----------|-----|--------------|
+| Python | Bundled `Client` (ZeroMQ) or embedded engine (in-process, no server) | Write, query, aggregate, subscribe, admin |
+| Go | ZeroMQ PUSH/REQ/SUB (`pebbe/zmq4`) | Same wire JSON as Python |
+| Rust | ZeroMQ (`zmq` + `serde_json` crates) | Same wire JSON as Python |
+| PHP | HTTP + curl (no ZMQ extension needed) | Write, read, aggregate |
+| Node.js / browser JS | `fetch` + WebSocket | Write, read, live subscribe |
+| Shell | `curl` | One-liners for writes, reads, health |
+
+Timestamps accept epoch seconds or ISO-8601 (`2026-09-11T00:28:51.740Z`,
+offsets and naive-as-UTC included, up to nanosecond precision). See
+[Client Libraries](docs/clients.html) for complete samples in each
+language.
 
 ## Use cases
 
@@ -75,9 +97,9 @@ pip install sqtseries
 sqtseries run
 ```
 
-That is it. The service starts, creates its database at
-`~/.sqtseries/data/db.sqlite`, and listens on six local ports. Now send a
-reading and read it back:
+That is it. The service prints where everything lives — dashboard, docs,
+health check — creates its database at `~/.sqtseries/data/db.sqlite`, and
+listens on six local ports. Now send a reading and read it back:
 
 ```python
 from sqtseries import Client
@@ -98,6 +120,14 @@ curl -X POST http://127.0.0.1:12505/api/v1/write \
 curl "http://127.0.0.1:12505/api/v1/read?metric=temp.outside"
 ```
 
+Prefer readable timestamps? Pass one instead of a number:
+
+```bash
+curl -X POST http://127.0.0.1:12505/api/v1/write \
+  -H "Content-Type: application/json" \
+  -d '{"metric":"temp.outside","value":22.5,"timestamp":"2026-09-11T14:04:00Z"}'
+```
+
 The [Quick Start](docs/quickstart.html) walks through the full cycle:
 install, configure, send data, query, subscribe live, check status, and run as
 a background service.
@@ -105,10 +135,9 @@ a background service.
 ## Design highlights
 
 **Single-file storage.** The database is an ordinary SQLite file in WAL mode
-with monthly partitions. You can copy it, back it up with `sqtseries backup`,
-or open it with `sqlite3` to run your own queries. It never grows unbounded:
-old partitions are dropped automatically when they pass the retention TTL
-(default 30 days).
+with monthly partitions. Back it up with `sqtseries backup`, or open it with
+`sqlite3` to run your own queries. It never grows unbounded: old partitions
+are dropped automatically when they pass the retention TTL (default 30 days).
 
 **Hourly summaries so wide queries stay fast.** Every hour, a background task
 pre-aggregates completed hours into a `rollup_hourly` table (count, sum, min,
@@ -186,10 +215,10 @@ auto-detection mechanism.
 ### CLI commands at a glance
 
 ```
-sqtseries run          start the service
+sqtseries run          start the service (prints dashboard/docs/health links)
 sqtseries stop         stop the running service
-sqtseries status       pid, ports, database path
-sqtseries ports        active ports
+sqtseries status       pid, ports, database path + links
+sqtseries ports        active ports + links
 sqtseries health       database integrity check
 sqtseries stats        metric and series counts
 sqtseries backup       consistent snapshot (VACUUM INTO)
@@ -235,38 +264,6 @@ c.admin("subscribers")  # per-topic subscriber counts
 
 Full details on every admin command are in the [API reference](docs/api.html#admin).
 
-## How sqtseries compares to other edge-device time-series databases
-
-| Capability | sqtseries | InfluxDB (embedded) | SQLite-ts | QuestDB (lite) |
-|------------|-----------|---------------------|-----------|----------------|
-| Zero dependencies | ✅ Python + pyzmq + orjson | ❌ Go binary | ✅ SQLite extension | ❌ Java/Go binary |
-| Single-file deploy | ✅ `pip install` | ❌ Multiple binaries | ✅ `.so` loadable | ❌ Multiple binaries |
-| RAM footprint | ~10 MB | ~50 MB | ~5 MB | ~100 MB |
-| Ingestion protocol | HTTP + ZMQ | HTTP + Line protocol | SQL INSERT | ILP |
-| Query language | JSON API | Flux / InfluxQL | SQL | SQL |
-| Streaming push | ✅ ZMQ SUB + WebSocket | ❌ Poll only | ❌ Poll only | ❌ Poll only |
-| Real-time subscriptions | ✅ Topic-filtered | ❌ | ❌ | ❌ |
-| Connection health tracking | ✅ touch_ws + sweep_stale | ❌ | ❌ | ❌ |
-| Query result caching | ✅ LRU + TTL | ✅ | ❌ | ✅ |
-| Aggregation functions | 10 (avg, min, max, sum, count, first, last, median, p95, p99) | Flux functions | SQL aggregates | SQL aggregates |
-| Partition management | ✅ Auto + retention | ✅ | ❌ | ✅ |
-| Rollup aggregation | ✅ Pre-computed | ✅ Continuous queries | ❌ | ✅ Materialized views |
-| ZeroMQ messaging | ✅ Native | ❌ | ❌ | ❌ |
-| Async event loop | ✅ asyncio | ❌ Sync | ❌ Sync | ❌ Sync |
-| Python-native | ✅ | ❌ | ❌ | ❌ |
-| Edge-device friendly | ✅ | ⚠️ Heavy | ✅ | ❌ |
-
-### What sqtseries doesn't have yet
-
-| Gap | Impact | Difficulty to add |
-|-----|--------|-------------------|
-| Distributed clustering | Can't scale horizontally | Hard (protocol design) |
-| Multi-tenancy | Single-tenant only | Medium |
-| Continuous queries | No automatic rollups on ingest | Medium (rollup.py exists) |
-| Flux / PromQL | Custom JSON API only | Easy (query language layer) |
-| Dashboard UI | API-only, no built-in visualization | Easy (separate project) |
-| Encryption at rest | SQLite unencrypted | Easy (SEE extension) |
-
 ## Documentation
 
 | Page | What it covers |
@@ -276,6 +273,7 @@ Full details on every admin command are in the [API reference](docs/api.html#adm
 | [Ingestion](docs/ingestion.html) | Writing data via ZMQ, HTTP, and the Client; tags (dimensions — why and how); timestamps and the clock-skew guard |
 | [Queries](docs/queries.html) | Time ranges, aggregations, intervals, downsampling, gap filling, per-tag queries (embedded API) |
 | [Streaming](docs/streaming.html) | Live data via ZMQ SUB, WebSocket, and the Client |
+| [Dashboard](docs/dashboard.html) | Live admin page: health, rates, connections, topics, storage |
 | [Camera](docs/camera.html) | Pump a camera metrics feed into sqtseries, watch it on a live WebSocket dashboard, and answer 17 questions about it |
 | [Client Libraries](docs/clients.html) | Code samples for Python, Go, Rust, PHP, and Node.js |
 | [API Reference](docs/api.html) | Embedded Python API, Client, CLI, wire protocol, admin commands |

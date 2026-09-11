@@ -34,10 +34,28 @@ def _count_http(request: Request, key: str, n: int = 1) -> None:
         counters[key] = counters.get(key, 0) + n
 
 
-def _to_ns(seconds: float | None) -> int | None:
-    """Convert epoch seconds to nanoseconds; raise 400 on overflow."""
+def _to_ns(seconds: float | str | None) -> int | None:
+    """Convert epoch seconds or ISO-8601 to nanoseconds; 400 on bad input."""
     if seconds is None:
         return None
+    if isinstance(seconds, str):
+        s = seconds.strip()
+        if not s:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST, detail="timestamp string is empty"
+            )
+        try:
+            f = float(s)
+            seconds = f
+        except ValueError:
+            from ..messaging.protocol import iso_to_ns
+
+            try:
+                return iso_to_ns(s)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from None
     try:
         return int(seconds * 1_000_000_000)
     except (OverflowError, ValueError) as exc:
@@ -145,21 +163,26 @@ def _validate_row(
         )
     ts = row.get("timestamp")
     if ts is not None:
-        if not isinstance(ts, (int, float)) or isinstance(ts, bool):
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST, detail="timestamp must be a number"
-            )
-        if isinstance(ts, float) and not math.isfinite(ts):
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST, detail="timestamp must be finite"
-            )
-        try:
-            ts_f = float(ts)
-        except OverflowError:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST, detail="timestamp out of range"
-            ) from None
-        ts_ns = _to_ns(ts_f)
+        if isinstance(ts, str):
+            ts_ns = _to_ns(ts)
+            ts_f = ts_ns / 1_000_000_000
+        else:
+            if not isinstance(ts, (int, float)) or isinstance(ts, bool):
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail="timestamp must be a number or ISO-8601 string",
+                )
+            if isinstance(ts, float) and not math.isfinite(ts):
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST, detail="timestamp must be finite"
+                )
+            try:
+                ts_f = float(ts)
+            except OverflowError:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST, detail="timestamp out of range"
+                ) from None
+            ts_ns = _to_ns(ts_f)
         # the storage layer stores timestamps as signed 64-bit ns (SQLite
         # INTEGER), so reject anything unrepresentable instead of letting the
         # insert 500 on a sqlite OverflowError.
@@ -220,14 +243,14 @@ async def _run_query(request: Request, fn: Any) -> Any:
     stall WS streaming, pings, admin, or other HTTP requests.
     Mirrors the ZMQ broker path (asyncio.to_thread + wait_for). The timeout
 
-    comes from query.timeout_s (default 30s); the abandoned thread finishes in
+    comes from query.timeout_s (default 30s; None or <= 0 disables); the abandoned thread finishes in
 
     the background and its result is discarded.
     """
     timeout = getattr(request.app.state, "query_timeout_s", _DEFAULT_QUERY_TIMEOUT_S)
 
     try:
-        if timeout is None:
+        if timeout is None or timeout <= 0:
             return await asyncio.to_thread(fn)
         return await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
     except TimeoutError:
@@ -241,8 +264,10 @@ async def _run_query(request: Request, fn: Any) -> Any:
 async def read(
     request: Request,
     metric: str = Query(..., description="metric name"),
-    start: float | None = Query(None, description="start, epoch seconds"),
-    end: float | None = Query(None, description="end, epoch seconds"),
+    start: str | float | None = Query(
+        None, description="start, epoch seconds or ISO-8601"
+    ),
+    end: str | float | None = Query(None, description="end, epoch seconds or ISO-8601"),
     aggregation: str | None = Query(None),
     interval: str | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100000),
@@ -282,8 +307,8 @@ async def read(
 async def aggregate(
     request: Request,
     metric: str = Query(...),
-    start: float | None = Query(None),
-    end: float | None = Query(None),
+    start: str | float | None = Query(None),
+    end: str | float | None = Query(None),
     funcs: str = Query("avg", description="comma-separated, e.g. avg,min,max,p95"),
 ) -> dict[str, Any]:
     tsdb = _tsdb(request)
@@ -336,7 +361,11 @@ async def connections(request: Request) -> dict[str, Any]:
 
 @router.get("/subscribers")
 async def subscribers(request: Request) -> dict[str, Any]:
-    """Live ZMQ SUB subscriptions (topic -> subscriber count)."""
+    """Live ZMQ SUB subscriptions (topic -> subscriber count).
+
+    ``topics`` lists every known topic with its live count (0 when idle);
+    ``subscriptions`` keeps the active-only view.
+    """
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
         return {"status": "ok", "zmq_subscribers": 0, "subscriptions": []}
@@ -346,4 +375,5 @@ async def subscribers(request: Request) -> dict[str, Any]:
         "status": "ok",
         "zmq_subscribers": snap["zmq_subscribers"],
         "subscriptions": snap["subscriptions"],
+        "topics": [{**entry, "total": None} for entry in registry.known_topics()],
     }

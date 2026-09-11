@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a class="here" href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a class="here" href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -101,15 +101,16 @@ WantedBy=default.target
   <tr><td><code>Restart</code></td><td><code>on-failure</code></td><td>Restart only when the process exits abnormally (non-zero, or killed by a signal).</td></tr>
   <tr><td><code>RestartSec</code></td><td><code>5</code></td><td>Wait 5 s between restarts.</td></tr>
   <tr><td><code>StandardOutput</code> / <code>StandardError</code></td><td><code>journal</code></td><td>All logs go to journald, nothing is written to files.</td></tr>
-  <tr><td><code>SyslogIdentifier</code></td><td><code>sqtseries</code></td><td>Tag for <code>journalctl -u sqtseries</code>.</td></tr>
+  <tr><td><code>SyslogIdentifier</code></td><td><code>sqtseries</code></td><td>Tag for <code>journalctl -u sqtseries.service</code>.</td></tr>
   <tr><td><code>NoNewPrivileges</code></td><td><code>true</code></td><td>Cannot gain new privileges (setuid etc.).</td></tr>
   <tr><td><code>ProtectSystem</code></td><td><code>strict</code></td><td>The whole filesystem is read-only for the service.</td></tr>
-  <tr><td><code>ProtectHome</code></td><td><code>read-only</code></td><td><code>~</code> is readable but not writable.</td></tr>
+  <tr><td><code>ProtectHome</code></td><td><code>read-only</code> (user units; <code>false</code> on system units with a detected user)</td><td><code>~</code> is readable but not writable.</td></tr>
   <tr><td><code>ReadWritePaths</code></td><td>database parent dir + <code>backup.path</code> dir</td><td>The only places the service may write: its SQLite file lives in the first, backups written by <code>sqtseries backup</code> go to the second.</td></tr>
   <tr><td><code>Environment=LD_PRELOAD</code></td><td>path of <code>libjemalloc.so.2</code> when present, otherwise omitted</td><td>Uses the jemalloc allocator when the machine has it (returns freed memory faster under sustained load); plain default allocator otherwise. The service runs correctly either way.</td></tr>
   <tr><td><code>Environment=SQT_SERIES_DATABASE__PATH</code></td><td>resolved <code>database.path</code></td><td>Keeps the service pointed at the same database the CLI resolves to (including any <code>--db</code> you used when installing).</td></tr>
   <tr><td><code>Environment=SQT_SERIES_LOGGING__LEVEL</code></td><td><code>INFO</code></td><td>Stable log level for the journal.</td></tr>
-  <tr><td><code>WantedBy</code></td><td><code>default.target</code></td><td>Start (and auto-start) with the default target, i.e. normal boot.</td></tr>
+  <tr><td><code>WantedBy</code></td><td><code>default.target</code> (user) / <code>multi-user.target</code> (system)</td><td>Start (and auto-start) with the default target, i.e. normal boot.</td></tr>
+  <tr><td><code>User</code></td><td>installing user (system unit only, when detected)</td><td>Present only on system units with a detected non-root installer; user units have no <code>User=</code> line. Pairs with <code>ProtectHome=false</code> and the home dir in <code>ReadWritePaths</code> on those units.</td></tr>
 </table></div>
 
 <h3>Production layout (/opt)</h3>
@@ -157,10 +158,10 @@ sudo systemctl restart sqtseries
 
 <h3>Status &amp; logs</h3>
 <pre><code>sqtseries status            # reads runtime: pid, ports, db
-journalctl --user -u sqtseries -f        # follow logs
-journalctl --user -u sqtseries -n 100    # last 100 lines
-journalctl --user -u sqtseries --since today
-# system service: journalctl -u sqtseries -f
+journalctl --user -u sqtseries.service -f        # follow logs
+journalctl --user -u sqtseries.service -n 100    # last 100 lines
+journalctl --user -u sqtseries.service --since today
+# system service: journalctl -u sqtseries.service -f
 </code></pre>
 <p>Logs go to journald, not a file. On a headless server, enable lingering so
 the user service survives logout:</p>
@@ -214,9 +215,19 @@ with those permissions (and <code>NoNewPrivileges</code> /
 sudo sqtseries uninstall --system
 </code></pre>
 <p><code>uninstall</code> runs <code>systemctl [--user] disable --now
-sqtseries</code> and removes the unit file. Uninstalling the unit does
-<em>not</em> delete your data. To remove the package and data too, see the
+sqtseries.service</code> and removes the unit file. Uninstalling the unit does
+<em>not</em> delete your data. To remove the package and data too, see
 the <a href="../README.md">README</a> (CLI reference).</p>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <div class="card"><h3><a href="configuration.html">Configuration</a></h3>
+    <p>Every setting the unit can carry, with env vars and defaults.</p></div>
+  <div class="card"><h3><a href="backup.html">Backup &amp; Restore</a></h3>
+    <p>Protect the database before trusting a background service with it.</p></div>
+  <div class="card"><h3><a href="dashboard.html">Dashboard</a></h3>
+    <p>Watch your service live once it is running.</p></div>
+</div>
 
 
   </div>

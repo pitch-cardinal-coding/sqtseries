@@ -53,6 +53,25 @@ def _pid_is_sqtseries(pid: int) -> bool:
     return b"sqtseries" in cmd
 
 
+def _http_base(settings: Settings, ports: dict[str, Any] | None) -> str:
+    """Base HTTP URL for dashboard/docs links (runtime port wins)."""
+    host = settings.http.host
+    port = settings.http.port
+    if ports:
+        with contextlib.suppress(KeyError, TypeError, ValueError):
+            port = int(ports.get("http", port))
+    return f"http://{host}:{port}"
+
+
+def _print_links(settings: Settings, ports: dict[str, Any] | None) -> None:
+    """Print dashboard, docs, and help links (keeps old port lines)."""
+    base = _http_base(settings, ports)
+    click.echo(f"  dashboard: {base}/dashboard")
+    click.echo(f"  docs:      {base}/docs")
+    click.echo(f"  health:    {base}/api/v1/health")
+    click.echo("  help:      sqtseries --help, sqtseries <cmd> --help")
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="sqtseries")
 @click.option(
@@ -120,6 +139,9 @@ def run(ctx: click.Context) -> None:
         )
 
     configure_logging(settings.logging)
+
+    click.echo(f"Serving {db}")
+    _print_links(settings, None)
 
     from .service import Service
 
@@ -230,6 +252,12 @@ def status(ctx: click.Context) -> None:
             )
     for k, v in rt_state.get("ports", {}).items():
         click.echo(f"  {k}: {v}")
+    # Links are best-effort: a bad --config must not break status output.
+    with contextlib.suppress(Exception):
+        _print_links(
+            _load(ctx.obj["config_file"], ctx.obj["db_path"]),
+            rt_state.get("ports", {}),
+        )
 
 
 @main.command()
@@ -244,9 +272,15 @@ def ports(ctx: click.Context) -> None:
             f"query={settings.query.port} stream={settings.streaming.port} "
             f"admin={settings.admin.port} http={settings.http.port}"
         )
+        _print_links(settings, None)
         return
     for k, v in rt_state.get("ports", {}).items():
         click.echo(f"{k}: {v}")
+    with contextlib.suppress(Exception):
+        _print_links(
+            _load(ctx.obj["config_file"], ctx.obj["db_path"]),
+            rt_state.get("ports", {}),
+        )
 
 
 @main.command()

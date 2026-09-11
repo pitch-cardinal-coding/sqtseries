@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a class="here" href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a class="here" href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -230,10 +230,17 @@ marked <em>streaming</em> run until Ctrl+C.</p>
           <code>--http-port</code> 12505, <code>--db</code> PATH (needed for
           the per-tag breakdown)</td>
       <td>— one pass</td></tr>
+  <tr><td><code>iso_timestamps.py</code></td>
+      <td>ISO-8601 timestamps beside epoch: write dated points with
+          millisecond-to-nanosecond precision, read them back over an ISO
+          window, prove the ISO window matches the epoch window</td>
+      <td>— (embedded DB in a temp dir; no running service needed)</td>
+      <td><code>python3 examples/iso_timestamps.py</code></td></tr>
 </table></div>
 <p>Note: <code>question_examples.py</code> and <code>query_examples.py</code>
 backfill historical data, so the service must be running with
-<code>reject_client_timestamp_skew_s</code> raised (see section 0).</p>
+<code>reject_client_timestamp_skew_s</code> raised (see the skew note under
+<em>Ready-to-run scripts</em> above).</p>
 
 <hr>
 
@@ -255,10 +262,10 @@ while True:
     time.sleep(10)
 </code></pre>
 
-<h4>Send data (Go, another machine — no sqtseries installed)</h4>
+<h4>Send data (Go, another program on the same machine — no sqtseries installed)</h4>
 <pre><code>// go get github.com/pebbe/zmq4
 sock, _ := zmq.NewSocket(zmq.PUSH)
-sock.Connect("tcp://192.168.1.10:12501")  // sqtseries is on this machine
+sock.Connect("tcp://127.0.0.1:12501")  // sqtseries binds local-only, so this runs on the same machine
 sock.Send(`{"metric":"cpu.percent","value":42.0,"tags":{"host":"web2"}}`, 0)
 </code></pre>
 
@@ -273,7 +280,8 @@ rows = c.query("cpu.percent", start=now_ns - 3600 * 10**9, end=now_ns,
 for row in rows:
     print(f"Average CPU at {row['timestamp']}: {row['value']:.1f}%")
 </code></pre>
-<p>Note that the client takes <em>nanosecond</em> epochs for
+<p>Note that the client takes <em>nanosecond</em> epochs (or ISO-8601 strings
+like <code>"2026-09-11T14:00:00Z"</code>) for
 <code>start</code>/<code>end</code>; returned rows carry epoch-
 <em>seconds</em> timestamps.</p>
 
@@ -355,6 +363,7 @@ print(f"Yesterday: avg={stats['avg']:.1f}, min={stats['min']:.1f}, "
 <p>Query the embedded engine directly when you need per-tag breakdowns (the
 wire protocol filters by metric, not by tag):</p>
 <pre><code>from sqtseries.engine import StorageEngine, create_sqlite_engine
+import orjson
 
 engine = create_sqlite_engine("~/.sqtseries/data/db.sqlite")
 store = StorageEngine(engine)
@@ -532,11 +541,11 @@ print(f"sent 100,000 points in {elapsed:.1f}s "
 <p><span style="color:#888">pts/sec = points per second; one
 <em>point</em> is one measurement (metric + value + tags + timestamp).</span></p>
 
-<p>What to expect: the service batch-drains the ingest socket (up to 256
+<p>What to expect: the service batch-drains the ingest socket (up to 1024
 frames per tick) and commits <em>one transaction per drained batch</em>, so
 the live path sustains a large fraction of the engine-level numbers (batched
 <code>executemany</code> inserts via <code>scripts/benchmark.py</code>,
-~65–253K rows/s on an NVMe machine). The PUSH HWM (10,000) still acts as
+~65–253K rows/s on an NVMe machine). The PUSH HWM (101,000) still acts as
 backpressure between bursts. Verify the numbers reliably on your own hardware
 (the reference figures come from the development machine: Intel Core Ultra 7
 255U, 12 cores / 14 threads, 22 GiB RAM, NVMe SSD) with
@@ -576,10 +585,10 @@ balancer's health check configuration.</p>
 <h2>The question catalog — four canonical questions</h2>
 <p>The repo's <code>examples/question_examples.py</code> answers 13 questions;
 the four most common ones are shown below, each over the Python client
-(nanosecond epochs, <code>aggregate(funcs=…)</code>) and over HTTP with curl
-(second epochs, <code>funcs=…</code>). Timestamps differ by API: the HTTP
+(nanosecond epochs or ISO-8601, <code>aggregate(funcs=…)</code>) and over HTTP with curl
+(second epochs or ISO-8601, <code>funcs=…</code>). Timestamps differ by API: the HTTP
 gateway takes epoch <em>seconds</em>, the ZMQ client takes epoch
-<em>nanoseconds</em>. The values in the sample responses are illustrative
+<em>nanoseconds</em> — both also take ISO-8601 strings. The values in the sample responses are illustrative
 shapes from the seeded demo data, not measured outputs.</p>
 
 <h3>Q1. Average CPU load over the last hour</h3>

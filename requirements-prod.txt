@@ -1,9 +1,10 @@
 # Production install set (minimal runtime deps for /opt/sqtseries).
 # Keep in sync with the "Runtime" section of requirements.txt.
 orjson==3.11.9
-pyzmq==27.1.0
+pyzmq==27.2.0
 fastapi==0.141.1
 uvicorn==0.52.1
+websockets==17.0.1
 httpx==0.28.1
 click==8.4.2
 pydantic==2.13.4

@@ -388,6 +388,15 @@ def validate_settings(settings: Settings) -> list[str]:
             "http.max_websocket_connections must be >= 1, got "
             f"{settings.http.max_websocket_connections}"
         )
+    if settings.http.rate_limit_per_minute < 1:
+        errors.append(
+            "http.rate_limit_per_minute must be >= 1, got "
+            f"{settings.http.rate_limit_per_minute}"
+        )
+    if settings.query.max_inflight < 1:
+        errors.append(
+            f"query.max_inflight must be >= 1, got {settings.query.max_inflight}"
+        )
     if settings.database.batch_size > 8191:
         errors.append(
             f"database.batch_size {settings.database.batch_size} exceeds "

@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a class="here" href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a class="here" href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -41,10 +41,12 @@ service scans 12500–12700 and binds the <em>first free port</em> — usually
 
 <div class="note">
   <strong>Time units.</strong> Ingestion timestamps are Unix epoch
-  <em>seconds</em> (integer or float) and are converted to nanoseconds by the
-  server. Query <code>start</code>/<code>end</code> are <em>nanoseconds</em>
-  on the ZMQ query path and <em>seconds</em> on the HTTP gateway; query results
-  always carry <em>seconds</em>.
+  <em>seconds</em> (integer or float) or ISO-8601 strings
+  (<code>2026-09-11T14:04:00Z</code>, <code>2026-09-11T00:28:51.740Z</code>,
+  up to 9 fraction digits) and are converted to nanoseconds by the
+  server. Query <code>start</code>/<code>end</code> accept epoch or ISO-8601
+  too — <em>nanoseconds</em> on the ZMQ query path and <em>seconds</em> on
+  the HTTP gateway; query results always carry <em>seconds</em>.
 </div>
 
 <h3>The message shape</h3>
@@ -54,14 +56,14 @@ service scans 12500–12700 and binds the <em>first free port</em> — usually
   "metric": "cpu.usage",
   "tags": {"host": "web1", "env": "prod"},   // optional
   "value": 0.72,
-  "timestamp": 1720000000.123                // optional epoch SECONDS
+  "timestamp": 1720000000.123                // optional: epoch SECONDS or ISO-8601 ("2026-09-11T00:28:51.740Z")
 }</code></pre>
 <div class="table-wrap"><table>
   <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
   <tr><td><code>metric</code></td><td>string</td><td>Yes</td><td>Metric name (any non-empty string; dots are conventional, not enforced)</td></tr>
   <tr><td><code>value</code></td><td>number</td><td>Yes</td><td>Numeric value (int or float; boolean is rejected; must be finite — no NaN or ±Inf)</td></tr>
   <tr><td><code>tags</code></td><td>object</td><td>No</td><td>String → string dimensions. Each unique (metric, tags) pair becomes a series</td></tr>
-  <tr><td><code>timestamp</code></td><td>number</td><td>No</td><td>Unix epoch <em>seconds</em> (float allowed). Defaults to the server clock</td></tr>
+  <tr><td><code>timestamp</code></td><td>number or string</td><td>No</td><td>Unix epoch <em>seconds</em> (float allowed) or ISO-8601 (<code>2026-09-11T14:04:00Z</code>; naive assumed UTC). Defaults to the server clock</td></tr>
 </table></div>
 <p>Unknown extra fields are ignored.</p>
 
@@ -171,7 +173,7 @@ curl -X POST http://127.0.0.1:12505/api/v1/write \
 </code></pre>
 <p>An invalid body returns <code>400</code> with a message naming the problem —
 see <a href="api.html#errors">Error codes</a> for the full list (non-empty
-string metric, numeric finite value, string→string tags, numeric timestamp).</p>
+string metric, numeric finite value, string→string tags, numeric or ISO-8601 timestamp).</p>
 
 <h3>Timestamps and clock skew</h3>
 <p>If you omit <code>timestamp</code>, the server stamps the measurement with
@@ -188,6 +190,15 @@ server clock; anything further out is rejected:</p>
 <p>The guard also keeps the hourly rollup consistent: data arrives in (near)
 chronological order, and an hour is only rolled once it is at least this far
 past completion, so a late write can never land in an already-rolled hour.</p>
+<div class="note">
+  <strong>What we learned testing ISO input.</strong> Storage keeps exact
+  integer nanoseconds, so <code>.123456789</code> round-trips exactly — but
+  query <em>results</em> render timestamps as float seconds, which only display
+  ~microsecond detail (e.g. <code>1789135382.9250386</code>). If you need exact
+  identity, compare the <code>timestamp_ns</code> values, not the displayed
+  seconds. Naive strings (no offset) are read as UTC; <code>Z</code> and
+  numeric offsets are equivalent. Fraction digits past 9 truncate.
+</div>
 
 <h3>Error handling</h3>
 <ul>
@@ -210,7 +221,7 @@ past completion, so a late write can never land in an already-rolled hour.</p>
 points per second, where one <em>point</em> is a single measurement (a metric
 name + value + optional tags + timestamp). 2,000 pts/s means two thousand
 such measurements ingested per second.</p>
-<p>The server batch-drains the ingest socket (up to 256 frames per tick) and
+<p>The server batch-drains the ingest socket (up to 1024 frames per tick) and
 commits one transaction per drained batch, so throughput is dominated by the
 storage layer rather than per-message commit overhead. Engine-level
 measurements with batched inserts (<code>scripts/benchmark.py</code>)

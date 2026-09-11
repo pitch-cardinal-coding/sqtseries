@@ -408,6 +408,34 @@ class TestZeroTimeoutDisables:
             await broker.stop()
 
 
+class TestHttpZeroTimeoutDisables:
+    def test_zero_timeout_serves_read(self, tmp_path):
+        """query_timeout_s=0 disables the HTTP budget (mirrors the ZMQ path)."""
+        from fastapi.testclient import TestClient
+
+        from sqtseries.config import HttpSettings
+        from sqtseries.engine.db import Database
+        from sqtseries.engine.migrations import run_migrations
+        from sqtseries.gateway.app import create_app
+        from sqtseries.query import TimeSeriesDB
+
+        db = str(tmp_path / "t0.sqlite")
+        run_migrations(Database(db))
+        eng = create_sqlite_engine(db)
+        try:
+            store = StorageEngine(eng)
+            tsdb = TimeSeriesDB(store)
+            tsdb.store.insert_many([("m", None, 1.0, 1700000000000000000)])
+            app = create_app(
+                store=store, tsdb=tsdb, settings=HttpSettings(), query_timeout_s=0
+            )
+            r = TestClient(app).get("/api/v1/read", params={"metric": "m"})
+            assert r.status_code == 200
+            assert r.json()["data"] == [{"timestamp": 1700000000.0, "value": 1.0}]
+        finally:
+            eng.dispose()
+
+
 class TestAdminKwargs:
     async def test_admin_conncheck_ids(self, tmp_path, free_ports):
         """Client.admin passes extra kwargs into the request (conncheck)."""

@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a class="here" href="api.html">API Reference</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a class="here" href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -26,16 +26,17 @@ entry point.</p>
 
 <div class="note">
   <strong>Time units at a glance.</strong> Embedded API: nanoseconds
-  everywhere. ZMQ wire: ingest timestamps <em>seconds</em>; query
-  <code>start</code>/<code>end</code> <em>nanoseconds</em>. HTTP gateway:
-  <code>start</code>/<code>end</code> <em>seconds</em>. Query results are
+  everywhere (query bounds also take ISO-8601). ZMQ wire: ingest timestamps
+  <em>seconds</em> or ISO-8601; query
+  <code>start</code>/<code>end</code> <em>nanoseconds</em> or ISO-8601. HTTP gateway:
+  <code>start</code>/<code>end</code> <em>seconds</em> or ISO-8601. Query results are
   always <em>seconds</em>.
 </div>
 
 <h3>1. Embedded Python API (in-process)</h3>
 <p>sqtseries is embeddable: run the engine directly inside your own Python
 process, with no network involved. All timestamps here are
-<em>nanoseconds</em>.</p>
+<em>nanoseconds</em> (query bounds also accept ISO-8601 strings).</p>
 <pre><code>from sqtseries.engine import (
     create_sqlite_engine,
     initialize_schema,
@@ -91,15 +92,16 @@ over the defaults).</p>
 
 c = Client()
 
-c.write("cpu.usage", 0.72, {"host": "web1"})      # timestamp: epoch SECONDS
+c.write("cpu.usage", 0.72, {"host": "web1"})      # timestamp: epoch SECONDS or "2026-09-11T00:28:51.740Z"
 c.write_many([{"metric": "cpu.usage", "value": 1.0},
               {"metric": "mem.usage", "value": 512.0, "tags": {"host": "web1"}}])
 
-# query start/end: epoch NANOSECONDS; rows are [{timestamp_seconds, value}]
+# query start/end: epoch NANOSECONDS or ISO-8601; rows are [{timestamp_seconds, value}]
 import time
 now_ns = time.time_ns()
 rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns,
                aggregation="avg", interval="15m", limit=100, order="desc")
+rows = c.query("cpu.usage", start="2026-09-11T14:00:00Z", end="2026-09-11T15:00:00Z")
 
 stats = c.aggregate("cpu.usage", funcs=["avg", "max", "p95"])   # {func: value}
 
@@ -158,7 +160,7 @@ sqtseries uninstall        # disable + remove the unit
 <p>Fire-and-forget, one frame per measurement, no reply and no ZMQ-level
 batching on the wire (the server drains frames in bursts and commits one
 transaction per burst). <code>timestamp</code> is optional epoch <em>seconds</em> (float
-allowed); skewed timestamps are rejected (default ±300s — dropped and counted
+allowed) or ISO-8601 (<code>2026-09-11T00:28:51.740Z</code>); skewed timestamps are rejected (default ±300s — dropped and counted
 as <code>invalid</code> on this path). The ingest port is auto-detected by
 default (<code>ports.auto_detect</code>): the first free port in 12500–12700,
 so it is usually 12500, not 12501 (the configured 12501 is used only with
@@ -174,7 +176,7 @@ so it is usually 12500, not 12501 (the configured 12501 is used only with
 note the plural key; the reply's <code>data</code> becomes a dict):
 <code>{"type": "query", "metric": "cpu.usage", "aggregations": "avg,min,max,p95"}</code>
 → <code>{"status": "ok", "data": {"avg": 0.71, ...}}</code>.
-<code>start</code>/<code>end</code> are epoch <em>nanoseconds</em>, inclusive;
+<code>start</code>/<code>end</code> are epoch <em>nanoseconds</em> (or ISO-8601 strings), inclusive;
 omitting them queries all time.</p>
 
 <h3>5. Admin — REQ 12504 <span id="admin"></span></h3>
@@ -278,27 +280,40 @@ while True:
 </code></pre>
 
 <h3>6. HTTP API <span id="http"></span></h3>
+<p>Machine-readable specs ship with the gateway:
+<a href="../openapi.json" target="_blank" rel="noopener">openapi.json</a>
+(OpenAPI schema),
+<a href="../api-docs" target="_blank" rel="noopener">Swagger UI</a>,
+and <a href="../redoc" target="_blank" rel="noopener">ReDoc</a> — each
+opens in a new tab. They live beside the user guide at
+<code>/docs</code> — same port, no conflict.</p>
 <div class="table-wrap"><table>
   <tr><th>Method + Path</th><th>Params / Body</th><th>Returns</th></tr>
   <tr><td><code>POST /api/v1/write</code></td>
-      <td>JSON object <em>or array</em> of measurements (timestamp in seconds).
+      <td>JSON object <em>or array</em> of measurements (timestamp in seconds or ISO-8601).
           A batch is validated whole — one bad item rejects the whole request.
           The same clock-skew guard as the ZMQ path applies: timestamps more
           than <code>ingestion.reject_client_timestamp_skew_s</code> (default
           300s) from the server clock are rejected with 400.</td>
       <td><code>{"status":"ok","written":N}</code>; 400 on invalid rows</td></tr>
   <tr><td><code>GET /api/v1/read</code></td>
-      <td><code>metric</code> (req), <code>start</code>, <code>end</code> (seconds),
+      <td><code>metric</code> (req), <code>start</code>, <code>end</code> (seconds or ISO-8601),
           <code>aggregation</code>, <code>interval</code>, <code>limit</code> (1–100000),
           <code>order</code> (asc|desc)</td>
       <td><code>{"status":"ok","data":[{timestamp,value}]}</code></td></tr>
   <tr><td><code>GET /api/v1/aggregate</code></td>
-      <td><code>metric</code> (req), <code>start</code>, <code>end</code> (seconds),
+      <td><code>metric</code> (req), <code>start</code>, <code>end</code> (seconds or ISO-8601),
           <code>funcs</code> (comma list, default <code>avg</code>)</td>
       <td><code>{"status":"ok","aggregations":{func:value}}</code></td></tr>
   <tr><td><code>GET /api/v1/stats</code></td>
       <td>—</td>
       <td><code>{"status":"ok","metrics":N,"series":M}</code></td></tr>
+  <tr><td><code>GET /api/v1/connections</code></td>
+      <td>—</td>
+      <td><code>{"status":"ok","data":[...]}</code> live WebSocket connections</td></tr>
+  <tr><td><code>GET /api/v1/subscribers</code></td>
+      <td>—</td>
+      <td><code>{"status":"ok","zmq_subscribers":N,"subscriptions":[...],"topics":[...]}</code> — <code>topics</code> covers every known topic (0 when idle) with per-topic totals</td></tr>
   <tr><td><code>GET /api/v1/connections</code></td>
       <td>—</td>
       <td>live active WebSocket connections, oldest first: <code>{"status":"ok","data":[{id,kind,peer,topic,connected_at}]}</code></td></tr>
@@ -365,12 +380,13 @@ The table below lists every error the wire can produce.</p>
   <tr><td><code>400</code></td><td>HTTP write</td><td>Value is not a number (booleans rejected)</td><td><code>value must be a number</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>NaN / ±Inf value</td><td><code>value must be finite</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>Tags are not a string→string object</td><td><code>tags must be string-&gt;string object</code></td></tr>
-  <tr><td><code>400</code></td><td>HTTP write</td><td>Timestamp is not a number</td><td><code>timestamp must be a number</code></td></tr>
+  <tr><td><code>400</code></td><td>HTTP write</td><td>Timestamp is not a number or ISO-8601 string</td><td><code>timestamp must be a number or ISO-8601 string</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>NaN / ±Inf timestamp</td><td><code>timestamp must be finite</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>Timestamp beyond the signed 64-bit nanosecond storage range (or too large to convert to a float)</td><td><code>timestamp out of range</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP write</td><td>Clock skew beyond the guard</td><td><code>client timestamp skew exceeds 300.0s</code></td></tr>
   <tr><td><code>400</code></td><td>HTTP read / aggregate</td><td>Engine rejects the parameters: unknown <code>aggregation</code>, or an invalid <code>interval</code> used together with an <code>aggregation</code> (a bare invalid <code>interval</code> with no aggregation is silently ignored)</td><td><code>unsupported aggregation: bogus</code> etc.</td></tr>
-  <tr><td><code>422</code></td><td>HTTP</td><td>Parameter validation: missing required <code>metric</code>, <code>limit</code> outside 1–100000, <code>order</code> not <code>asc</code>/<code>desc</code>, non-numeric <code>start</code>/<code>end</code></td><td>FastAPI validation detail</td></tr>
+  <tr><td><code>422</code></td><td>HTTP</td><td>Parameter validation: missing required <code>metric</code>, <code>limit</code> outside 1–100000, <code>order</code> not <code>asc</code>/<code>desc</code></td><td>FastAPI validation detail</td></tr>
+  <tr><td><code>400</code></td><td>HTTP read / aggregate</td><td><code>start</code>/<code>end</code> neither numeric nor ISO-8601</td><td><code>timestamp not ISO-8601: ...</code></td></tr>
   <tr><td><code>429</code> <code>RATE_LIMITED</code></td><td>HTTP</td><td>More than <code>http.rate_limit_per_minute</code> (default 600) requests in a minute from one client</td><td><code>too many requests</code></td></tr>
   <tr><td><code>504</code></td><td>HTTP read / aggregate</td><td>Query exceeded the server-side budget (<code>query.timeout_s</code>, default 30s). Queries run off the event loop in a thread, so this only times out that request — health, streaming, and other requests stay responsive</td><td><code>query exceeded 30.0s</code></td></tr>
   <tr><td>close <code>1008</code></td><td>WebSocket</td><td>Streaming disabled (pubsub not running)</td><td><code>streaming disabled</code></td></tr>
@@ -385,7 +401,7 @@ counted in the admin <code>stats</code> reply (<code>invalid</code> /
   <li><code>metric must be a non-empty string</code> — bad metric</li>
   <li><code>value must be a number</code> / <code>value must be finite</code> — bad value</li>
   <li><code>tags must be an object</code> / <code>tags must be string-&gt;string</code> — bad tags</li>
-  <li><code>timestamp must be a number</code> / <code>timestamp must be finite</code> — bad timestamp</li>
+  <li><code>timestamp must be a number or ISO-8601 string</code> / <code>timestamp must be finite</code> — bad timestamp</li>
   <li><code>client timestamp skew Ns exceeds Ns</code> — clock-skew guard</li>
   <li>Frame larger than <code>ingestion.max_message_size</code> (50 MiB) — dropped at the socket level, peer disconnected</li>
   <li>Send HWM full (default 10000) — the producer blocks on a blocking <code>send()</code> (backpressure, not an error)</li>

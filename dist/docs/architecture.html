@@ -11,7 +11,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a class="here" href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
+<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a class="here" href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
 <main id="main">
 <div class="docs-grid">
   <div class="docs-content">
@@ -258,7 +258,9 @@ the interval already exists. Every connection is closed per-use; no
 <h3>Concurrency model</h3>
 <ul>
   <li>Single process, a single asyncio event loop. uvicorn runs
-      in-process on the same loop (no subprocess, no thread pool for HTTP).</li>
+      in-process on the same loop; blocking work (queries, writes,
+      dashboard snapshots) is offloaded to a bounded 8-thread pool so the
+      loop stays responsive.</li>
   <li><code>WorkerPool(size=1)</code> pumps ingress, query broker, and admin
       broker in each loop iteration; sockets are never shared with other
       threads.</li>
@@ -287,10 +289,11 @@ the interval already exists. Every connection is closed per-use; no
 <p>Measured numbers live in <a href="benchmarks.md">benchmarks</a>, but read
 them with the path in mind: the benchmark tool drives the <em>engine</em>
 (<code>insert_many</code> with <code>executemany</code> batches, default
-5,000 rows per call) and reaches ~65K–253K rows/sec; sub-millisecond
+  5,000 rows per call) and reaches ~65K–253K rows/sec; sub-millisecond
 single-series range queries; near-constant wide-window aggregates via the
-rollup path. The live <em>service</em> ingest path is one transaction per
-message, so per-frame steady-state throughput is lower — measure on your own
+rollup path. The live <em>service</em> ingest path commits one transaction
+per drained batch (up to 1024 frames), so per-frame steady-state throughput
+is lower — measure on your own
 hardware with <code>python3 scripts/benchmark.py</code>.</p>
 
 <h3>References</h3>

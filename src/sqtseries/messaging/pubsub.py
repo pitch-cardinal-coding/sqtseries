@@ -78,6 +78,10 @@ class PubSub:
         # subscriber (per-subscriber HWM drop), so it never reflects
         # per-subscriber receipt.
         self.published = 0
+        # Per-topic publish attempts (same counting as ``published``: every
+        # publish() call, even when a slow subscriber's frame is dropped).
+        # One int per distinct metric ever published.
+        self._topic_totals: dict[str, int] = {}
         self._registry = registry
         self._reader_task: asyncio.Task | None = None
         # Bounded fan-out: publish() hands frames to the hub
@@ -136,6 +140,7 @@ class PubSub:
         payload_bytes = dumps(payload)
         await self.socket.send_multipart([topic, payload_bytes])
         self.published += 1
+        self._topic_totals[topic_str] = self._topic_totals.get(topic_str, 0) + 1
         # Bounded fan-out to WS subscribers (drop-new + loud counting).
         self.fanout.deliver(topic_str, payload_bytes)
 
@@ -206,3 +211,7 @@ class PubSub:
         stats.update(self.tracker.stats())
         stats["fanout_dropped"] = self.fanout.dropped_total
         return stats
+
+    def topic_totals(self) -> dict[str, int]:
+        """Published attempts per topic (metric name -> count)."""
+        return dict(self._topic_totals)

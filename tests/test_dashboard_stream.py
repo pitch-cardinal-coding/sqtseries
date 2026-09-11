@@ -48,6 +48,9 @@ class FakeRegistry:
     def snapshot(self) -> dict:
         return {"ws_connections": 0, "zmq_subscribers": 0, "subscriptions": []}
 
+    def known_topics(self) -> list:
+        return []
+
     def list_connections(self) -> list:
         return []
 
@@ -175,3 +178,15 @@ async def test_stream_listener_removed_on_provider_path():
     ws = FakeWebSocket(disconnect_after=1)
     await dashboard_stream(ws, provider=lambda: {}, store=None, registry=registry)
     assert registry.listeners == []
+
+
+def test_fallback_snapshot_lists_known_topics():
+    reg = ConnectionRegistry()
+    reg.register_zmq_sub("cpu")
+    reg.register_zmq_sub("mem")
+    reg.unregister_zmq_sub("mem")
+    snap = fallback_snapshot(FakeStore(), reg)
+    by_topic = {t["topic"]: t for t in snap["topics"]}
+    assert by_topic["cpu"]["subscribers"] == 1
+    assert by_topic["mem"]["subscribers"] == 0
+    assert by_topic["mem"]["total"] is None

@@ -183,10 +183,18 @@ class TestDashboardPage:
                 "() => document.documentElement.scrollWidth "
                 "<= document.documentElement.clientWidth"
             )
-            dash_page.click("#nav-toggle")
-            dash_page.wait_for_function(
-                "() => document.body.classList.contains('nav-open')",
-                timeout=5000,
+            # No drawer on mobile: the sidebar is hidden and the top
+            # section menu carries the same links.
+            assert dash_page.evaluate(
+                "() => getComputedStyle(document.querySelector('.sidebar')).display "
+                "=== 'none'"
+            )
+            assert dash_page.evaluate(
+                "() => getComputedStyle(document.querySelector('.topmenu')).display "
+                "!== 'none'"
+            )
+            assert dash_page.evaluate(
+                "() => document.querySelectorAll('.topmenu a').length === 8"
             )
             assert dash_page.evaluate(
                 "() => document.documentElement.scrollWidth "

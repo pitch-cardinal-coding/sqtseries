@@ -565,6 +565,14 @@ class Service:
         sub = self._admin_subscribers()
         payload["zmq_subscribers"] = sub["zmq_subscribers"]
         payload["subscriptions"] = sub["subscriptions"]
+        totals = self.pubsub.topic_totals() if self.pubsub is not None else {}
+        payload["topics"] = [
+            {
+                **entry,
+                "total": totals.get(entry["topic"], 0),
+            }
+            for entry in self.connection_registry.known_topics()
+        ]
         db_path = self.settings.db_path_expanded()
         payload["db_path"] = str(db_path)
         try:

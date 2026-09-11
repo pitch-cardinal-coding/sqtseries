@@ -182,7 +182,7 @@ class TestSecurityHeaders:
         "x-xss-protection": "1; mode=block",
         "referrer-policy": "strict-origin-when-cross-origin",
         "permissions-policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
-        "content-security-policy": "default-src 'self'",
+        "content-security-policy": "default-src 'self'; img-src 'self' data:",
     }
 
     def test_headers_present(self, client):
@@ -462,3 +462,111 @@ class TestQueryDoesNotBlockLoop:
         finally:
             TimeSeriesDB.aggregate = orig
             await svc.shutdown()
+
+
+class TestDocsServing:
+    def test_docs_index_served_when_present(self, tmp_path, monkeypatch):
+        import sqtseries.gateway.app as app_mod
+
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "index.html").write_text("<html><body>Docs home</body></html>")
+        monkeypatch.setattr(app_mod, "DOCS_DIR", docs)
+        eng = create_sqlite_engine(str(tmp_path / "gateway.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        try:
+            client = TestClient(create_app(store=store))
+            r = client.get("/docs/")
+            assert r.status_code == 200
+            assert "Docs home" in r.text
+        finally:
+            store.close()
+
+    def test_docs_absent_means_404(self, tmp_path, monkeypatch):
+        import sqtseries.gateway.app as app_mod
+
+        monkeypatch.setattr(app_mod, "DOCS_DIR", None)
+        eng = create_sqlite_engine(str(tmp_path / "gateway.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        try:
+            client = TestClient(create_app(store=store))
+            assert client.get("/docs/").status_code == 404
+        finally:
+            store.close()
+
+
+class TestSubscribersTopics:
+    def test_known_topics_listed_with_zero(self, tmp_path):
+        """GET /api/v1/subscribers lists idle known topics (0), not just active."""
+        from sqtseries.messaging.connection_registry import ConnectionRegistry
+
+        eng = create_sqlite_engine(str(tmp_path / "topics.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        try:
+            reg = ConnectionRegistry()
+            reg.register_zmq_sub("cpu")
+            reg.register_zmq_sub("mem")
+            reg.unregister_zmq_sub("mem")
+            app = create_app(store=store, registry=reg)
+            r = TestClient(app).get("/api/v1/subscribers")
+            assert r.status_code == 200
+            body = r.json()
+            by_topic = {t["topic"]: t for t in body["topics"]}
+            assert by_topic["cpu"]["subscribers"] == 1
+            assert by_topic["mem"]["subscribers"] == 0
+            assert [t["topic"] for t in body["subscriptions"]] == ["cpu"]
+        finally:
+            store.close()
+
+
+class TestApiSpecs:
+    def test_openapi_and_ui_alongside_docs(self, tmp_path):
+        """/openapi.json + Swagger/ReDoc live next to the shipped /docs pages."""
+        eng = create_sqlite_engine(str(tmp_path / "specs.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        try:
+            client = TestClient(create_app(store=store))
+            spec = client.get("/openapi.json")
+            assert spec.status_code == 200
+            assert "/api/v1/read" in spec.json()["paths"]
+            assert "/api/v1/write" in spec.json()["paths"]
+            ui = client.get("/api-docs")
+            assert ui.status_code == 200
+            # self-hosted under the gateway CSP: vendored assets only,
+            # no CDN, no inline scripts.
+            assert "swagger-ui-bundle.js" in ui.text
+            assert "cdn.jsdelivr" not in ui.text
+            assert "<script>" not in ui.text
+            redoc = client.get("/redoc")
+            assert redoc.status_code == 200
+            assert "redoc.standalone.js" in redoc.text
+            assert "cdn.jsdelivr" not in redoc.text
+            for asset in (
+                "/dashboard-assets/specs/swagger-ui-bundle.js",
+                "/dashboard-assets/specs/swagger-ui.css",
+                "/dashboard-assets/specs/swagger-init.js",
+                "/dashboard-assets/specs/redoc.standalone.js",
+            ):
+                assert client.get(asset).status_code == 200, asset
+        finally:
+            store.close()
+
+
+class TestDashboardRoot:
+    def test_root_serves_same_dashboard(self, tmp_path):
+        """/ and /dashboard resolve to the same page."""
+        eng = create_sqlite_engine(str(tmp_path / "root.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        try:
+            client = TestClient(create_app(store=store))
+            root = client.get("/")
+            dash = client.get("/dashboard")
+            assert root.status_code == 200
+            assert root.content == dash.content
+        finally:
+            store.close()
