@@ -56,6 +56,10 @@ def _pid_is_sqtseries(pid: int) -> bool:
 def _http_base(settings: Settings, ports: dict[str, Any] | None) -> str:
     """Base HTTP URL for dashboard/docs links (runtime port wins)."""
     host = settings.http.host
+    # A wildcard bind listens on every interface; the address a local user
+    # can actually open is loopback, so show that instead of 0.0.0.0.
+    if host in ("0.0.0.0", "::", ""):
+        host = "127.0.0.1"
     port = settings.http.port
     if ports:
         with contextlib.suppress(KeyError, TypeError, ValueError):

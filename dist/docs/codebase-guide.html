@@ -1373,7 +1373,7 @@ orjson; ingest/query/admin use one-part frames, pubsub uses two-part frames
     <li><span class="sig">subscriber_count(topic=None) -> int</span>, <span class="sig">active_topics()</span>,
         properties <span class="sig">ws_count</span> / <span class="sig">zmq_sub_count</span>.</li>
     <li><span class="sig">snapshot() -> dict</span> — read-only summary: ws_connections, zmq_subscribers,
-        active_topics, connections list, per-topic subscriptions with first_seen (used by
+        active_topics, connections list, per-topic list with first_seen (used by
         /ws/connections, admin subscribers, and the stats report).</li>
   </ul></p></div>
   <div class="sym"><span class="kind">function</span><br><span class="sig">new_connection_id() -> str</span>
@@ -1505,7 +1505,7 @@ single-process architecture, no ZMQ hop.</p>
   <div class="sym"><span class="kind">GET</span><br><span class="sig">/api/v1/connections</span>
   <p class="desc">Live WebSocket connection list from the registry (kind/peer/topic/connected_at).</p></div>
   <div class="sym"><span class="kind">GET</span><br><span class="sig">/api/v1/subscribers</span>
-  <p class="desc">Live ZMQ subscriptions: {"status": "ok", "zmq_subscribers": n, "subscriptions": [...]}.</p></div>
+  <p class="desc">Live ZMQ topics: {"status": "ok", "zmq_subscribers": n, "topics": [...]}.</p></div>
 
   <h4>Helpers</h4>
   <div class="sym"><span class="kind">function</span><br><span class="sig">_to_ns(seconds) -> int | None</span>
@@ -2155,7 +2155,7 @@ WebSocket: same payload as text frames, plus {"type": "ping"} keepalive when idl
 <tr><td><code>vacuum</code></td><td><code>{"cmd": "vacuum"}</code></td><td><code>{"vacuumed": true}</code> or VACUUM_BUSY (stop the service for full VACUUM)</td></tr>
 <tr><td><code>connections</code></td><td><code>{"cmd": "connections"}</code></td><td>data: [{id, kind, peer, topic, connected_at}]</td></tr>
 <tr><td><code>conncheck</code></td><td><code>{"cmd": "conncheck", "ids": [...]}</code></td><td>present: [ids that are connected]</td></tr>
-<tr><td><code>subscribers</code></td><td><code>{"cmd": "subscribers"}</code></td><td>zmq_subscribers, subscriptions: [{topic, subscribers, first_seen}]</td></tr>
+<tr><td><code>subscribers</code></td><td><code>{"cmd": "subscribers"}</code></td><td>zmq_subscribers, topics: [{topic, subscribers, first_seen, total}]</td></tr>
 </table>
 
 <h3>16.5 Stats events (ZMQ PUB &rarr; 12506)</h3>
@@ -2165,7 +2165,7 @@ topic "sub":    {"kind": "zmq", "topic": ..., "subscribers": n, "arrived_at": ..
 topic "report": {"uptime_s": ..., "ws_connections": n, "zmq_subscribers": n, "active_topics": n}</pre>
 
 <h3>16.6 WS /ws/connections (push-only monitoring feed)</h3>
-<pre>{"type": "snapshot", "ws_connections": n, "zmq_subscribers": n, "connections": [...], "subscriptions": [...]}
+<pre>{"type": "snapshot", "ws_connections": n, "zmq_subscribers": n, "connections": [...], "topics": [...]}
 then one frame per change: {"type": "conn", ...} / {"type": "sub", ...}</pre>
 </div>
 

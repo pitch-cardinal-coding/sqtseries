@@ -84,8 +84,8 @@ class TestConnectionRegistry:
         assert snap["zmq_subscribers"] == 1
         assert snap["active_topics"] == 1
         assert len(snap["connections"]) == 1
-        assert len(snap["subscriptions"]) == 1
-        assert snap["subscriptions"][0]["subscribers"] == 1
+        assert len(snap["topics"]) == 1
+        assert snap["topics"][0]["subscribers"] == 1
 
     def test_event_callbacks(self):
         events = []
@@ -206,7 +206,7 @@ class TestConnectionRegistry:
         # Rejoin: fresh first_seen.
         reg.register_zmq_sub("cpu.")
         assert reg._zmq_first_seen["cpu."] >= first
-        assert reg.snapshot()["subscriptions"][0]["first_seen"] is not None
+        assert reg.snapshot()["topics"][0]["first_seen"] is not None
 
 
 class TestStatsPublisher:
@@ -434,7 +434,7 @@ class TestAdminCommands:
         reply = svc._admin_handler({"cmd": "subscribers"})
         assert reply["status"] == "ok"
         assert reply["zmq_subscribers"] == 0
-        assert reply["subscriptions"] == []
+        assert reply["topics"] == []
 
     async def test_admin_connections_after_ws(self, svc):
         """When a WS connects, connections reflects it (via registry)."""
@@ -460,7 +460,7 @@ class TestAdminCommands:
         reg.register_zmq_sub("mem")
         reply = svc._admin_handler({"cmd": "subscribers"})
         assert reply["zmq_subscribers"] == 3
-        subs = {s["topic"]: s["subscribers"] for s in reply["subscriptions"]}
+        subs = {s["topic"]: s["subscribers"] for s in reply["topics"]}
 
         assert subs == {"cpu": 2, "mem": 1}
 
@@ -854,7 +854,7 @@ class TestConnectionEdgeCases:
         assert snap["zmq_subscribers"] == 0
         assert snap["active_topics"] == 0
         assert snap["connections"] == []
-        assert snap["subscriptions"] == []
+        assert snap["topics"] == []
 
     def test_connection_id_uniqueness(self):
         """Generated connection IDs are unique over many calls."""
@@ -1137,13 +1137,13 @@ class TestDeepEdgeCases:
         reg.register_zmq_sub("cpu")
         snap = reg.snapshot()
         snap["connections"][0]["peer"] = "MUTATED"
-        snap["subscriptions"][0]["topic"] = "MUTATED"
+        snap["topics"][0]["topic"] = "MUTATED"
         snap["ws_connections"] = 999
         snap["zmq_subscribers"] = 999
         # Registry is unaffected
         actual = reg.snapshot()
         assert actual["connections"][0]["peer"] == "peer"
-        assert actual["subscriptions"][0]["topic"] == "cpu"
+        assert actual["topics"][0]["topic"] == "cpu"
         assert actual["ws_connections"] == 1
         assert actual["zmq_subscribers"] == 1
 
@@ -1487,30 +1487,28 @@ class TestDeepEdgeCases:
         # c was registered first, then a, then b
         assert ids == ["c", "a", "b"]
 
-    def test_snapshot_subscriptions_include_first_seen(self):
-        """Snapshot subscriptions list includes first_seen for each topic."""
+    def test_snapshot_topics_include_first_seen(self):
+        """Snapshot topics list includes first_seen for each topic."""
 
         reg = ConnectionRegistry()
         reg.register_zmq_sub("cpu")
         reg.register_zmq_sub("mem")
         snap = reg.snapshot()
-        subs = {s["topic"]: s for s in snap["subscriptions"]}
+        subs = {s["topic"]: s for s in snap["topics"]}
         assert "cpu" in subs
         assert "mem" in subs
         assert isinstance(subs["cpu"]["first_seen"], float)
         assert isinstance(subs["mem"]["first_seen"], float)
 
-    def test_snapshot_subscriptions_first_seen_none_after_full_unsub(self):
-        """Snapshot shows first_seen=None for topic that was fully unsubscribed."""
+    def test_snapshot_keeps_fully_unsubscribed_topic_at_zero(self):
+        """A fully unsubscribed topic stays listed with 0 subscribers."""
 
         reg = ConnectionRegistry()
         reg.register_zmq_sub("cpu")
         reg.unregister_zmq_sub("cpu")
-        # Topic is gone from _zmq_subs, so snapshot has no entry for it
-
         snap = reg.snapshot()
-        topics = [s["topic"] for s in snap["subscriptions"]]
-        assert "cpu" not in topics
+        by_topic = {s["topic"]: s for s in snap["topics"]}
+        assert by_topic["cpu"]["subscribers"] == 0
 
 
 class TestKnownTopics:
@@ -1541,5 +1539,34 @@ class TestKnownTopics:
         reg.register_zmq_sub("cpu")
         reg.unregister_zmq_sub("cpu")
         snap = reg.snapshot()
-        assert [t["topic"] for t in snap["known_topics"]] == ["cpu"]
-        assert snap["subscriptions"] == []
+        assert [t["topic"] for t in snap["topics"]] == ["cpu"]
+        assert snap["topics"][0]["subscribers"] == 0
+
+
+class TestMergeTopics:
+    def test_union_lists_stored_metrics(self):
+        from sqtseries.messaging.connection_registry import merge_topics
+
+        merged = merge_topics(
+            [{"topic": "cpu", "subscribers": 1, "first_seen": 1.0}],
+            ["cpu", "mem"],
+            {"cpu": 7},
+        )
+        by_topic = {t["topic"]: t for t in merged}
+        assert by_topic["cpu"] == {
+            "topic": "cpu",
+            "subscribers": 1,
+            "first_seen": 1.0,
+            "total": 7,
+        }
+        assert by_topic["mem"]["subscribers"] == 0
+        assert by_topic["mem"]["first_seen"] is None
+        assert by_topic["mem"]["total"] is None
+
+    def test_known_without_total_counts_zero(self):
+        from sqtseries.messaging.connection_registry import merge_topics
+
+        merged = merge_topics(
+            [{"topic": "cpu", "subscribers": 0, "first_seen": 1.0}], [], {}
+        )
+        assert merged[0]["total"] == 0

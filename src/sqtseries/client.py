@@ -44,6 +44,11 @@ class Client:
         self.host = host
         self.ports = {**DEFAULT_PORTS, **(ports or {})}
         self._ctx = zmq.Context()
+        # Set when close() begins terminating the context. A subscribe()
+        # iterator parked in poll() on another thread then wakes with
+        # ENOTSOCK/ContextTerminated — that is the cooperative stop signal,
+        # not an error, so subscribe() returns instead of raising.
+        self._closing = False
         self._write_sock: zmq.Socket | None = None
         self._query_sock: zmq.Socket | None = None
         self._sub_sock: zmq.Socket | None = None
@@ -167,7 +172,10 @@ class Client:
         return reply
 
     def subscribe(
-        self, topic: str = "*", timeout: float = 0.5
+        self,
+        topic: str = "*",
+        timeout: float = 0.5,
+        resync_interval_s: float = 30.0,
     ) -> Iterator[dict[str, Any] | None]:
         """Yield live measurement dicts matching ``topic`` (SUB socket).
 
@@ -181,25 +189,100 @@ class Client:
 
         against active recv). Pattern per pyzmq docs: poll then recv NOBLOCK.
 
+        A transparent ZMQ reconnect does not always re-deliver subscriptions
+        after a server restart (observed: re-handshaked sessions staying
+        invisible indefinitely), so every ``resync_interval_s`` the client
+        compares the server uptime and recreates the socket when a restart
+        is detected. Recreation is count-safe: closing drops at most our own
+        registration, and the fresh SUBSCRIBE re-adds exactly one.
         """
+        import time
+
         sock = self._get_sub_sock()
-        if topic != "*":
-            sock.setsockopt(zmq.SUBSCRIBE, topic.encode())
-        else:
-            sock.setsockopt(zmq.SUBSCRIBE, b"")
+        sub_bytes = b"" if topic == "*" else topic.encode()
+        sock.setsockopt(zmq.SUBSCRIBE, sub_bytes)
+        last_resync = time.monotonic()
+        last_uptime: float | None = None
         while True:
-            events = sock.poll(timeout=int(timeout * 1000), flags=zmq.POLLIN)
+            if self._closing:
+                # close() was called (possibly from another thread while this
+                # iterator was parked in poll()): stop yielding, no raise.
+                return
+            try:
+                events = sock.poll(timeout=int(timeout * 1000), flags=zmq.POLLIN)
+            except zmq.ZMQError as exc:
+                # ctx.term() interrupts the parked poll. Racing close():
+                # _closing may not be set yet when the poll explodes.
+                if self._closing or exc.errno in (zmq.ENOTSOCK, zmq.ETERM):
+                    return
+                raise
             if not events:
                 yield None
-                continue
-            try:
-                frames = sock.recv_multipart(flags=zmq.NOBLOCK)
-            except zmq.Again:
-                yield None
-                continue
-            if len(frames) < 2:
-                continue
-            yield orjson.loads(frames[1])
+            else:
+                try:
+                    frames = sock.recv_multipart(flags=zmq.NOBLOCK)
+                except zmq.Again:
+                    yield None
+                    continue
+                except zmq.ZMQError as exc:
+                    # Same race as poll(): close() tore down the context between
+                    # the poll and this recv. That is a stop signal, not an error.
+                    if self._closing or exc.errno in (zmq.ENOTSOCK, zmq.ETERM):
+                        return
+                    raise
+                if len(frames) < 2:
+                    continue
+                yield orjson.loads(frames[1])
+            due = time.monotonic() - last_resync >= resync_interval_s
+            if resync_interval_s > 0 and due and not self._closing:
+                last_resync = time.monotonic()
+                uptime = self._server_uptime()
+                if uptime is not None:
+                    if last_uptime is not None and uptime < last_uptime:
+                        try:
+                            sock.close(linger=0)
+                            self._sub_sock = None
+                            sock = self._get_sub_sock()
+                            sock.setsockopt(zmq.SUBSCRIBE, sub_bytes)
+                        except zmq.ZMQError as exc:
+                            # close() tore down the context mid-recreation.
+                            if self._closing or exc.errno in (zmq.ENOTSOCK, zmq.ETERM):
+                                return
+                            raise
+                    last_uptime = uptime
+
+    def _server_uptime(self) -> float | None:
+        """Return the service uptime in seconds, or None when unreachable.
+
+        Uses a throwaway REQ socket so a timeout here can never break the
+        cached admin socket (REQ strict alternation) or any live iterator.
+        """
+        try:
+            sock = self._ctx.socket(zmq.REQ)
+        except zmq.ZMQError as exc:
+            # close() destroyed the context before we could even open the probe.
+            if self._closing or exc.errno in (zmq.ENOTSOCK, zmq.ETERM):
+                return None
+            raise
+        try:
+            sock.setsockopt(zmq.LINGER, 0)
+            sock.setsockopt(zmq.RCVTIMEO, 5000)
+            sock.connect(f"tcp://{self.host}:{self.ports['admin']}")
+            sock.send(orjson.dumps({"cmd": "stats"}))
+            reply = orjson.loads(sock.recv())
+        except zmq.Again:
+            return None
+        except zmq.ZMQError as exc:
+            # Context torn down mid-probe by close(): a stop signal, not an error.
+            if self._closing or exc.errno in (zmq.ENOTSOCK, zmq.ETERM):
+                return None
+            raise
+        finally:
+            sock.close(linger=0)
+        if reply.get("status") != "ok":
+            return None
+        uptime = reply.get("uptime_s")
+        return float(uptime) if isinstance(uptime, (int, float)) else None
 
     def _get_write_sock(self) -> zmq.Socket:
         if self._write_sock is None:
@@ -259,6 +342,10 @@ class Client:
         """Close all sockets and the context (idempotent)."""
         # The write socket keeps a flush linger so measurements queued but not
         # yet delivered are still sent; everything else can close immediately.
+        # Flag first so a subscribe() iterator parked in poll() on another
+        # thread treats the upcoming context-termination interrupt as a stop
+        # signal rather than an error.
+        self._closing = True
 
         if self._write_sock is not None:
             self._write_sock.close(linger=WRITE_LINGER_MS)

@@ -7,7 +7,6 @@
   "use strict";
 
   var MAX_TICKER = 50;
-  var MAX_ROWS = 200;
   var PAGE_SIZE = 5;
   var MAX_BACKOFF_MS = 10000;
   var REFRESH_DEBOUNCE_MS = 150;
@@ -23,6 +22,9 @@
   var refreshGeneration = 0;
   var topicView = { rows: [], page: 0, q: "" };
   var connView = { rows: [], page: 0, q: "" };
+  var lastMsgAt = 0;
+  var retryCount = 0;
+  var WATCHDOG_S = 15;
 
   function el(id) {
     if (!els[id]) {
@@ -360,7 +362,7 @@
     renderStrip(snap);
     renderRates(snap);
     renderConnections(snap.connections || []);
-    renderTopics(snap.topics || snap.subscriptions || []);
+    renderTopics(snap.topics || []);
     renderStorage(snap);
     tickRow("snapshot received", "tick");
   }
@@ -434,12 +436,19 @@
     if (feed && prevTickAt) {
       feed.textContent = "feed " + fmtAge(prevTickAt);
     }
+    if (ws !== null && lastMsgAt !== 0 && Date.now() / 1000 - lastMsgAt > WATCHDOG_S) {
+      try {
+        ws.close();
+      } catch (e) {}
+    }
   }
 
   function scheduleReconnect() {
     if (backoffTimer !== null) {
       return;
     }
+    retryCount += 1;
+    setText("conn-state-text", "reconnecting (retry " + retryCount + ")");
     backoffTimer = window.setTimeout(function () {
       backoffTimer = null;
       connect();
@@ -462,6 +471,7 @@
     ws = sock;
     sock.onopen = function () {
       backoffMs = 1000;
+      retryCount = 0;
       setPill(true);
     };
     sock.onmessage = function (ev) {
@@ -471,6 +481,7 @@
       } catch (e) {
         return;
       }
+      lastMsgAt = Date.now() / 1000;
       if (!msg || !msg.type) {
         return;
       }
@@ -577,6 +588,15 @@
     }
     wirePager("topic", topicView, rerenderTopics);
     wirePager("conn", connView, rerenderConns);
+    window.addEventListener("online", function () {
+      backoffMs = 1000;
+      if (ws === null) {
+        connect();
+      }
+    });
+    window.addEventListener("offline", function () {
+      setPill(false);
+    });
     ageTimer = window.setInterval(refreshAges, 1000);
     window.addEventListener("pagehide", teardown);
     connect();

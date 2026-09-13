@@ -168,7 +168,7 @@ class TestDashboardPage:
         service.stop()
         dash_page.wait_for_function(
             "() => document.getElementById('conn-state-text').textContent "
-            "=== 'reconnecting'",
+            ".indexOf('reconnecting') === 0",
             timeout=15000,
         )
         service.start()

@@ -564,15 +564,7 @@ class Service:
         payload["connections"] = self.connection_registry.list_connections()
         sub = self._admin_subscribers()
         payload["zmq_subscribers"] = sub["zmq_subscribers"]
-        payload["subscriptions"] = sub["subscriptions"]
-        totals = self.pubsub.topic_totals() if self.pubsub is not None else {}
-        payload["topics"] = [
-            {
-                **entry,
-                "total": totals.get(entry["topic"], 0),
-            }
-            for entry in self.connection_registry.known_topics()
-        ]
+        payload["topics"] = sub["topics"]
         db_path = self.settings.db_path_expanded()
         payload["db_path"] = str(db_path)
         try:
@@ -622,12 +614,17 @@ class Service:
         return {"status": "ok", "present": present}
 
     def _admin_subscribers(self) -> dict[str, Any]:
-        """Return per-topic ZMQ subscriber counts."""
-        snapshot = self.connection_registry.snapshot()
+        """Every known topic plus every stored metric, with live counts."""
+        from .messaging.connection_registry import merge_topics
+
+        totals = self.pubsub.topic_totals() if self.pubsub is not None else {}
+        stored = self.store.list_metrics() if self.store is not None else []
         return {
             "status": "ok",
-            "zmq_subscribers": snapshot["zmq_subscribers"],
-            "subscriptions": snapshot["subscriptions"],
+            "zmq_subscribers": self.connection_registry.zmq_sub_count,
+            "topics": merge_topics(
+                self.connection_registry.known_topics(), stored, totals
+            ),
         }
 
     def health(self) -> dict[str, Any]:

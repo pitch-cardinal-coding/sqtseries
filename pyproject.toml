@@ -83,6 +83,9 @@ ignore = ["E501", "S101", "SIM108"]
 "examples/*" = ["S310", "S311", "S603", "PERF401", "RUF005", "PTH202"]  # Run scripts launch the sqtseries CLI by design (argv-derived, no untrusted input)
 "examples/camera/*" = ["S310", "S311", "S603", "PERF401", "RUF005", "PTH202"]  # Camera scripts fetch a user-supplied URL and launch the CLI by design
 "examples/camera/overlay_server.py" = ["S104"]  # Overlay must be reachable by OBS browser sources on the LAN (0.0.0.0 by design)
+"src/sqtseries/config.py" = ["S104"]  # http.host defaults to 0.0.0.0 by design: LAN-reachable dashboard/API (docs cover the 127.0.0.1 hardening path); ZMQ ports stay loopback
+"src/sqtseries/cli.py" = ["S104"]  # not a bind: wildcard-host check to display 127.0.0.1 in printed links
+"tests/test_config.py" = ["S104"]  # asserts the intentional 0.0.0.0 default
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

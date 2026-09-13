@@ -312,7 +312,7 @@ def create_app(
                         "ws_connections": snap["ws_connections"],
                         "zmq_subscribers": snap["zmq_subscribers"],
                         "connections": registry.list_connections(),
-                        "subscriptions": snap["subscriptions"],
+                        "topics": registry.known_topics(),
                     }
                 )
 

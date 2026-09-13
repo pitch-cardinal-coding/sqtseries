@@ -46,7 +46,7 @@ class FakeRegistry:
         self.listeners: list = []
 
     def snapshot(self) -> dict:
-        return {"ws_connections": 0, "zmq_subscribers": 0, "subscriptions": []}
+        return {"ws_connections": 0, "zmq_subscribers": 0, "topics": []}
 
     def known_topics(self) -> list:
         return []
@@ -189,4 +189,24 @@ def test_fallback_snapshot_lists_known_topics():
     by_topic = {t["topic"]: t for t in snap["topics"]}
     assert by_topic["cpu"]["subscribers"] == 1
     assert by_topic["mem"]["subscribers"] == 0
-    assert by_topic["mem"]["total"] is None
+    assert by_topic["cpu"]["total"] == 0
+
+
+def test_fallback_lists_stored_metrics(tmp_path):
+    from sqtseries.engine import create_sqlite_engine
+    from sqtseries.engine.db import Database
+    from sqtseries.engine.migrations import run_migrations
+    from sqtseries.engine.store import StorageEngine
+
+    db = str(tmp_path / "stored.sqlite")
+    run_migrations(Database(db))
+    eng = create_sqlite_engine(db)
+    try:
+        store = StorageEngine(eng)
+        store.insert_many([("stored.m", None, 1.0, 1700000000000000000)])
+        snap = fallback_snapshot(store, ConnectionRegistry())
+        by_topic = {t["topic"]: t for t in snap["topics"]}
+        assert by_topic["stored.m"]["subscribers"] == 0
+        assert by_topic["stored.m"]["total"] is None
+    finally:
+        eng.dispose()

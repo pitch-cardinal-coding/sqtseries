@@ -445,8 +445,8 @@ else:
 
 <h4>How many subscribers does each topic have?</h4>
 <pre><code>reply = c.admin("subscribers")
-for sub in reply["subscriptions"]:
-    print(f"{sub['topic']}: {sub['subscribers']} listeners")
+for sub in reply["topics"]:
+    print(f"{sub['topic']}: {sub['subscribers']} listeners, {sub['total']} points")
 </code></pre>
 
 <h4>Live stats feed (PUB socket subscription)</h4>

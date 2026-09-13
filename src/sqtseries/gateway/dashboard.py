@@ -15,7 +15,7 @@ from typing import Any
 TICK_INTERVAL_S = 1.0
 MAX_QUEUE = 500
 
-_LIST_KEYS = ("connections", "subscriptions")
+_LIST_KEYS = ("connections",)
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,17 @@ def fallback_snapshot(store: Any, registry: Any) -> dict[str, Any]:
         with _suppress():
             payload["series"] = store.series_count()
     if registry is not None:
+        from ..messaging.connection_registry import merge_topics
+
         snap = registry.snapshot()
         payload["ws_connections"] = snap["ws_connections"]
         payload["zmq_subscribers"] = snap["zmq_subscribers"]
         payload["connections"] = registry.list_connections()
-        payload["subscriptions"] = snap["subscriptions"]
-        payload["topics"] = [
-            {**entry, "total": None} for entry in registry.known_topics()
-        ]
+        stored = []
+        if store is not None:
+            with _suppress():
+                stored = store.list_metrics()
+        payload["topics"] = merge_topics(registry.known_topics(), stored, {})
     return payload
 
 

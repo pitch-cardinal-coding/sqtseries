@@ -361,19 +361,18 @@ async def connections(request: Request) -> dict[str, Any]:
 
 @router.get("/subscribers")
 async def subscribers(request: Request) -> dict[str, Any]:
-    """Live ZMQ SUB subscriptions (topic -> subscriber count).
+    """Every known topic plus every stored metric, with live counts."""
+    from ..messaging.connection_registry import merge_topics
 
-    ``topics`` lists every known topic with its live count (0 when idle);
-    ``subscriptions`` keeps the active-only view.
-    """
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
-        return {"status": "ok", "zmq_subscribers": 0, "subscriptions": []}
+        return {"status": "ok", "zmq_subscribers": 0, "topics": []}
     snap = registry.snapshot()
+    store = getattr(request.app.state, "store", None)
+    stored = store.list_metrics() if store is not None else []
 
     return {
         "status": "ok",
         "zmq_subscribers": snap["zmq_subscribers"],
-        "subscriptions": snap["subscriptions"],
-        "topics": [{**entry, "total": None} for entry in registry.known_topics()],
+        "topics": merge_topics(registry.known_topics(), stored, {}),
     }

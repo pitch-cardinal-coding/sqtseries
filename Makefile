@@ -135,7 +135,8 @@ test-fast:
 		tests/test_engine.py tests/test_db.py tests/test_query.py \
 		tests/test_agg_edge.py tests/test_client.py tests/test_cli.py \
 		tests/test_cli2.py tests/test_cli_edge.py tests/test_health.py \
-		tests/test_ports.py tests/test_protocol.py tests/test_misc_edge.py \
+		tests/test_ports.py tests/test_protocol.py tests/test_time_parse.py \
+		tests/test_time_edge.py tests/test_misc_edge.py \
 		tests/test_logging.py -q --timeout=60
 
 test-camera:
@@ -193,7 +194,7 @@ format:
 
 lint:
 	$(STYLE_RUFF) check --extend-select I $(STYLE_DIRS)
-	@! grep -rnE 'except [A-Za-z_][A-Za-z_.]*, *[A-Za-z_.]' $(STYLE_DIRS) \
+	@! grep -rnE --include='*.py' 'except [A-Za-z_][A-Za-z_.]*, *[A-Za-z_.]' $(STYLE_DIRS) \
 	  || (echo "ERROR: unparenthesized except tuple found — use 'except (A, B):'; see pyproject.toml" && exit 1)
 	@echo "except-tuple check OK"
 

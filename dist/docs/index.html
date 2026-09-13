@@ -142,7 +142,8 @@ walkthrough.</p>
   <tr><td>12505</td><td>HTTP gateway</td><td>HTTP + WebSocket</td><td><a href="api.html#http">HTTP API</a></td></tr>
   <tr><td>12506</td><td>Stats events</td><td>ZMQ PUB</td><td><a href="api.html#stats">Stats events</a></td></tr>
 </table></div>
-<p>All sockets are local only (bound to 127.0.0.1). Of the six, only the
+<p>The ZeroMQ sockets are local only (bound to 127.0.0.1); the HTTP gateway
+binds every interface by default (configure <code>[http] host</code>). Of the six, only the
 ingest port is auto-detected: <code>run</code> scans the port range (default
 12500–12700, plus <code>ports.port_offset</code>) for the first free port,
 skipping the query/streaming/admin/http/stats ports it is told to avoid

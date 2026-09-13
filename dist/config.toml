@@ -56,7 +56,12 @@ port = 12504
 
 [http]
 port = 12505
-host = "127.0.0.1"
+# Bind address for the HTTP + WebSocket gateway. "0.0.0.0" listens on every
+# interface so other machines on the LAN can reach the dashboard and API
+# (e.g. http://192.168.1.10:12505). The ZeroMQ ports always bind 127.0.0.1.
+# There is no authentication on the HTTP API — on an untrusted network, keep
+# 127.0.0.1 and put an authenticating reverse proxy in front instead.
+host = "0.0.0.0"
 cors_origins = ["*"]
 rate_limit_per_minute = 600
 max_websocket_connections = 1000

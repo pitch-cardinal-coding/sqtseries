@@ -517,7 +517,7 @@ class TestSubscribersTopics:
             by_topic = {t["topic"]: t for t in body["topics"]}
             assert by_topic["cpu"]["subscribers"] == 1
             assert by_topic["mem"]["subscribers"] == 0
-            assert [t["topic"] for t in body["subscriptions"]] == ["cpu"]
+            assert body["zmq_subscribers"] == 1
         finally:
             store.close()
 

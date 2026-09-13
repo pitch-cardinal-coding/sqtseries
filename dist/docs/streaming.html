@@ -76,6 +76,16 @@ default. An application opening thousands of SUB sockets at once must raise
 it first with <code>ctx.set(zmq.MAX_SOCKETS, n)</code> — note
 <code>setsockopt</code> on a context only stores socket defaults and does
 <em>not</em> raise the cap.</p>
+<div class="note">
+  <strong>Surviving restarts.</strong> The bundled client's subscriber
+  re-registers on its own after a server restart (capped reconnect backoff
+  plus TCP keepalive) and keeps receiving. A bare SUB socket with library
+  defaults may stay silent after a restart without ever noticing — if you
+  roll your own subscriber, set the same options the client uses
+  (<code>RECONNECT_IVL 100</code>, capped <code>RECONNECT_IVL_MAX</code>,
+  TCP keepalive) and recreate the socket if data stops arriving past your
+  own deadline.
+</div>
 
 <h3>Bundled client</h3>
 <pre><code>from sqtseries import Client

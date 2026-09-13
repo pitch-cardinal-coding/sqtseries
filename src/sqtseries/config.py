@@ -93,7 +93,10 @@ class HttpSettings(BaseModel):
     """HTTP gateway configuration."""
 
     port: int = 12505
-    host: str = "127.0.0.1"
+    # 0.0.0.0 = listen on every interface so LAN machines reach the
+    # dashboard/API. The ZMQ ports stay loopback-only. No auth on HTTP:
+    # on untrusted networks bind 127.0.0.1 and front with a proxy.
+    host: str = "0.0.0.0"
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     rate_limit_per_minute: int = 600
     # Safety valve: new WebSocket connections beyond this are closed with

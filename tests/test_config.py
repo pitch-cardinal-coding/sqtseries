@@ -29,7 +29,7 @@ class TestFileLoading:
         assert s.database.batch_size == 500
         # untouched values keep defaults
         assert s.logging.level == "INFO"
-        assert s.http.host == "127.0.0.1"
+        assert s.http.host == "0.0.0.0"
 
     def test_load_from_json(self, sample_json):
         s = Settings.load(str(sample_json))

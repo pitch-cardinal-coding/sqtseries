@@ -209,7 +209,9 @@ real ports.
 | 12505 | HTTP + WebSocket | REST API and browser streaming |
 | 12506 | ZMQ PUB | Connection and subscription events |
 
-All ports bind to `127.0.0.1`. See [ports](dist/docs/index.html) for the full
+ZeroMQ ports bind to `127.0.0.1`; the HTTP gateway (12505) binds all
+interfaces by default (`http.host = "0.0.0.0"` — set `127.0.0.1` in your
+config for local-only HTTP). See [ports](dist/docs/index.html) for the full
 auto-detection mechanism.
 
 ### CLI commands at a glance

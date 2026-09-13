@@ -249,17 +249,40 @@ class ConnectionRegistry:
                 }
                 for cid, entry in self._ws.items()
             ],
-            "subscriptions": [
-                {
-                    "topic": topic,
-                    "subscribers": count,
-                    "first_seen": self._zmq_first_seen.get(topic),
-                }
-                for topic, count in sorted(self._zmq_subs.items())
-            ],
-            "known_topics": self.known_topics(),
+            "topics": self.known_topics(),
         }
 
 
 def new_connection_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def merge_topics(
+    known_topics: list[dict[str, Any]],
+    stored_metrics: list[str],
+    totals: dict[str, int | None],
+) -> list[dict[str, Any]]:
+    """Union of subscribed-known topics and metrics with stored data.
+
+    Subscription entries win; stored-only metrics list 0 subscribers and
+    no first_seen. Totals come from the caller (None renders as unknown);
+    metrics come from an indexed DISTINCT scan, never row counts, so this
+    stays cheap enough for the 1s dashboard tick.
+    """
+    merged = []
+    seen = set()
+    for entry in known_topics:
+        total = totals.get(entry["topic"])
+        merged.append({**entry, "total": 0 if total is None else total})
+        seen.add(entry["topic"])
+    merged.extend(
+        {
+            "topic": metric,
+            "subscribers": 0,
+            "first_seen": None,
+            "total": totals.get(metric),
+        }
+        for metric in stored_metrics
+        if metric not in seen
+    )
+    return merged

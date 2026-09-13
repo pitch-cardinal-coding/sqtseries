@@ -128,7 +128,7 @@ port = 12504
 
 [http]
 port = 12505
-host = "127.0.0.1"
+host = "0.0.0.0"
 cors_origins = ["*"]
 rate_limit_per_minute = 600
 max_websocket_connections = 1000
@@ -256,7 +256,7 @@ SQT_SERIES_CONFIG_FILE=~/prod.toml sqtseries run</code></pre>
 <div class="table-wrap"><table>
   <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
   <tr><td><code>port</code></td><td><code>12505</code></td><td><code>SQT_SERIES_HTTP__PORT</code></td><td>HTTP + WebSocket gateway</td></tr>
-  <tr><td><code>host</code></td><td><code>127.0.0.1</code></td><td><code>SQT_SERIES_HTTP__HOST</code></td><td>Bind address</td></tr>
+  <tr><td><code>host</code></td><td><code>0.0.0.0</code></td><td><code>SQT_SERIES_HTTP__HOST</code></td><td>Bind address (all interfaces by default; set <code>127.0.0.1</code> for local-only HTTP)</td></tr>
   <tr><td><code>cors_origins</code></td><td><code>["*"]</code></td><td><code>SQT_SERIES_HTTP__CORS_ORIGINS</code></td><td>Allowed CORS origins (JSON list)</td></tr>
   <tr><td><code>rate_limit_per_minute</code></td><td><code>600</code></td><td><code>SQT_SERIES_HTTP__RATE_LIMIT_PER_MINUTE</code></td><td>Requests per minute per client</td></tr>
   <tr><td><code>max_websocket_connections</code></td><td><code>1000</code></td><td><code>SQT_SERIES_HTTP__MAX_WEBSOCKET_CONNECTIONS</code></td><td>Live WebSocket cap; new connections beyond it close with code 1013</td></tr>
@@ -351,7 +351,10 @@ a port error. <code>port_offset</code> is added to the base range
 <em>in both modes</em>. With <code>auto_detect = false</code> the configured
 ingest port is used verbatim; if it is taken, startup fails with a ZMQ bind
 error (EADDRINUSE).</p>
-<p>All raw sockets bind to <code>127.0.0.1</code>. The final, actually-bound
+<p>The ZeroMQ sockets bind to <code>127.0.0.1</code>. The HTTP + WebSocket
+gateway binds per <code>[http] host</code> (default <code>0.0.0.0</code> —
+reachable from other machines; set <code>127.0.0.1</code> to restrict it to
+this machine). The final, actually-bound
 ingest port plus the fixed ports (ingest/query/stream/admin/http/stats) are
 written to <code>runtime.json</code> (next to the database) and shown by
 <code>sqtseries ports</code> and <code>sqtseries status</code>.</p>
@@ -449,8 +452,12 @@ are defined in the <a href="codebase-guide.html#glossary">Codebase Guide glossar
 
 <h3>Security</h3>
 <div class="note">
-  <strong>Local-only service.</strong> Every socket binds to 127.0.0.1. There
-  is no authentication — never expose sqtseries to a network.
+  <strong>HTTP is network-reachable by default; ZeroMQ is local-only.</strong>
+  The HTTP gateway binds <code>0.0.0.0</code> so other machines can use the
+  dashboard and API, while the ZeroMQ ports stay on 127.0.0.1. There is no
+  authentication — on an untrusted network set
+  <code>host = "127.0.0.1"</code> and put an authenticating reverse proxy in
+  front instead.
 </div>
 
 <h2>Where to go next</h2>
