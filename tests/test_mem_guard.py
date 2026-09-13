@@ -12,11 +12,14 @@ kill path quickly and never stress the host machine itself.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 GUARD = REPO / "scripts" / "mem-guard.sh"
-PY = "/home/iam/devcode/.env/sqtseries/bin/python3"
+# The interpreter running pytest: portable across dev box and deployed hosts
+# (a hardcoded dev-venv path made these tests fail on any other machine).
+PY = sys.executable
 
 
 def run_guard(
