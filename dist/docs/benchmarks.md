@@ -11,9 +11,9 @@ the rollup fast path with `scripts/benchmark.py`.
 > one transaction per batch through a bounded hand-off queue), but it adds
 > wire protocol, validation, and concurrency on top, so service-path
 > throughput is lower than the numbers here — see the closing note at the
-> bottom of this page for the measured live-path figure. The numbers below
-> were recorded on the project's development machine (2026-08-10) and are
-> for orientation, not guarantees.
+> bottom of this page for the measured live-path figure. Every figure below
+> carries the date and the commit it was measured on, and they are for
+> orientation, not guarantees.
 
 ## How these percentiles are measured
 
@@ -220,7 +220,7 @@ Read `sent_ops`, `zmq_query.n` and `client_shed` in the resulting
 # 24h span, batch 5000, 100 query runs
 python3 scripts/benchmark.py --db /tmp/bench.sqlite --rows 200000
 
-# the ~9x rollup win: fewer series, many points each
+# the ~10.6x rollup win: fewer series, many points each
 python3 scripts/benchmark.py --db /tmp/bench.sqlite --rows 2000000 --series 100
 
 # explicit options
@@ -261,26 +261,41 @@ Latency is wall-clock time of one query, p50/p95 over the query runs (50 in the 
 
 ## Engine ingestion throughput
 
-| Rows | Rows/sec (recorded 2026-09-11) | Total time |
-|------|--------------------:|-----------:|
-| 200,000 | ~87,500 | 2.3s |
-| 1,000,000 | ~71,500 | 14.0s |
-| 2,000,000 (100 series) | ~100,700 | 19.9s |
-| 5,000,000 | ~51,400 | 97.3s |
+Measured 2026-10-04 on commit `e098d9d`, on the project NVMe volume (not tmpfs),
+each configuration on its own fresh database file, every run under
+`scripts/mem-guard.sh --budget-mb 3000`:
 
-Re-measured 2026-09-30 on the same machine and the same code, the 2M/100-series
-row ran at 70,252 / 79,358 / 77,249 rows/sec across three runs — against the
-96,966 that the same commit reaches when the database file sits on tmpfs
-(`/tmp` is RAM here) instead of the project disk. Ingestion rate is therefore
-sensitive to where the file lives and to page-cache state, not to code: an
-A/B of the write path against `HEAD` on identical storage bracketed the
-pre-change baseline rather than exceeding it. Treat the table above as the
-2026-09-11 condition, and expect ±15% run-to-run.
+| Rows | Series | Points/series | Rows/sec | Total time |
+|------|--------|---------------:|---------:|-----------:|
+| 200,000 | 1,000 | 200 | 267,684 | 0.75s |
+| 1,000,000 | 1,000 | 1,000 | 140,024 | 7.14s |
+| 2,000,000 | 100 | 20,000 | 187,486 | 10.67s |
+| 5,000,000 | 1,000 | 5,000 | 84,475 | 59.19s |
 
-Throughput is page-cache-bound up to ~1M rows; beyond that it becomes
-WAL-checkpoint / disk-IO-bound. The 5M-row drop is real and reproducible on
-the development machine (checkpoints start hitting the 64MB
-`journal_size_limit`).
+Use a separate `--db` per configuration. Reusing one path re-inserts into the
+same partition and fails on `UNIQUE constraint failed: series_id, timestamp_ns`.
+
+An earlier set of figures on this page, recorded 2026-09-11, read 87,500 /
+71,500 / 100,700 / 51,400 rows/sec for the same four rows — between 1.6x and
+3.1x lower than the table above. The cause is not established. Candidates
+include machine load, page-cache state, and the write-path changes in this
+batch; this page does not claim to have isolated it. The practical consequence
+is that **figures from different revisions are not comparable**, so use the
+table above for the current tree and re-measure rather than carrying a number
+forward. Each row is a single run, so run-to-run variance is not characterised
+by these figures either.
+
+That earlier revision also reported 96,966 rows/sec for the 2M/100-series case
+with the database on tmpfs (`/tmp` is RAM here) rather than the project disk,
+which implied tmpfs was the faster choice. The current measurement reaches
+187,486 rows/sec on the project disk, so that ordering does not reproduce. Do
+not assume the database location is the dominant factor.
+
+Throughput is page-cache-bound at small row counts and becomes
+WAL-checkpoint / disk-IO-bound at large ones; the 5M-row figure is the lowest
+per-row rate and is reproducible on this machine (checkpoints start hitting the
+64MB `journal_size_limit`).
+
 These are batched-engine numbers. The live service path drains ingest
 frames in bursts (up to 1024 per tick) behind a bounded hand-off queue and
 commits one transaction per batch: a sustained 10,000 pts/s pump for 30 s
@@ -291,43 +306,44 @@ with CPU, RAM, and disk — see the development-machine spec above) with
 
 ## Query latency
 
-p50/p95 over 50 runs, single series (the script default is 100 query runs).
+Measured 2026-10-04 on commit `e098d9d`, same runs as the ingestion table above.
+Single series; p50/p95 over the query runs the script performed (100 by
+default, 50 for the 5M configuration).
 
 | Dataset | Query | p50 | p95 |
 |---------|-------|-----|-----|
-| 200K (200 pts/series) | range (1h) | 0.03ms | 0.04ms |
-| 200K (200 pts/series) | wide agg raw | 0.21ms | 0.23ms |
-| 200K (200 pts/series) | wide agg rollup | 0.19ms | 0.25ms |
-| 1M (1,000 pts/series) | range (1h) | 0.05ms | 0.06ms |
-| 1M (1,000 pts/series) | wide agg raw | 0.65ms | 0.71ms |
-| 1M (1,000 pts/series) | wide agg rollup | 0.31ms | 0.63ms |
-| 2M (20,000 pts/series) | range (1h) | 0.57ms | 1.08ms |
-| 2M (20,000 pts/series) | wide agg raw | 11.22ms | 13.52ms |
-| 2M (20,000 pts/series) | wide agg rollup | 0.97ms | 1.23ms |
-| 5M (5,000 pts/series) | range (1h) | 0.16ms | 0.18ms |
-| 5M (5,000 pts/series) | wide agg raw | 2.74ms | 3.16ms |
-| 5M (5,000 pts/series) | wide agg rollup | 0.39ms | 0.71ms |
+| 200K (200 pts/series) | range (1h) | 0.01ms | 0.02ms |
+| 200K (200 pts/series) | wide agg raw | 0.08ms | 0.10ms |
+| 200K (200 pts/series) | wide agg rollup | 0.08ms | 0.09ms |
+| 1M (1,000 pts/series) | range (1h) | 0.03ms | 0.03ms |
+| 1M (1,000 pts/series) | wide agg raw | 0.33ms | 0.57ms |
+| 1M (1,000 pts/series) | wide agg rollup | 0.16ms | 0.18ms |
+| 2M (20,000 pts/series) | range (1h) | 0.25ms | 0.36ms |
+| 2M (20,000 pts/series) | wide agg raw | 4.98ms | 5.97ms |
+| 2M (20,000 pts/series) | wide agg rollup | 0.47ms | 0.53ms |
+| 5M (5,000 pts/series) | range (1h) | 0.07ms | 0.08ms |
+| 5M (5,000 pts/series) | wide agg raw | 1.18ms | 1.26ms |
+| 5M (5,000 pts/series) | wide agg rollup | 0.17ms | 0.18ms |
 
 ## Reading the numbers
 
 - **Single-series range queries are sub-millisecond** and grow slowly with
   points-per-series: the clustered PK index serves them directly.
 - **The wide aggregate scales linearly with points-per-series when served from
-  raw rows** (0.21ms → 2.74ms → 11.22ms as the series grows 200 → 5,000 → 20,000
+  raw rows** (0.08ms → 1.18ms → 4.98ms as the series grows 200 → 5,000 → 20,000
   points). Raw `avg`/`sum`/`min`/`max`/`count` buckets are grouped inside
   SQLite (no row materialization); only `median`/`p95`/`p99`/`first`/`last`
   and gap filling stream rows to Python.
-- **The rollup fast path is near-constant** (p50 0.19–0.97ms regardless of how many
+- **The rollup fast path is near-constant** (p50 0.08–0.47ms regardless of how many
   points the series holds): it reads a handful of pre-aggregated hourly rows.
-  It wins up to ~11.6x as soon as the raw scan dominates (2M rows at 20K
-  points per series: 11.22ms → 0.97ms).
-- **Crossover point:** the rollup carries a fixed overhead (~0.3–0.5ms) from
-  its eligibility check + edge queries + merge. Below ~1,000 points per series
-  over a multi-hour window, raw and rollup are within noise of each other
-  (200K rows: 0.21ms vs 0.19ms); past ~1,000 points per series the rollup
-  becomes a clear win at larger scale (11.6x at 20,000 points per series).
-  Small or sub-hour windows never take the rollup path at all (no
-  fully-inside hour to accelerate).
+  It wins up to ~10.6x as soon as the raw scan dominates (2M rows at 20K
+  points per series: 4.98ms → 0.47ms).
+- **Crossover point:** the rollup carries a fixed overhead (~0.1–0.5ms) from
+  its eligibility check + edge queries + merge. At 200 points per series raw and
+  rollup are within noise of each other (0.08ms vs 0.08ms, speedup 1.0x); past
+  ~1,000 points per series the rollup becomes a clear win (2.1x at 1,000 points,
+  6.9x at 5,000, 10.6x at 20,000). Small or sub-hour windows never take the
+  rollup path at all (no fully-inside hour to accelerate).
 
 ## Why the numbers look the way they do
 
@@ -336,8 +352,8 @@ p50/p95 over 50 runs, single series (the script default is 100 query runs).
 - **Where the speed comes from — read the same query twice:** the
   benchmark first measures the wide aggregate with the rollup empty (raw
   path), then builds the rollup with `rollup_new_hours` and re-measures.
-  The 2M rows / 20,000-pts-per-series experiment is the headline: 11.22ms →
-  0.97ms (~11.6x).
+  The 2M rows / 20,000-pts-per-series experiment is the headline: 4.98ms →
+  0.47ms (~10.6x).
 - **WAL reader/writer split**: readers never trigger checkpoints; the writer
   autocheckpoints every 10,000 pages (~80 MB at the 8 KiB page size), and the
   background CheckpointManager TRUNCATEs the WAL when it reaches 64 MB.
