@@ -15,7 +15,7 @@ venv: build → install → functional validation → unit subset).
 * `Makefile` — production installer for `/opt/sqtseries` (run with sudo)
 * `config.toml` — default config template (copied to `/opt/sqtseries/config.toml` on install)
 * `README.md` — project front page (also the target of `docs/systemd.html`'s README link)
-* `docs/` — the documentation site (same pages as the repo `docs/`)
+* `docs/` — the documentation site (served by the running service at `/docs`)
 * `HOW-TO-INSTALL.md` — this file
 
 ## Prerequisites
@@ -95,4 +95,8 @@ config — back them up by copying the files.
 | 12505 | HTTP + WS | REST API + browser streaming |
 | 12506 | ZMQ PUB | Connection events |
 
-All bind `127.0.0.1`. Full details: [docs/index.html](docs/index.html).
+The five ZeroMQ ports bind `127.0.0.1` only. **The HTTP gateway binds
+`0.0.0.0` by default and has no authentication** — anything that can reach this
+host on port 12505 can read and write the database. Set `http.host = "127.0.0.1"`
+in the config to restrict it, or front it with a proxy that authenticates.
+Full details: [docs/index.html](docs/index.html).

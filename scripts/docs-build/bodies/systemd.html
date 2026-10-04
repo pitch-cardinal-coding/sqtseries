@@ -116,6 +116,25 @@ Environment=SQT_SERIES_LOGGING__LEVEL=INFO
 <span class="c">[Install]</span>
 WantedBy=default.target</pre>
 
+  <div class="box warn">
+    <span class="lbl">ExecStart names one specific interpreter</span>
+    <p><code>install</code> writes the absolute path of the interpreter you ran it
+    with — it does not search for one. <code>sqtseries</code> therefore has to be
+    installed into <em>that</em> Python, not merely present somewhere on the
+    machine.</p>
+    <p>The failure is immediate and unambiguous. If the unit points at a Python
+    without the package, the service dies on every start with
+    <code>No module named sqtseries</code>, and
+    <code>systemctl status</code> shows the interpreter's path in the failure. Fix
+    it by running <code>install</code> from the environment that has
+    <code>sqtseries</code> imported — <code>python3 -c "import sqtseries"</code>
+    tells you in one step whether an interpreter qualifies.</p>
+    <p>Reading a Python under <code>$HOME</code> is fine even when
+    <code>ProtectHome=read-only</code> is set, because the unit only needs to
+    execute it. Writes are the restricted part, and those are already covered by
+    <code>ReadWritePaths</code>.</p>
+  </div>
+
   <h3>Every line, and why it is there</h3>
   <table>
     <thead><tr><th>Directive</th><th>What it does</th></tr></thead>
@@ -286,8 +305,11 @@ series:  <span class="v">12</span></pre>
     allowed to drain, then the HTTP server is given five seconds to finish its
     connections.</span></li>
     <li><b>Checkpoint the WAL</b><span><code>PRAGMA optimize</code> and a
-    <code>TRUNCATE</code> checkpoint, so the next start is fast and the file is
-    compact.</span></li>
+    checkpoint, so the next start is fast and the file is compact. The checkpoint
+    is <code>TRUNCATE</code> when the WAL is 4 MB or smaller and
+    <code>PASSIVE</code> above that — a large one-pass reset is the shape that has
+    been observed to cross-link b-tree pages, so the periodic pass is always
+    <code>PASSIVE</code>.</span></li>
     <li><b>Remove the runtime file</b><span>The last step. <code>sqtseries status</code>
     uses its absence, so a restart script that waits for it knows the process is
     really gone — not merely answering to signal 0 as a not-yet-reaped zombie

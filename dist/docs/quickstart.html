@@ -263,7 +263,7 @@
   <h1>Quick Start</h1>
   <p class="tagline">From nothing to a running service, a stored measurement, an answer, a live subscription, and a unit file that starts on boot. The shortest honest path through the product.</p>
   <div class="meta">
-    <span><b>Install</b> <code>pip install sqtseries</code></span>
+    <span><b>Install</b> <code>pip install .</code> — not on PyPI yet</span>
     <span><b>Run</b> <code>sqtseries run</code>, prints the links</span>
     <span><b>Store</b> one file at <code>~/.sqtseries/data/db.sqlite</code></span>
     <span><b>Ports</b> six, five fixed and one auto-detected</span>
@@ -307,17 +307,26 @@
 
 <section>
   <h2>Before you start</h2>
-  <p>Two things must be true. Python 3.14 or newer, and the <code>sqtseries</code>
-  package installed. If you use the project virtual environment, point
-  <code>PY</code> at it once and reuse it for every command on this page.</p>
+  <p>Two things must be true: Python 3.14 or newer, and the <code>sqtseries</code>
+  package installed. The commands below set <code>PY</code> once and reuse it for
+  every command on this page, so they work whether you install into the system
+  Python or into a virtual environment.</p>
 
-<pre><span class="p">$</span> PY=/home/iam/devcode/.env/sqtseries/bin/python3
-<span class="p">$</span> $PY --version
+<pre><span class="p">$</span> python3 --version
 <span class="c"># Python 3.14.4 or newer</span>
 
-<span class="p">$</span> $PY -m pip install sqtseries
+<span class="c"># install from a checkout of the repository:</span>
+<span class="p">$</span> PY=python3
+<span class="p">$</span> $PY -m pip install .
 <span class="p">$</span> $PY -m sqtseries --version
 <span class="ok">sqtseries, version 0.1.0</span></pre>
+
+  <div class="box warn">
+    <span class="lbl">sqtseries is not on PyPI yet</span>
+    <p><code>pip install sqtseries</code> fails with "No matching distribution
+    found" — the name is not published. Install from a checkout as above, or from a
+    built wheel: <code>pip install dist/sqtseries-*.whl</code>.</p>
+  </div>
 
   <p>Check the command list. This is the whole surface — eleven commands, and two
   global flags:</p>

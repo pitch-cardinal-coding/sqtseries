@@ -54,7 +54,7 @@ page(
         ("Start with", "Quick Start for the whole cycle"),
         ("Storage", "one SQLite file, WAL, monthly partitions"),
         ("Transports", "ZMQ and HTTP, one wire format"),
-        ("Python", "3.14+, <code>pip install sqtseries</code>"),
+        ("Python", "3.14+, <code>pip install .</code> from a checkout"),
     ],
     foot=[
         (
@@ -126,7 +126,7 @@ page(
         "honest path through the product."
     ),
     meta=[
-        ("Install", "<code>pip install sqtseries</code>"),
+        ("Install", "<code>pip install .</code> — not on PyPI yet"),
         ("Run", "<code>sqtseries run</code>, prints the links"),
         ("Store", "one file at <code>~/.sqtseries/data/db.sqlite</code>"),
         ("Ports", "six, five fixed and one auto-detected"),

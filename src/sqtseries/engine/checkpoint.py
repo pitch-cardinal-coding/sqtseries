@@ -1,8 +1,8 @@
 """Background WAL checkpoint manager.
 Drives checkpointing to prevent WAL file indefinite growth. Also monitors
 the WAL and detects long-running readers that block checkpoints (a reader
-holding a read lock prevents TRUNCATE from freeing disk;
-``PRAGMA wal_checkpoint`` reports a nonzero ``busy`` count).
+holding a read lock keeps ``PRAGMA wal_checkpoint`` from completing;
+it reports a nonzero ``busy`` count).
 """
 
 import asyncio
@@ -18,6 +18,20 @@ log = structlog.get_logger(__name__)
 
 # Long-reader warning threshold: consecutive checkpoint attempts blocked.
 _BUSY_WARN_RUNS = 3
+
+# A TRUNCATE pass this small is cheap enough to be worth the exclusive lock; a
+# larger one is the shape that cross-links b-trees (hermes-agent #80255).
+TRUNCATE_SAFE_WAL_BYTES = 4 * 1024 * 1024
+
+
+def shutdown_checkpoint_mode(db_path: str) -> str:
+    """TRUNCATE at shutdown only when the WAL is small; PASSIVE otherwise."""
+    wal = Path(db_path + "-wal")
+    try:
+        size = wal.stat().st_size
+    except OSError:
+        return "TRUNCATE"
+    return "TRUNCATE" if size <= TRUNCATE_SAFE_WAL_BYTES else "PASSIVE"
 
 
 class CheckpointManager:
@@ -59,7 +73,7 @@ class CheckpointManager:
                 log.exception("checkpoint manager error")
 
     async def _checkpoint_if_needed(self) -> None:
-        """Run TRUNCATE checkpoint if WAL exceeds threshold; track reader locks."""
+        """Flush the WAL if it exceeds threshold; track reader locks."""
 
         wal_path = Path(self.db.path + "-wal")
         if not wal_path.exists():
@@ -72,9 +86,11 @@ class CheckpointManager:
 
         log.info("running checkpoint", wal_size=self.wal_bytes)
         try:
-            # TRUNCATE requires exclusive lock; passive does not.
-            # Use TRUNCATE here to actually free disk space.
-            result = wal_checkpoint(self.db, "TRUNCATE")
+            # PASSIVE, never TRUNCATE on a timer: TRUNCATE takes the exclusive
+            # writer lock and one such pass has been observed to cross-link b-tree
+            # pages on large databases (hermes-agent #45383). journal_size_limit
+            # still trims the file on WAL reset, so disk stays bounded.
+            result = wal_checkpoint(self.db, "PASSIVE")
             busy, log_frames, done = _parse_result(result)
             self.last_result = (busy, log_frames, done)
             self.last_busy = busy

@@ -27,20 +27,9 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def _find_docs_dir() -> Path | None:
-    """Documentation directory for the /docs mount, if shipped.
+    from ..docs import find_docs_dir
 
-    Release wheels carry a docs_data copy (see scripts/build_wheel.sh);
-    a source checkout falls back to dist/docs next to the repo root.
-    None when neither exists — the dashboard Docs link then 404s instead
-    of serving stale or missing pages.
-    """
-    packaged = Path(__file__).resolve().parent.parent / "docs_data"
-    if (packaged / "index.html").is_file():
-        return packaged
-    repo = Path(__file__).resolve().parent.parent.parent.parent / "dist" / "docs"
-    if (repo / "index.html").is_file():
-        return repo
-    return None
+    return find_docs_dir()
 
 
 DOCS_DIR = _find_docs_dir()

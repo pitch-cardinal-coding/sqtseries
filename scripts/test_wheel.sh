@@ -40,6 +40,12 @@ rsync -a \
     --exclude='.hypothesis' \
     --exclude='.coverage' \
     "$REPO_DIR/" "$BUILD_DIR/"
+
+# build_wheel.sh injects dist/docs into the wheel it builds, so this directory
+# must exist even though /dist is excluded above. Removing it breaks the gate.
+mkdir -p "$BUILD_DIR/dist"
+rsync -a "$REPO_DIR/dist/docs/" "$BUILD_DIR/dist/docs/"
+
 ok "Copied $(du -sh "$BUILD_DIR" | cut -f1)"
 
 # ── 2. Fresh venv + deps ────────────────────────────────────────────

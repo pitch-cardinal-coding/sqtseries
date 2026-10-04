@@ -69,9 +69,14 @@ def _http_base(settings: Settings, ports: dict[str, Any] | None) -> str:
 
 def _print_links(settings: Settings, ports: dict[str, Any] | None) -> None:
     """Print dashboard, docs, and help links (keeps old port lines)."""
+    from .docs import DOCS_DIR
+
     base = _http_base(settings, ports)
     click.echo(f"  dashboard: {base}/dashboard")
-    click.echo(f"  docs:      {base}/docs")
+    if DOCS_DIR is not None:
+        click.echo(f"  docs:      {base}/docs")
+    else:
+        click.echo("  docs:      not installed with this build (no docs_data)")
     click.echo(f"  health:    {base}/api/v1/health")
     click.echo("  help:      sqtseries --help, sqtseries <cmd> --help")
 

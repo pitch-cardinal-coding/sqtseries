@@ -267,5 +267,5 @@ at the default 2 s), and size `--rss-tolerance-kb` to your workload.
 
 ## Documentation links
 
-- [Docs](dist/docs/index.html)
+- [Docs](../dist/docs/index.html)
 - [Project README](README.md)

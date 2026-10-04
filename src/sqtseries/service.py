@@ -24,6 +24,7 @@ from .engine import (
     run_analyze_once,
     run_migrations,
     run_optimize,
+    shutdown_checkpoint_mode,
     wal_checkpoint,
 )
 from .health import collect_health
@@ -760,8 +761,9 @@ class Service:
         if self.engine is not None:
             try:
                 run_optimize(self.engine)
-                # Shutdown only: TRUNCATE the WAL for a clean close
-                wal_checkpoint(self.engine, "TRUNCATE")
+                mode = shutdown_checkpoint_mode(self.engine.path)
+                wal_checkpoint(self.engine, mode)
+                log.info("shutdown checkpoint complete", mode=mode)
             except Exception:
                 log.exception("shutdown maintenance failed")
             finally:

@@ -580,7 +580,25 @@
     renderConnections(connView.rows);
   }
 
+  function hideDocsLinks() {
+    var links = document.querySelectorAll("[data-docs-link]");
+    for (var i = 0; i < links.length; i++) {
+      links[i].hidden = true;
+    }
+  }
+
+  function probeDocs() {
+    fetch("/docs/", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) {
+          hideDocsLinks();
+        }
+      })
+      .catch(hideDocsLinks);
+  }
+
   function init() {
+    probeDocs();
     if (!("WebSocket" in window)) {
       setPill(false);
       setText("conn-state-text", "unsupported");

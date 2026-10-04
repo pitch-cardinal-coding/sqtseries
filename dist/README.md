@@ -4,7 +4,7 @@ A time-series database that runs on your machine, keeps everything in one file,
 and answers questions about the past in milliseconds — no matter how many
 millions of readings you have stored.
 
-**8,805 lines** of Python · 58 classes · 393 functions · **821 tests**
+**8,840 lines** of Python · 58 classes · 395 functions · **826 tests**
 · `pip install`, no compiler, no separate server, Python 3.14+.
 
 ## What it does
@@ -26,7 +26,7 @@ instead of scanning millions.
 
 ## Why it stands out
 
-**It respects your time.** `pip install sqtseries` and `sqtseries run` — two
+**It respects your time.** `pip install .` and `sqtseries run` — two
 commands and you are storing data. No server to provision, no schema to
 design, no query language to learn. Timestamps accept epoch numbers or
 everyday ISO-8601 strings (`2026-09-11T14:04:00Z`), and every CLI command
@@ -93,7 +93,7 @@ This is a small sample. For complete walkthroughs with code, see the
 ## How to start
 
 ```bash
-pip install sqtseries
+pip install .          # from a checkout — sqtseries is not on PyPI yet
 sqtseries run
 ```
 
@@ -283,5 +283,6 @@ Full details on every admin command are in the [API reference](docs/api.html#adm
 | [Backup & Restore](docs/backup.html) | What to back up, restore procedure, and how vacuum works |
 | [Benchmarks](docs/benchmarks.md) | Reproducible performance numbers from the development machine (Intel Core Ultra 7 255U, 22 GiB RAM, NVMe SSD) |
 | [Systemd](docs/systemd.html) | Running as a service, hardening, dedicated user setup |
+| [Production Install](HOW-TO-INSTALL.md) | Installing the release into `/opt/sqtseries` with the `dist/` installer, and the ports it opens |
 | [Examples](docs/examples.html) | Real-world scenarios with full code walkthroughs |
-| [Example scripts](examples/) | Standalone runnable scripts for every operation |
+| Example scripts | In the source repository under `examples/` — not shipped in the release directory |

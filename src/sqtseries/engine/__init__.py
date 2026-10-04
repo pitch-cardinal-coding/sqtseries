@@ -1,7 +1,7 @@
 """SQLite storage engine for sqtseries (raw sqlite3 layer)."""
 
 from .backup import BackupExistsError, BackupManager, backup_database, backup_latest
-from .checkpoint import CheckpointManager
+from .checkpoint import CheckpointManager, shutdown_checkpoint_mode
 from .db import Connection, Database, create_sqlite_engine
 from .maintenance import MaintenanceManager
 from .migrations import get_schema_version, run_migrations, upgrade
@@ -35,6 +35,7 @@ __all__ = [
     "run_analyze_once",
     "run_migrations",
     "run_optimize",
+    "shutdown_checkpoint_mode",
     "upgrade",
     "wal_checkpoint",
 ]

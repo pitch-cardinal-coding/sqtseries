@@ -785,8 +785,11 @@ scripts/run-stress-rig.sh --duration 300 --rate 2000 --clients 8 \
   <h3>At shutdown</h3>
   <p>Ordered, and the order is the point: stop the tasks, drain the socket
   <em>before</em> closing it, flush the persister, drain the brokers and the gateway,
-  await in-flight publishes, then <code>PRAGMA optimize</code> and a
-  <code>TRUNCATE</code> checkpoint. The full sequence is on
+  await in-flight publishes, then <code>PRAGMA optimize</code> and a checkpoint.
+  That last one is <code>TRUNCATE</code> only when the WAL is 4 MB or smaller, and
+  <code>PASSIVE</code> above it: the timer-driven pass is always
+  <code>PASSIVE</code>, and a large one-pass reset is the shape that has been
+  observed to cross-link b-tree pages. The full sequence is on
   <a href="systemd.html">Systemd</a>.</p>
 </section>
 

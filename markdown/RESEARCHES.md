@@ -58,9 +58,13 @@ production receivers, and deadlock literature. Each document is dated;
 - `PRAGMA optimize` (update query planner statistics)
 
 ### WAL Checkpoint Strategy:
-- Periodic: `PRAGMA wal_checkpoint(PASSIVE)` — safe, no lock
-- Shutdown only: `PRAGMA wal_checkpoint(TRUNCATE)` — exclusive lock, reclaims space
-- NEVER use TRUNCATE periodically — caused B-tree corruption (NousResearch/hermes-agent#45383)
+- Periodic: `PRAGMA wal_checkpoint(PASSIVE)` — safe, no exclusive lock
+- Shutdown: `PRAGMA wal_checkpoint(TRUNCATE)` only when the WAL is ≤4 MB,
+  otherwise PASSIVE — a large TRUNCATE pass is the shape that cross-links
+  b-tree pages (NousResearch/hermes-agent#45383, #80255)
+- NEVER use TRUNCATE periodically — caused B-tree corruption
+  (NousResearch/hermes-agent#45383). Enforced by
+  `tests/test_checkpoint_mode.py`.
 
 ### Incremental Vacuum:
 - `PRAGMA incremental_vacuum(100)` during low-traffic
@@ -342,9 +346,13 @@ production receivers, and deadlock literature. Each document is dated;
 
 > **Current state:** sqtseries sets `page_size = 8192`
 > (`create_sqlite_engine`), so the writer's 10000-page threshold is ~80MB.
-> In practice the CheckpointManager TRUNCATEs the WAL once it exceeds 64MB
-> (matching `journal_size_limit`), so autocheckpoint rarely fires at all —
-> the split's real role is keeping reader connections from ever checkpointing.
+> In practice the CheckpointManager runs a PASSIVE checkpoint once the WAL
+> exceeds 64MB (matching `journal_size_limit`), so autocheckpoint rarely fires
+> at all — the split's real role is keeping reader connections from ever
+> checkpointing. PASSIVE is sufficient to bound the file: measured over a
+> sustained run that grew the database past 1.1 GB, the WAL file held flat at
+> its high-water mark (8.7 MB under an 8 MB threshold) because SQLite reuses
+> the file from the start after a reset.
 
 ## 10. Engine hardening notes (2026-08-07)
 

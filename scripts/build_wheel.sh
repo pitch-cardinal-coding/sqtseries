@@ -64,8 +64,10 @@ cp "$REPO_DIR/requirements.txt" "$DIST_DIR/requirements.txt"
 cp "$REPO_DIR/requirements-prod.txt" "$DIST_DIR/requirements-prod.txt"
 cp "$REPO_DIR/config.toml" "$DIST_DIR/config.toml"
 # dist/README.md sits beside dist/docs/, so root-relative dist/docs/ links
-# are rewritten to plain docs/ links on copy.
-sed 's#](dist/docs/#](docs/#g' "$REPO_DIR/README.md" > "$DIST_DIR/README.md"
+# are rewritten to plain docs/ links on copy. dist/HOW-TO-INSTALL.md is
+# rewritten for the same reason.
+sed -e 's#](dist/docs/#](docs/#g' -e 's#](dist/HOW-TO-INSTALL\.md#](HOW-TO-INSTALL.md#g' \
+    "$REPO_DIR/README.md" > "$DIST_DIR/README.md"
 ok "dist/ assembled ($(ls "$DIST_DIR" | tr '\n' ' '))"
 
 # 5. clean temp artifacts (dist stays)
