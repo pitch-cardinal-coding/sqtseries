@@ -406,6 +406,30 @@ CREATE TABLE rollup_meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL);</pre>
   writes are bounded by <code>reject_client_timestamp_skew_s</code>, the rollup waits
     exactly that long. The current hour is therefore always read live, which is why
     the results are never stale.</p>
+
+  <h3>When a write lands in a rolled hour anyway</h3>
+  <p>The skew guard makes a late write rare, not impossible. A producer with a drifted
+  clock, a replayed batch, or a deliberate historical load can still write a point whose
+  hour has already been summarised.</p>
+
+  <p>That point used to be stored, reported as written, and then omitted from every
+  rollup-served answer — silently, because the rollup only ever moved forward and never
+  revisited the hour. The write looked successful and the aggregate was wrong.</p>
+
+  <p>So the write path rewinds the watermark. When the oldest timestamp in a drained
+  batch falls behind it, <code>rewind_watermark()</code> pulls the watermark back to
+  that hour <em>inside the same transaction</em> as the data, so the watermark and the
+  data it describes move together and the next pass re-aggregates. Re-aggregation uses
+  <code>INSERT OR REPLACE</code>, so replaying the same backfill twice is idempotent.
+  The cost is one single-row lookup on a one-row table, once per batch.</p>
+
+  <p>The rewind then exposed a second defect in the settle step. Taking
+  <code>min(completed, current)</code> cannot distinguish a rewind that landed during
+  the roll from one that already existed beforehand, so a single backfill pinned the
+  watermark to that hour permanently: the log reported the advanced value, the table
+  kept the old one, and every later pass re-scanned the same range. The settle step now
+  compares against the watermark read <em>before</em> rolling, so a rewind invalidates
+  the pass only when the value moved backwards since the pass began.</p>
 </section>
 
 <section>
@@ -688,6 +712,43 @@ scripts/run-stress-rig.sh --duration 300 --rate 2000 --clients 8 \
         in slices instead of a full rewrite.</td></tr>
     </tbody>
   </table>
+
+  <h3>Why checkpoints run on the writer connection</h3>
+  <p>The <code>wal_autocheckpoint</code> row above sets readers to 0 and the writer to
+  10,000, which settles <em>automatic</em> contention. It does nothing about
+  <em>manual</em> contention, and that gap is why this subsection exists.</p>
+
+  <p>SQLite documents a corruption bug — the <strong>WAL-reset bug</strong>, in
+  <a href="https://sqlite.org/wal.html">section 11 of the WAL documentation</a> — which
+  fires when two connections on the same file "attempt to write or checkpoint at the
+  same instant". One checkpoint resets the WAL while the other connection commits. The
+  second checkpoint does not notice the reset, leaves the wal-index claiming frames it
+  never copied, and a later checkpoint skips them. <strong>Part of a committed
+  transaction never reaches the database file</strong>, and the file goes corrupt.</p>
+
+  <p>The background checkpoint manager used to reach SQLite through
+  <code>connect()</code>, which returns a pooled <em>reader</em>, while writes ran on a
+  separate writer connection. Four readers and a writer on one file, with a timer
+  firing every 60 seconds, is exactly the documented trigger. <code>checkpoint()</code>
+  now takes the <em>writer</em> handle under the writer lock instead, so write and
+  checkpoint land on one connection and cannot interleave on any SQLite version. A
+  checkpoint briefly blocks writers, which costs nothing: SQLite allows only one
+  writer at a time anyway.</p>
+
+  <div class="box ok">
+    <span class="lbl">Running an unpatched SQLite is not an exposure</span>
+    <p>The bug is present from 3.7.0 through 3.51.2. It is fixed in 3.51.3 and later,
+    with backports in 3.50.7 and 3.44.6.</p>
+    <p>sqtseries does not depend on yours being patched. The serialization above removes
+    the precondition, so the buggy state is unreachable regardless of version. Upgrade
+    for defence in depth, not to close a hole.</p>
+    <p>If you do check <code>sqlite3.sqlite_version</code>, compare
+    <strong>within the series</strong>: 3.51.1 sorts above 3.50.7 but is older than the
+    fix, so a naive comparison reports a false pass. There is also rarely a packaged
+    upgrade to point at — Ubuntu 26.04 ships 3.46.1 and has not backported it, and the
+    <code>pysqlite3-binary</code> wheel bundles 3.51.1, which is also unfixed. Moving
+    past it means building SQLite from source.</p>
+  </div>
 </section>
 
 <section>
