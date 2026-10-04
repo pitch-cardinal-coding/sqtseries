@@ -128,7 +128,19 @@ from `stress_percentiles.py`.
 
 ### `build_wheel.sh` / `test_wheel.sh`
 
-Build the wheel and smoke-test it in a fresh venv.
+`build_wheel.sh [DIST_DIR]` regenerates the whole release directory: it builds
+`dist/docs` from `docs-build/bodies`, packs the wheel, and copies the installer
+and its `HOW-TO-INSTALL` in from `release/`. Nothing in `dist/` is edited by
+hand, so a release cannot ship a stale installer or a stale doc page. It runs on
+a pristine checkout — `rm -rf dist && make whl` is a supported way to build.
+
+`test_wheel.sh` is the release gate. It copies the tree to `/tmp`, builds a
+fresh venv from `requirements.txt`, installs the wheel with `--no-deps`, and
+runs the **full** suite against the installed artifact. The `--no-deps` install
+is deliberate: it reproduces exactly what `dist/Makefile install` does, so a
+runtime dependency missing from `requirements.txt` fails here instead of
+reaching an operator. `make test-wheel` runs `scripts/check_deps.py` first for
+the same reason.
 
 ### `deploy.sh`
 

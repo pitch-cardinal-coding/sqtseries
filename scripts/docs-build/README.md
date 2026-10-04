@@ -25,6 +25,7 @@ scripts/docs-build/
   sqtseries_check.py     structural check: balanced tags, per-page coverage stats
   verify_docs.py         cross-check: every option, setting, route, command in the code
   bodies/*.html          one file per page: the prose, tables, commands, diagrams
+  static/                published verbatim, not rendered: favicon.svg, benchmarks.md
 ```
 
 Six files, six jobs, and the split matters:

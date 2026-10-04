@@ -1,0 +1,10 @@
+# The sdist must be able to regenerate the doc pages: the in-tree backend
+# skips generation when the generator is absent, so an sdist without it would
+# install a service whose /docs 404s.
+include requirements.txt
+include requirements-prod.txt
+include config.toml
+include release/Makefile
+include release/HOW-TO-INSTALL.md
+recursive-include scripts/docs-build *.py *.html *.md *.svg
+recursive-include src/sqtseries/docs_data *

@@ -35,6 +35,9 @@ build/
 dist/*.whl
 target/
 
+# Generated into the package by the build backend so the wheel ships /docs
+src/sqtseries/docs_data/
+
 # Database files
 *.sqlite
 *.sqlite3

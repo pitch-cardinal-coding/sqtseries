@@ -228,6 +228,11 @@ def install_systemd_unit(
 
     prefix: list[str] = [] if system else ["--user"]
     _systemctl([*prefix, "daemon-reload"])
+    # The unit sets StartLimitBurst=3/60s. Re-installing in a loop (an upgrade
+    # restarts twice) trips it, and the unit then refuses to start until the
+    # interval elapses — leaving `sqtseries install` reporting success over a
+    # service that is actually failed. Clear the counter first.
+    _systemctl([*prefix, "reset-failed", UNIT_NAME])
     _systemctl([*prefix, "enable", "--now", UNIT_NAME])
     return path
 

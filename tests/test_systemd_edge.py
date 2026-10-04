@@ -31,8 +31,21 @@ def test_install_writes_and_enables(isolated, tmp_path):
     assert "SQT_SERIES_DATABASE__PATH=/data/db.sqlite" in unit
     assert isolated == [
         ["--user", "daemon-reload"],
+        ["--user", "reset-failed", sd.UNIT_NAME],
         ["--user", "enable", "--now", sd.UNIT_NAME],
     ]
+
+
+def test_install_clears_the_start_rate_limit(isolated, tmp_path):
+    """reset-failed must precede enable, or a re-install wedges the unit.
+
+    The unit allows 3 starts per 60s. Installing repeatedly trips that, and
+    the next enable --now is refused, leaving a service that reports installed
+    but is actually failed.
+    """
+    sd.install_systemd_unit(python="/usr/bin/python3", db_path="/data/db.sqlite")
+    names = [args[1] for args in isolated]
+    assert names.index("reset-failed") < names.index("enable")
 
 
 def test_install_system_uses_no_user_prefix(isolated, tmp_path):

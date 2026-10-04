@@ -12,6 +12,7 @@ shell text, then rebuild.
 import argparse
 import base64
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 OUT = REPO / "dist/docs"
 BODIES = HERE / "bodies"
+STATIC = HERE / "static"
 
 # Output names are pinned to the filenames README.md, the Makefile, the wheel
 # build and the live /docs links already point at. Renaming one breaks every
@@ -606,6 +608,15 @@ def main() -> int:
         done += 1
         print(f"{OUTNAME[stem]:>16}.html  {size:>7,} bytes")
     print(f"{'TOTAL':>17}  {total:>7,} bytes over {done} pages")
+
+    # Published verbatim, not rendered. They live in static/ so a clean build
+    # still emits them: hand-placed in dist/docs, `rm -rf dist` dropped both and
+    # every page's <link rel="icon"> 404'd.
+    OUT.mkdir(parents=True, exist_ok=True)
+    for asset in sorted(STATIC.iterdir()):
+        if asset.is_file():
+            shutil.copy2(asset, OUT / asset.name)
+            print(f"{asset.name:>16}      {asset.stat().st_size:>7,} bytes  (static)")
 
     if args.standalone:
         out_dir = OUT / "standalone"

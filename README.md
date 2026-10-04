@@ -4,7 +4,7 @@ A time-series database that runs on your machine, keeps everything in one file,
 and answers questions about the past in milliseconds — no matter how many
 millions of readings you have stored.
 
-**8,840 lines** of Python · 58 classes · 395 functions · **826 tests**
+**8,845 lines** of Python · 58 classes · 395 functions · **838 tests**
 · `pip install`, no compiler, no separate server, Python 3.14+.
 
 ## What it does
@@ -125,8 +125,12 @@ Prefer readable timestamps? Pass one instead of a number:
 ```bash
 curl -X POST http://127.0.0.1:12505/api/v1/write \
   -H "Content-Type: application/json" \
-  -d '{"metric":"temp.outside","value":22.5,"timestamp":"2026-09-11T14:04:00Z"}'
+  -d "{\"metric\":\"temp.outside\",\"value\":22.5,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
 ```
+
+Generate the timestamp instead of hardcoding it: a write more than five
+minutes from the server clock is refused with HTTP 400, so a fixed date copied
+out of any example stops working the next day.
 
 The [Quick Start](dist/docs/quickstart.html) walks through the full cycle:
 install, configure, send data, query, subscribe live, check status, and run as
@@ -202,17 +206,22 @@ real ports.
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| 12501 | ZMQ PULL | Ingest measurements |
+| 12500 | ZMQ PULL | Ingest measurements (auto-detected, not the configured 12501) |
 | 12502 | ZMQ REP | Run queries |
 | 12503 | ZMQ XPUB | Live streaming + subscriber tracking |
 | 12504 | ZMQ REP | Admin commands (health, stats, connections, backup) |
 | 12505 | HTTP + WebSocket | REST API and browser streaming |
 | 12506 | ZMQ PUB | Connection and subscription events |
 
+Only the ingest port moves: `[ports] auto_detect` is on by default, so the
+service binds the first free port in 12500–12700 — normally 12500. The
+configured `[ingestion] port = 12501` applies only when auto-detect is off, and
+`sqtseries status` always prints what is actually bound. See
+[ports](dist/docs/index.html) for the full auto-detection mechanism.
+
 ZeroMQ ports bind to `127.0.0.1`; the HTTP gateway (12505) binds all
 interfaces by default (`http.host = "0.0.0.0"` — set `127.0.0.1` in your
-config for local-only HTTP). See [ports](dist/docs/index.html) for the full
-auto-detection mechanism.
+config for local-only HTTP).
 
 ### CLI commands at a glance
 
@@ -283,6 +292,6 @@ Full details on every admin command are in the [API reference](dist/docs/api.htm
 | [Backup & Restore](dist/docs/backup.html) | What to back up, restore procedure, and how vacuum works |
 | [Benchmarks](dist/docs/benchmarks.md) | Reproducible performance numbers from the development machine (Intel Core Ultra 7 255U, 22 GiB RAM, NVMe SSD) |
 | [Systemd](dist/docs/systemd.html) | Running as a service, hardening, dedicated user setup |
-| [Production Install](dist/HOW-TO-INSTALL.md) | Installing the release into `/opt/sqtseries` with the `dist/` installer, and the ports it opens |
+| [Production Install](release/HOW-TO-INSTALL.md) | Installing the release into `/opt/sqtseries` with the `dist/` installer, and the ports it opens |
 | [Examples](dist/docs/examples.html) | Real-world scenarios with full code walkthroughs |
 | Example scripts | In the source repository under `examples/` — not shipped in the release directory |

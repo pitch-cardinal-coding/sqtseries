@@ -69,7 +69,7 @@ def all_text() -> str:
     spelled `--brand`, `--accent`, `--muted`. Those are not CLI flags, and
     scanning them would make every page look full of invented options.
 
-    `benchmarks.md` is the one page the generator does not produce, and it was
+    `benchmarks.md` is published verbatim rather than rendered, and it was
     the one page this check never read — so its commands went unverified while
     everything around them was checked. It is included for exactly that reason.
     """

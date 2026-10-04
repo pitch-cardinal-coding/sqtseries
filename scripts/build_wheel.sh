@@ -12,7 +12,6 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="${1:-$REPO_DIR/dist}"
-PY="${PY:-/home/iam/devcode/.env/sqtseries/bin/python3}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -22,7 +21,15 @@ info() { echo -e "${YELLOW}>>> $*${NC}"; }
 ok()   { echo -e "${GREEN}    $*${NC}"; }
 fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
 
+# Interpreter: prefer the project venv, else whatever python3 is on PATH.
+# Keep the fallback — without it the build only works on a machine that
+# happens to have the venv at the hardcoded path.
+PY="${PY:-/home/iam/devcode/.env/sqtseries/bin/python3}"
+[ -x "$PY" ] || PY="$(command -v python3 || true)"
+[ -n "$PY" ] || fail "no python3 interpreter found (set PY=/path/to/python3)"
+
 mkdir -p "$DIST_DIR"
+DIST_DIR="$(cd "$DIST_DIR" && pwd)"
 
 # 1. stop anything serving (a stale service can hold the DB, never the wheel,
 #    but a clean tree builds reproducibly)
@@ -34,10 +41,15 @@ sleep 1
 info "Building wheel (pure Python, setuptools)..."
 cd "$REPO_DIR"
 rm -rf build src/*.egg-info src/sqtseries.egg-info .eggs 2>/dev/null || true
-# Ship the docs inside the wheel (served by the gateway at /docs): remove
-# first so no stale page survives an upgrade, then copy fresh.
-rm -rf src/sqtseries/docs_data
-cp -r "$REPO_DIR/dist/docs" src/sqtseries/docs_data
+
+# Regenerate dist/docs instead of trusting the checked-in copy: it is both the
+# release directory's doc site and what gets packaged as /docs.
+info "Building docs (dist/docs)..."
+"$PY" scripts/docs-build/sqtseries_build.py >/dev/null || fail "docs build failed"
+[ -f "$REPO_DIR/dist/docs/index.html" ] || fail "docs build produced no dist/docs/index.html"
+
+# The doc pages reach the wheel through the in-tree build backend
+# (build_support/), so `pip install .` ships them too.
 "$PY" -m pip wheel . --no-deps -w "$DIST_DIR" 2>&1 | tail -2
 WHL=$(ls -t "$DIST_DIR"/sqtseries-*.whl 2>/dev/null | head -1 || true)
 [ -n "$WHL" ] || fail "no wheel produced"
@@ -57,18 +69,24 @@ assert rec, "no RECORD"
 print("OK: entry_points + cli.py present, no tests leakage, RECORD present")
 EOF
 
-# 4. assemble dist/ (wheel + install inputs; dist/docs/ is the single
-# docs source and lives here directly, like the Makefile/HOW-TO-INSTALL)
-info "Assembling dist/..."
+# 4. assemble DIST_DIR (wheel + install inputs). The installer and its
+#    HOW-TO come from release/, the one place they are edited; dist/docs/ is
+#    the docs source the wheel already consumed.
+info "Assembling $(basename "$DIST_DIR")/..."
 cp "$REPO_DIR/requirements.txt" "$DIST_DIR/requirements.txt"
 cp "$REPO_DIR/requirements-prod.txt" "$DIST_DIR/requirements-prod.txt"
 cp "$REPO_DIR/config.toml" "$DIST_DIR/config.toml"
-# dist/README.md sits beside dist/docs/, so root-relative dist/docs/ links
-# are rewritten to plain docs/ links on copy. dist/HOW-TO-INSTALL.md is
-# rewritten for the same reason.
-sed -e 's#](dist/docs/#](docs/#g' -e 's#](dist/HOW-TO-INSTALL\.md#](HOW-TO-INSTALL.md#g' \
+cp "$REPO_DIR/release/Makefile" "$DIST_DIR/Makefile"
+cp "$REPO_DIR/release/HOW-TO-INSTALL.md" "$DIST_DIR/HOW-TO-INSTALL.md"
+if [ "$DIST_DIR" != "$REPO_DIR/dist" ]; then
+    rm -rf "$DIST_DIR/docs"
+    cp -r "$REPO_DIR/dist/docs" "$DIST_DIR/docs"
+fi
+# The release copy of README sits beside docs/, so root-relative dist/docs/
+# and release/HOW-TO-INSTALL links are rewritten to plain relative links.
+sed -e 's#](dist/docs/#](docs/#g' -e 's#](release/HOW-TO-INSTALL\.md#](HOW-TO-INSTALL.md#g' \
     "$REPO_DIR/README.md" > "$DIST_DIR/README.md"
-ok "dist/ assembled ($(ls "$DIST_DIR" | tr '\n' ' '))"
+ok "assembled ($(ls "$DIST_DIR" | tr '\n' ' '))"
 
 # 5. clean temp artifacts (dist stays)
 rm -rf "$REPO_DIR/build" "$REPO_DIR/src"/*.egg-info "$REPO_DIR/src/sqtseries.egg-info" "$REPO_DIR/.eggs" src/sqtseries/docs_data 2>/dev/null || true

@@ -80,6 +80,7 @@ markers.
 | `test_edge_cases.py`, `test_logging.py` | Generic edge cases; logging configuration and rotation |
 | `test_stress_concurrent.py` | Concurrent connect/disconnect stress on the registry |
 | `test_systemd_edge.py` | Systemd unit template edge cases (mocked systemctl) |
+| `test_check_deps.py` | The `requirements.txt` ↔ `pyproject.toml` runtime-dependency gate |
 
 Helper code lives in `conftest.py` (shared fixtures such as `free_port`/`free_ports` and sample TOML/JSON config files).
 

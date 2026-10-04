@@ -4,9 +4,9 @@
 
 .PHONY: help \
 	run run-config \
-	install uninstall install-prod deploy deploy-no-build deploy-restart \
+	venv install uninstall install-prod deploy deploy-no-build deploy-restart \
 	test test-fast test-camera run-all coverage coverage-html \
-	docs docs-check \
+	docs docs-check check-deps \
 	whl test-wheel \
 	lint fix style \
 	systemd-install systemd-uninstall systemd-status systemd-logs systemd-restart \
@@ -16,12 +16,14 @@
 # Shared Variables
 # ============================================================================
 
-PY     ?= /home/iam/devcode/.env/sqtseries/bin/python3
+# The venv lives under $HOME so a fresh clone works for any user; override
+# with `make VENV=/path/to/venv ...` to use a different one.
+VENV   ?= $(HOME)/devcode/.env/sqtseries
+PY     ?= $(VENV)/bin/python3
 RUFF   := $(dir $(PY))ruff
-STYLE_RUFF := /home/iam/devcode/.env/sqtseries/bin/ruff
-STYLE_DIRS := src tests scripts examples
+STYLE_RUFF := $(dir $(PY))ruff
+STYLE_DIRS := src tests scripts examples build_support
 CONFIG ?= config.toml
-VENV   ?= /home/iam/devcode/.env/sqtseries
 
 # Colors
 GREEN  := \033[0;32m
@@ -41,6 +43,7 @@ help:
 	@echo "  make run-config               Start with $(CONFIG)"
 	@echo ""
 	@echo "$(YELLOW)Install / deploy:$(NC)"
+	@echo "  make venv                      Create $(VENV) if absent"
 	@echo "  make install                  Install sqtseries + dev dependencies into $(VENV)"
 	@echo "  make uninstall                Remove sqtseries from the venv"
 	@echo "  make install-prod             Build + install to /opt/sqtseries (production)"
@@ -59,6 +62,7 @@ help:
 	@echo "  make test-docs                Documentation claims tests"
 	@echo "  make docs                     Rebuild dist/docs from scripts/docs-build/"
 	@echo "  make docs-check                Structural + code-to-docs cross-check"
+	@echo "  make check-deps                requirements.txt vs pyproject runtime deps"
 	@echo "  make test-resource-leaks      Resource leak / fd / thread tests"
 	@echo "  make test-concurrency         Concurrent writer tests"
 	@echo "  make test-async               Async cleanup tests"
@@ -97,7 +101,14 @@ run-config:
 # Install
 # ============================================================================
 
-install:
+venv:
+	@test -x "$(VENV)/bin/python3" && { echo "$(GREEN)venv present: $(VENV)$(NC)"; exit 0; }; \
+	echo "$(YELLOW)Creating venv at $(VENV)...$(NC)"; \
+	python3 -m venv "$(VENV)"; \
+	"$(VENV)/bin/python3" -m pip install --quiet --upgrade pip; \
+	echo "$(GREEN)Created $(VENV)$(NC)"
+
+install: venv
 	@echo "$(YELLOW)Installing sqtseries + dev dependencies into $(VENV)...$(NC)"
 	$(VENV)/bin/python3 -m pip install -e ".[dev]"
 	@echo "$(GREEN)Installed sqtseries$(NC)"
@@ -175,6 +186,9 @@ docs-check:
 	$(PY) scripts/docs-build/sqtseries_check.py
 	$(PY) scripts/docs-build/verify_docs.py
 
+check-deps:
+	@$(PY) scripts/check_deps.py
+
 test-resource-leaks:
 	$(PY) -m pytest tests/test_resource_leaks.py -v
 
@@ -232,6 +246,8 @@ whl:
 	scripts/build_wheel.sh dist
 
 test-wheel:
+	@echo "$(YELLOW)Checking requirements.txt matches pyproject.toml...$(NC)"
+	@$(PY) scripts/check_deps.py
 	@echo "$(YELLOW)Building + installing + testing wheel in /tmp (isolated)...$(NC)"
 	scripts/test_wheel.sh
 

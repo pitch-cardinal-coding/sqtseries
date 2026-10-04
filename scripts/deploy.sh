@@ -115,12 +115,7 @@ if sudo test ! -f "$CONFIG"; then
     fi
     ok "Installed default $CONFIG"
 fi
-# Publish docs to the user's home (no sudo: must stay owned+readable by
-# the logged-in user)
-mkdir -p ~/sqtseriesdocs && rm -rf ~/sqtseriesdocs/* 2>/dev/null || true
-cp -r "$REPO_DIR/dist/docs/"* ~/sqtseriesdocs/ 2>/dev/null || true
-chmod -R u+rwX,go+rX ~/sqtseriesdocs 2>/dev/null || true
-ok "Installed to $PREFIX + symlink + docs"
+ok "Installed to $PREFIX + symlink"
 
 # ====================================================================
 # Phase 5: Verify (smoke on a temp database, never the prod DB)
