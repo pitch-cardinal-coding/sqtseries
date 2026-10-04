@@ -434,8 +434,10 @@ CREATE TABLE rollup_meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL);</pre>
 
 <section>
   <h2>Background tasks</h2>
-  <p>Four, each with an interval, each on its own database handle so none can block
-  the write path.</p>
+  <p>Four, each with an interval. None of them runs on the event loop, but not all of
+  them avoid the write path: rollup and retention write through the single writer
+  transaction, so a pass serialises against ingestion for as long as it holds the
+  lock. Backup and maintenance use a pooled connection.</p>
 
   <table>
     <thead><tr><th>Task</th><th>Every</th><th>Does</th><th>If disabled</th></tr></thead>
