@@ -121,6 +121,59 @@ class TestPubSub:
         assert tr.active_topics == {"cpu"}
 
 
+class TestTopicTotalsBound:
+    """The per-topic publish counter must not grow with metric cardinality.
+
+    It is incremented once per publish() on the ingest hot path, so a producer
+    using a fresh metric name per point (per-host / per-container / per-request
+    names are normal) grew one permanent dict entry per point until OOM.
+    """
+
+    async def _publish(self, ps, topics):
+        for t in topics:
+            await ps.publish(t, {"value": 1.0})
+
+    async def test_counter_is_capped_and_evicts_oldest(self, context):
+        port = free_tcp_port()
+        ps = PubSub(f"tcp://127.0.0.1:{port}", context=context, topic_totals_max=10)
+        await ps.start()
+        try:
+            await self._publish(ps, [f"m{i}" for i in range(500)])
+            assert len(ps._topic_totals) == 10, "counter grew past its cap"
+            assert ps.topic_totals_evicted == 490
+            # Oldest-first: the 10 most recent survive, with correct totals.
+            kept = ps.topic_totals()
+            assert set(kept) == {f"m{i}" for i in range(490, 500)}
+        finally:
+            await ps.stop()
+
+    async def test_repeated_topic_is_not_evicted(self, context):
+        """A topic that keeps publishing stays; only idle ones age out."""
+        port = free_tcp_port()
+        ps = PubSub(f"tcp://127.0.0.1:{port}", context=context, topic_totals_max=5)
+        await ps.start()
+        try:
+            for i in range(200):
+                await ps.publish("hot", {"value": 1.0})
+                await ps.publish(f"cold{i}", {"value": 1.0})
+            totals = ps.topic_totals()
+            assert "hot" in totals
+            assert totals["hot"] == 200, "a live topic lost its running total"
+            assert len(totals) == 5
+        finally:
+            await ps.stop()
+
+    def test_default_cap_is_bounded(self):
+        assert PubSub("tcp://127.0.0.1:1").topic_totals_max > 0
+
+    def test_config_rejects_zero_cap(self):
+        from sqtseries.config import Settings, validate_settings
+
+        errs = validate_settings(Settings(streaming={"topic_totals_max": 0}))
+        assert any("streaming.topic_totals_max" in e for e in errs)
+        assert validate_settings(Settings()) == []
+
+
 class TestQueryBroker:
     async def test_rep_query(self, context):
         port = free_tcp_port()

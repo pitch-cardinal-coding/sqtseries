@@ -7,7 +7,7 @@ import pytest
 
 from sqtseries.engine import StorageEngine, create_sqlite_engine, initialize_schema
 from sqtseries.partition import rollup_new_hours
-from sqtseries.query import TimeSeriesDB
+from sqtseries.query import MaxRowsExceededError, TimeSeriesDB
 from sqtseries.query.agg import aggregate_series, downsample
 
 HOUR = 3_600_000_000_000
@@ -326,3 +326,195 @@ def test_watermark_and_idempotence(tmp_path):
         rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 13, 0, tzinfo=UTC))) == 1
     )
     store.close()
+
+
+class TestBackfillVisibility:
+    """A write into an already-rolled hour must stay visible to the fast path.
+
+    ``rollup_new_hours`` only advances forward, so a backfilled row used to be
+    stored, reported as written, and then silently omitted from every
+    rollup-served answer. The write path rewinds the watermark so the next pass
+    re-aggregates the hour; ``INSERT OR REPLACE`` makes that idempotent.
+    """
+
+    def test_backfill_is_re_rolled_and_counted(self, tmp_path):
+        from sqtseries.partition import rollup_watermark
+
+        eng = create_sqlite_engine(str(tmp_path / "bf.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        db = TimeSeriesDB(store)
+
+        base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+        store.insert_many([("cpu", None, 1.0, base), ("cpu", None, 2.0, base + 10)])
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)))
+        rolled = rollup_watermark(eng)
+        assert rolled == _ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+        # Backfill into hour 10, which the rollup has already passed.
+        store.insert_many([("cpu", None, 41.0, base + 20)])
+
+        # The watermark is rewound to the backfilled hour, not past it.
+        assert rollup_watermark(eng) == base - (base % HOUR)
+
+        # And the next pass re-aggregates that hour.
+        assert (
+            rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)))
+            == 1
+        )
+
+        # The whole window now counts every row, not just the re-rolled ones.
+        agg = db.aggregate(
+            "cpu",
+            base,
+            _ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)),
+            funcs=["count", "sum"],
+        )
+        assert agg["count"] == 3.0
+        assert agg["sum"] == pytest.approx(44.0)
+        store.close()
+
+    def test_rollup_does_not_clobber_a_concurrent_rewind(self, tmp_path):
+        """A rewind landing mid-rollup must survive that rollup.
+
+        ``rollup_new_hours`` reads the watermark, does its work, then writes the
+        new one. A backfilled write can rewind in that gap. The watermark is
+        read as 12:00 here, so the range being rolled is [12:00, 14:00) and the
+        rewind to 10:00 falls OUTSIDE it — hour 10 is not re-aggregated by this
+        pass, so advancing past it would drop it forever.
+        """
+        from sqtseries.partition import rollup as rollup_mod
+        from sqtseries.partition import rollup_watermark
+        from sqtseries.partition.rollup import META_LAST_HOUR, ROLLUP_META
+
+        eng = create_sqlite_engine(str(tmp_path / "race.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+
+        base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+        store.insert_many([("cpu", None, 1.0, base)])
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)))
+        assert rollup_watermark(eng) == _ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+
+        rewound_to = base - (base % HOUR)
+        real_rollup_partition = rollup_mod.rollup_partition
+
+        def rewind_mid_roll(db, name, **kw):
+            # Stands in for a backfilled write arriving between the watermark
+            # read and the watermark write.
+            with db.begin() as conn:
+                conn.exec_driver_sql(
+                    f"INSERT OR REPLACE INTO {ROLLUP_META} (k, v) VALUES (?, ?)",  # noqa: S608
+                    (META_LAST_HOUR, rewound_to),
+                )
+            return real_rollup_partition(db, name, **kw)
+
+        rollup_mod.rollup_partition = rewind_mid_roll
+        try:
+            rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 14, 0, tzinfo=UTC)))
+        finally:
+            rollup_mod.rollup_partition = real_rollup_partition
+
+        assert rollup_watermark(eng) == rewound_to, (
+            "the rollup advanced past a rewind whose hour it never re-aggregated"
+        )
+        store.close()
+
+    def test_settled_rewind_does_not_pin_the_watermark(self, tmp_path):
+        """A rewind already covered by this pass must not pin the watermark.
+
+        When the watermark is rewound before the call, the range rolled is
+        [10:00, 14:00) — which INCLUDES the rewound hour, so that hour is
+        re-aggregated here. Settling on 10:00 would be re-selecting a range
+        that has just been done, and since the watermark is the start of the
+        next pass it would never advance: every later pass re-scans the same
+        hours forever.
+        """
+        from sqtseries.partition import rollup_watermark
+
+        eng = create_sqlite_engine(str(tmp_path / "pin.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+
+        base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+        store.insert_many([("cpu", None, 1.0, base)])
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)))
+
+        # Backfill into the already-rolled hour 10; the write path rewinds.
+        store.insert_many([("cpu", None, 2.0, base + 10)])
+        assert rollup_watermark(eng) == base - (base % HOUR)
+
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 14, 0, tzinfo=UTC)))
+        assert rollup_watermark(eng) == _ns(datetime(2026, 1, 1, 14, 0, tzinfo=UTC)), (
+            "watermark did not advance past a rewind this pass had already "
+            "re-aggregated — it will re-scan these hours on every future pass"
+        )
+
+        # And it stays advanced (this is the livelock: the old rule pinned it).
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 16, 0, tzinfo=UTC)))
+        assert rollup_watermark(eng) == _ns(datetime(2026, 1, 1, 16, 0, tzinfo=UTC))
+        store.close()
+
+    def test_aggregate_matches_raw_after_backfill(self, tmp_path):
+        eng = create_sqlite_engine(str(tmp_path / "eq.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        db = TimeSeriesDB(store)
+
+        base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+        store.insert_many([("cpu", None, 1.0, base), ("cpu", None, 2.0, base + 10)])
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)))
+        store.insert_many([("cpu", None, 30.0, base + 20)])
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC)))
+
+        end = _ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+        for func in ("avg", "sum", "min", "max", "count"):
+            fast = db.aggregate("cpu", base, end, funcs=[func])[func]
+            raw = aggregate_series(
+                [
+                    (ts, v)
+                    for ts, v in store.query_time_range(
+                        metric="cpu", start_ns=base, end_ns=end
+                    )
+                ],
+                func,
+            )
+            assert fast == pytest.approx(raw), func
+        store.close()
+
+
+class TestRollupEdgeRowCap:
+    """The fast path's raw edge reads must honour ``max_rows`` like the raw path.
+
+    Both edges used to call ``query_time_range`` with no ``limit``, so a window
+    whose *tail* was large materialised every row while the same query without
+    an aggregation was correctly refused.
+    """
+
+    def test_edge_read_refuses_over_cap(self, tmp_path):
+        eng = create_sqlite_engine(str(tmp_path / "cap.sqlite"))
+        initialize_schema(eng)
+        store = StorageEngine(eng)
+        db = TimeSeriesDB(store, max_rows=100)
+
+        base = _ns(datetime(2026, 1, 1, 10, 0, tzinfo=UTC))
+        # A few rows in a completed hour, then many inside the current hour.
+        store.insert_many([("cpu", None, 1.0, base + i) for i in range(5)])
+        rollup_new_hours(eng, now_ns=_ns(datetime(2026, 1, 1, 20, 0, tzinfo=UTC)))
+
+        now = time.time_ns()
+        store.insert_many([("cpu", None, 2.0, now - 500 + i) for i in range(300)])
+
+        # Raw read over the same window refuses, and so must the fast path.
+        with pytest.raises(MaxRowsExceededError):
+            db.query("cpu", start=base, end=now + 1_000_000_000)
+        with pytest.raises(MaxRowsExceededError):
+            db.aggregate("cpu", base, now + 1_000_000_000, funcs=["avg"])
+
+        # A window inside the rolled region is small enough, and the fast path
+        # still answers it.
+        rolled_end = _ns(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+        got = db.aggregate("cpu", base, rolled_end, funcs=["count", "sum"])
+        assert got["count"] == 5.0
+        assert got["sum"] == pytest.approx(5.0)
+        store.close()

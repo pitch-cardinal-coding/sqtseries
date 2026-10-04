@@ -64,7 +64,7 @@ CONNECTION_PRAGMAS: dict[str, str] = {
 # Reader connections never trigger checkpoints (prevents reader-writer
 # contention); the writer checkpoints every ~80MB at 8192-byte pages (10000
 # pages, 10x fewer fsync spikes than the 1000-page default). See
-# sqtseries-research-2026.md §9.
+# markdown/RESEARCHES.md §2 "WAL Checkpoint Strategy".
 READER_AUTOCHECKPOINT = 0
 WRITER_AUTOCHECKPOINT = 10000
 
@@ -343,8 +343,14 @@ class Database:
                     conn = Connection(self, raw, transaction=True)
                     raw.execute("BEGIN IMMEDIATE")
                 yield conn
-                raw.commit()
+                # Release cursors BEFORE committing, not after: commit() must
+                # be the last thing that can fail. If anything raised between a
+                # successful commit and the caller seeing it, the caller could
+                # not tell "committed" from "rolled back" — and retrying a
+                # committed batch would duplicate rows. With this order, an
+                # exception reaching the caller always means NOT committed.
                 conn._release_snapshots()
+                raw.commit()
             except BaseException:
                 # Quarantine (close) instead of rollback(): close() discards
                 # any pending transaction implicitly, and rollback() itself
@@ -352,6 +358,36 @@ class Database:
                 # never be reused. Lock is still held here.
                 self._quarantine_writer(raw)
                 raise
+
+    def checkpoint(self, mode: str = "PASSIVE") -> str:
+        """Run PRAGMA wal_checkpoint on the WRITER handle, under its lock.
+
+        SQLite's WAL-reset corruption bug (fixed in 3.51.3, 3.50.7, 3.44.6 —
+        sqlite.org/wal.html section 11) fires when two connections "attempt to
+        write or checkpoint at the same instant": one checkpoint resets the WAL
+        while another connection commits, corrupting the wal-index so part of
+        a transaction never reaches the database. This engine keeps 4 pooled
+        readers plus a writer on one file, and the background CheckpointManager
+        used to checkpoint on a *pooled reader* while the writer committed —
+        the documented trigger, in WAL mode, on SQLite 3.46.1.
+
+        Serializing on the writer lock collapses write and checkpoint onto one
+        connection, so the two can never interleave regardless of version.
+        Cost: a checkpoint briefly blocks writers, which is the correct trade —
+        correctness over throughput, and SQLite allows only one writer anyway.
+        """
+        with self._writer_lock:
+            raw = self._get_writer()
+            try:
+                cur = raw.execute(f"PRAGMA wal_checkpoint({mode})")
+                row = cur.fetchone()
+                cur.close()
+            except sqlite3.Error:
+                # Never leave a half-read statement pinning a snapshot on the
+                # writer; the next transaction quarantines the handle anyway.
+                self._quarantine_writer(raw)
+                raise
+        return ",".join(str(x) for x in row) if row else ""
 
     def dispose(self) -> None:
         """Close all pooled handles. Idempotent.

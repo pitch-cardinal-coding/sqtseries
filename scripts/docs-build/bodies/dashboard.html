@@ -1,0 +1,324 @@
+<section>
+  <h2>What it is</h2>
+  <p class="lede">A live page the service serves itself, at
+  <code>/dashboard</code> on the HTTP port. It shows the health of the
+  <em>service</em> — not your data — pushed over a WebSocket once a second.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Snapshot</strong> — everything, once, on connect.<br>
+    <strong>Tick</strong> — the counters, once a second, without the lists.<br>
+    <strong>Event</strong> — a frame the moment a connection or subscription
+    changes.<br>
+    <strong>Registry</strong> — the service's record of who is connected. The
+    dashboard only reads it; it never changes it.<br>
+    <strong>Fallback snapshot</strong> — what the page shows if the service's own
+    stats provider is unavailable, so a failing provider degrades the page instead
+    of freezing it.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">1 s</div><div class="l">Counter tick</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Polls per second</div></div>
+    <div class="stat"><div class="n">500</div><div class="l">Backlog frames, bounded</div></div>
+    <div class="stat"><div class="n">6</div><div class="l">Ports, always shown</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">CDN requests</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Open it</h2>
+  <p>With the service running, from any machine that can reach the HTTP port:</p>
+
+<pre><span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/health
+<span class="ok">{"status":"ok","version":"0.1.0"}</span>
+
+<span class="c"># then open this in a browser</span>
+http://127.0.0.1:12505/dashboard
+<span class="c">#  / is the same page</span></pre>
+
+  <p class="small muted">The service prints the URL when it starts, and
+  <code>sqtseries status</code> prints it again with the ports it is
+  <em>actually</em> on.</p>
+</section>
+
+<section>
+  <h2>What it shows</h2>
+
+  <h3>Health</h3>
+  <p>Whether the database is reachable and whether the service has finished starting.
+  This is the one panel to watch when something is wrong, and it is the first thing
+  to check before reading any counter.</p>
+
+  <h3>Ingest</h3>
+  <table>
+    <thead><tr><th>Counter</th><th>Means</th><th>Alert when</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">ingested</td><td>Points accepted for storage, both transports</td>
+        <td class="muted">falls when it should rise</td></tr>
+      <tr><td class="opt">persisted</td><td>Points actually committed</td>
+        <td class="muted">trails ingested — normal while work is in flight</td></tr>
+      <tr><td class="opt">dropped</td><td>Points in a batch whose insert failed</td>
+        <td><strong>any sustained rise</strong> — the database is refusing writes</td></tr>
+      <tr><td class="opt">invalid</td><td>Frames refused as malformed, or breaching the
+        clock-skew window</td>
+        <td><strong>any sustained rise</strong> — usually a producer's clock has
+        drifted</td></tr>
+      <tr><td class="opt">ingest_errors</td><td>Socket-level receive errors</td>
+        <td>any rise at all</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box key">
+    <span class="lbl">The accounting identity</span>
+    <p>Every accepted point lands in exactly one of <em>persisted</em>,
+    <em>dropped</em> or <em>invalid</em>. Nothing vanishes silently, so
+    <code>ingested - persisted</code> is exactly the work still in flight, and any
+    permanent loss shows up as a non-zero <code>dropped</code> rather than as a gap
+    you have to infer later. The test suite asserts this identity, so a regression
+    that broke it would fail a test rather than quietly losing your data.</p>
+  </div>
+
+  <h3>Queries</h3>
+  <p><code>queries</code>, <code>query_errors</code>, <code>queries_shed</code> and
+  <code>replies_dropped</code>. Two of these are easy to misread:</p>
+
+  <div class="box warn">
+    <span class="lbl">Shed is backpressure, not failure</span>
+    <p><code>queries_shed</code> counts requests that were <em>not</em> dispatched
+    because <code>query.max_inflight</code> was already reached. The request stays in
+    the socket pipe, bounded by the socket's own HWM, and is served when capacity
+    frees. It was deliberately not dropped — it is queued and counted.</p>
+    <p>So a rising <code>queries_shed</code> means <strong>your clients are
+    outrunning the query budget</strong>, not that anything failed. The response comes
+    back late. If you are seeing it, you want more query capacity
+    (<code>max_inflight</code>) or fewer polling clients — not a faster disk.</p>
+    <p><code>replies_dropped</code> is different: it counts replies that found no peer,
+    because the requester disconnected mid-flight. Harmless in small numbers, worth
+    investigating if it climbs.</p>
+  </div>
+
+  <h3>Storage</h3>
+  <p>Database size on disk, partition count, WAL size, and the rollup watermark —
+  the next hour the rollup will process, in nanoseconds. The watermark sitting still
+  while <code>ingested</code> climbs is correct: the current hour is never rolled.</p>
+
+  <h3>Connections and topics</h3>
+  <p>Every live WebSocket connection with its peer address, topic, arrival time and
+  last activity. And every topic ever seen, with its live subscriber count and its
+  per-topic publish total.</p>
+
+  <div class="box">
+    <span class="lbl">Why a quiet topic does not disappear</span>
+    <p>The topics list is append-only: a topic that has gone quiet reports
+    <code>subscribers: 0</code> and keeps its <code>first_seen</code> time, rather
+    than vanishing. When you are working out whether a producer stopped, that is
+    exactly the difference you need — a vanished row and a zero row are different
+    facts. Stored metrics that nobody subscribes to are also listed, at zero.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The feed</h2>
+  <p>One WebSocket, <code>/ws/dashboard</code>, carrying three kinds of frame. No
+  polling, and no request/response after the snapshot.</p>
+
+<pre><span class="c">// 1. on connect — the full picture</span>
+{<span class="v">"type"</span>: <span class="v">"snapshot"</span>, <span class="v">"status"</span>: <span class="v">"ok"</span>,
+ <span class="v">"server_time"</span>: <span class="v">1790786862.85</span>, <span class="v">"version"</span>: <span class="v">"0.1.0"</span>,
+ <span class="v">"uptime_s"</span>: <span class="v">412.7</span>,
+ <span class="v">"ingested"</span>: <span class="v">40218</span>, <span class="v">"persisted"</span>: <span class="v">40218</span>,
+ <span class="v">"dropped"</span>: <span class="v">0</span>, <span class="v">"invalid"</span>: <span class="v">0</span>, <span class="v">ingest_errors</span>: <span class="v">0</span>,
+ <span class="v">"queries"</span>: <span class="v">88</span>, <span class="v">"query_errors"</span>: <span class="v">0</span>,
+ <span class="v">"queries_shed"</span>: <span class="v">0</span>, <span class="v">"replies_dropped"</span>: <span class="v">0</span>,
+ <span class="v">"admin_requests"</span>: <span class="v">12</span>,
+ <span class="v">"published"</span>: <span class="v">40218</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>,
+ <span class="v">"series"</span>: <span class="v">3</span>, <span class="v">"metrics"</span>: <span class="v">2</span>,
+ <span class="v">"wal_bytes"</span>: <span class="v">40960</span>, <span class="v">"checkpoints"</span>: <span class="v">2</span>,
+ <span class="v">"checkpoint_busy_runs"</span>: <span class="v">0</span>, <span class="v">"analyze_runs"</span>: <span class="v">0</span>,
+ <span class="v">"retention_runs"</span>: <span class="v">0</span>, <span class="v">"partitions_dropped"</span>: <span class="v">0</span>,
+ <span class="v">"backup_runs"</span>: <span class="v">1</span>, <span class="v">"backups_created"</span>: <span class="v">1</span>,
+ <span class="v">"last_backup"</span>: <span class="v">"/home/iam/.sqtseries/backups/sqtseries-20260930-172525.db"</span>,
+ <span class="v">"query_cache_size"</span>: <span class="v">2</span>,
+ <span class="v">"query_cache_hits"</span>: <span class="v">14</span>, <span class="v">"query_cache_misses"</span>: <span class="v">6</span>,
+ <span class="v">"db_path"</span>: <span class="v">"/home/iam/.sqtseries/data/db.sqlite"</span>, <span class="v">"db_bytes"</span>: <span class="v">86016</span>,
+ <span class="v">"partitions"</span>: <span class="v">1</span>, <span class="v">"rollup_watermark"</span>: <span class="v">1790784000000000000</span>,
+ <span class="v">"ws_connections"</span>: <span class="v">1</span>, <span class="v">"zmq_subscribers"</span>: <span class="v">0</span>,
+ <span class="v">"ports"</span>: {<span class="v">"ingest"</span>: <span class="v">12500</span>, <span class="v">"query"</span>: <span class="v">12502</span>, <span class="v">"streaming"</span>: <span class="v">12503</span>,
+              <span class="v">"admin"</span>: <span class="v">12504</span>, <span class="v">"http"</span>: <span class="v">12505</span>, <span class="v">"stats"</span>: <span class="v">12506</span>},
+ <span class="v">"connections"</span>: [
+   {<span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>, <span class="v">"peer"</span>: <span class="v">"10.0.0.7:52344"</span>,
+    <span class="v">"topic"</span>: <span class="v">"*"</span>, <span class="v">"connected_at"</span>: <span class="v">1790786862.85</span>,
+    <span class="v">"last_activity_at"</span>: <span class="v">1790786862.85</span>}
+ ],
+ <span class="v">"topics"</span>: [
+   {<span class="v">"topic"</span>: <span class="v">"cpu.load"</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>,
+    <span class="v">"first_seen"</span>: <span class="v">1790786862.85</span>, <span class="v">"total"</span>: <span class="v">18422</span>}
+ ]}
+
+<span class="c">// 2. the moment a client connects or disconnects</span>
+{<span class="v">"type"</span>: <span class="v">"conn"</span>, <span class="v">"id"</span>: <span class="v">"ff11ee22dd33"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>,
+ <span class="v">"peer"</span>: <span class="v">"10.0.0.9:51120"</span>, <span class="v">"topic"</span>: <span class="v">"cpu."</span>,
+ <span class="v">"connected"</span>: <span class="v">true</span>, <span class="v">"connected_at"</span>: <span class="v">1790787100.2</span>, <span class="v">"ttl"</span>: <span class="v">60</span>}
+
+{<span class="v">"type"</span>: <span class="v">"sub"</span>, <span class="v">"kind"</span>: <span class="v">"zmq"</span>, <span class="v">"topic"</span>: <span class="v">"cpu.load"</span>,
+ <span class="v">"subscribers"</span>: <span class="v">2</span>, <span class="v">"arrived_at"</span>: <span class="v">1790787101.0</span>, <span class="v">"ttl"</span>: <span class="v">30</span>}
+
+<span class="c">// 3. one second later — counters only, the lists arrive as events</span>
+{<span class="v">"type"</span>: <span class="v">"tick"</span>, <span class="v">"uptime_s"</span>: <span class="v">413.7</span>, <span class="v">"ingested"</span>: <span class="v">40318</span>,
+ <span class="v">"persisted"</span>: <span class="v">40318</span>, <span class="v">"queries"</span>: <span class="v">91</span>, <span class="v">"db_bytes"</span>: <span class="v">88128</span>,
+ <span class="v">"wal_bytes"</span>: <span class="v">45056</span>, <span class="v">"series"</span>: <span class="v">3</span>, …}</pre>
+
+  <p class="small muted">The tick deliberately omits <code>connections</code> and
+  <code>topics</code>. Re-sending a list every second would be waste, since every
+  change in those lists already arrives as its own event as it happens.</p>
+
+  <h3>Consuming it yourself</h3>
+<pre><span class="c"># in a browser console, on the host running the service</span>
+<span class="p">&gt;&gt;&gt;</span> ws = <span class="f">new</span> WebSocket(<span class="v">"ws://127.0.0.1:12505/ws/dashboard"</span>)
+<span class="p">&gt;&gt;&gt;</span> ws.onmessage = e =&gt; {
+<span class="p">... </span>   <span class="k">const</span> m = JSON.parse(e.data);
+<span class="p">... </span>   <span class="k">if</span> (m.type === <span class="v">"tick"</span>) console.log(<span class="v">"ingested"</span>, m.ingested, <span class="v">"dropped"</span>, m.dropped);
+<span class="p">... </span>   <span class="k">else if</span> (m.type === <span class="v">"conn"</span>) console.log(<span class="v">"client"</span>, m.connected ? <span class="v">"joined"</span> : <span class="v">"left"</span>, m.peer);
+<span class="p">... </span>   <span class="k">else if</span> (m.type === <span class="v">"sub"</span>) console.log(<span class="v">"topic"</span>, m.topic, m.subscribers);
+<span class="p">... </span>   <span class="k">else if</span> (m.type === <span class="v">"snapshot"</span>) console.log(<span class="v">"uptime"</span>, m.uptime_s, <span class="v">"ports"</span>, m.ports);
+<span class="p">... </span> }</pre>
+
+  <p>The queue between the event listener and the sender is <strong>bounded at 500
+  frames</strong>. A browser tab that stops draining — backgrounded, or on a slow
+  link — loses the oldest frames rather than growing the server's memory without
+  limit.</p>
+</section>
+
+<section>
+  <h2>The page itself</h2>
+  <p>Worth knowing because it explains what you can and cannot inspect from the
+  browser.</p>
+
+  <table>
+    <thead><tr><th>Question</th><th>Ask</th></tr></thead>
+    <tbody>
+      <tr><td>Is the service up?</td><td><code>GET /api/v1/health</code></td></tr>
+      <tr><td>What are the real ports?</td><td><code>sqtseries status</code> or the
+        <code>ports</code> key in the snapshot</td></tr>
+      <tr><td>How many points are stored?</td><td><code>GET /api/v1/stats</code></td></tr>
+      <tr><td>Who is connected?</td><td><code>GET /api/v1/connections</code>, or the
+        <code>connections</code> admin command</td></tr>
+      <tr><td>Who is watching what?</td><td><code>GET /api/v1/subscribers</code>, or
+        the <code>subscribers</code> admin command</td></tr>
+      <tr><td>Is a specific id still there?</td><td>the <code>conncheck</code> admin
+        command, which is a cheap membership test</td></tr>
+      <tr><td>Everything, live</td><td>the dashboard page, or
+        <code>/ws/dashboard</code> consumed directly</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <span class="lbl">Do not scrape the page for monitoring</span>
+    <p>The dashboard is a <em>view</em>. Everything on it is available as JSON over
+    the admin socket or the HTTP API, and those are the surfaces to alert on: a
+    polling check on <code>/api/v1/health</code> plus a read of
+    <code>stats</code> will not break when the page's markup changes, and it will not
+    need a browser on the monitoring host.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Why there is no CDN</h2>
+  <p>The gateway sets a strict Content-Security-Policy on every response:
+  <code>default-src 'self'</code>. A browser-enforced policy cannot be relaxed by the
+  page, so a page that loaded its fonts or scripts from a CDN would simply be blocked
+  on this host.</p>
+
+  <p>So everything is vendored and served from this origin:</p>
+  <table>
+    <thead><tr><th>Path</th><th>What</th></tr></thead>
+    <tbody>
+      <tr><td><code>/dashboard</code>, <code>/</code></td><td>the page</td></tr>
+      <tr><td><code>/dashboard-assets/dashboard.js</code></td><td>the feed
+        consumer</td></tr>
+      <tr><td><code>/dashboard-assets/dashboard.css</code></td><td>its styling</td></tr>
+      <tr><td><code>/dashboard-assets/nucleo-icons.*</code></td><td>the icon font,
+        local</td></tr>
+      <tr><td><code>/dashboard-assets/specs/*</code></td><td>the vendored Swagger
+        and ReDoc bundles</td></tr>
+      <tr><td><code>/api-docs</code></td><td>Swagger UI, reading
+        <code>/openapi.json</code></td></tr>
+      <tr><td><code>/redoc</code></td><td>ReDoc, same schema</td></tr>
+      <tr><td><code>/docs</code></td><td>these pages</td></tr>
+    </tbody>
+  </table>
+
+  <p>Those three pages — Swagger, ReDoc and these docs — are also why the gateway
+  sets a path-scoped CSP exception for <code>/docs</code>: these pages inline their
+  stylesheet so a single file stays readable on its own, and an inline
+  <code>&lt;style&gt;</code> needs an explicit <code>style-src</code>. The relaxation
+  covers styles only, on that one path. The JSON API keeps the strict default above,
+  and <code>script-src</code> is not relaxed anywhere.</p>
+
+  <p>All seven REST routes, every WebSocket protocol, and every error code are on
+  <a href="api.html">API Reference</a>.</p>
+</section>
+
+<section>
+  <h2>Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Page is blank</td><td>the feed never connected</td>
+        <td>check <code>/api/v1/health</code>; open the browser console for the
+        WebSocket error</td></tr>
+      <tr><td>Page loads, counters frozen</td><td>the stats provider is failing and
+        the fallback is in use</td><td>look for
+        <code>"dashboard stats provider failed</code> in the service log</td></tr>
+      <tr><td>Connection closes, code <code>1013</code></td>
+        <td><code>http.max_websocket_connections</code> reached</td>
+        <td>raise it, or close idle tabs</td></tr>
+      <tr><td>Reconnects in a loop</td><td>the service is restarting</td>
+        <td>follow <code>systemctl --user status sqtseries</code> and the
+        service log</td></tr>
+      <tr><td>Page will not load from another machine</td>
+        <td><code>http.host</code> is loopback</td><td>set it to
+        <code>0.0.0.0</code> — and read the
+        <a href="configuration.html">security notes</a> first</td></tr>
+      <tr><td>Everything is zero</td><td>nothing has been written yet</td>
+        <td class="muted">expected on a fresh instance</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every route and admin command, the exact snapshot and tick fields, and every
+      error code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>The data-side WebSockets, topic matching, and what a slow subscriber
+      costs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>Why the page reconnects after a restart, and how to tell a crash loop from
+      a slow start.</p>
+    </div>
+    <div class="card">
+      <h4><a href="backup.html">Backup and restore</a></h4>
+      <p>What <code>backups_created</code> and <code>last_backup</code> mean, and the
+      restore procedure.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every counter's backing setting — HWM, queue depth, in-flight cap, the
+      connection budget.</p>
+    </div>
+    <div class="card">
+      <h4><a href="camera.html">Camera analytics</a></h4>
+      <p>A second live page, built on the same endpoints, showing your
+      <em>data</em> rather than service health.</p>
+    </div>
+  </div>
+</section>

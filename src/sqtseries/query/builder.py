@@ -449,10 +449,10 @@ class TimeSeriesDB:
 
         if left_end_incl >= (start if start is not None else 0):
             left = list(
-                self.store.query_time_range(
+                self._fetch(
                     series_ids=series_ids,
-                    start_ns=start,
-                    end_ns=left_end_incl,
+                    start=start,
+                    end=left_end_incl,
                     order="asc",
                 )
             )
@@ -460,10 +460,10 @@ class TimeSeriesDB:
         right: list[tuple[int, float]] = []
         if end_hour > start_hour and eff_end >= end_hour:
             right = list(
-                self.store.query_time_range(
+                self._fetch(
                     series_ids=series_ids,
-                    start_ns=end_hour,
-                    end_ns=eff_end,
+                    start=end_hour,
+                    end=eff_end,
                     order="asc",
                 )
             )

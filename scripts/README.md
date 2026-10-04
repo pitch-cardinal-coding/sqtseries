@@ -16,6 +16,10 @@ scripts/run-stress-rig.sh --duration 300 --rate 2000 --clients 8 --tag baseline
 # 10-min extreme-rate run with the dashboard probe attached
 scripts/run-stress-rig.sh --duration 600 --rate 10000 --clients 12 \
     --http-port 12599 --probe --probe-duration 620 --tag extreme
+
+# open-loop arrival-rate run (corrects coordinated omission; see below)
+scripts/run-stress-rig.sh --duration 300 --rate 2000 --clients 8 \
+    --model open --query-rate 250 --tag arrival
 ```
 
 Outputs land in `/tmp/sqtseries-rig-<tag>/`: `rss.log` (per-pid memory
@@ -68,8 +72,8 @@ once the endpoint is gone).
 ### `stress_percentiles.py --duration 300 --rate 2000 --clients 8`
 
 The stress harness: starts its own service (TOML under
-`/tmp/sqtseries-stress/`), pumps with a **separate process** (a pump thread
-under the harness GIL collapses to ~50 pts/s — measured), hammers ZMQ
+`/tmp/sqtseries-stress/`), pumps with a **separate process** (a pump thread under
+the harness GIL collapses to ~50 pts/s — measured), hammers ZMQ
 queries, HTTP read/agg/write, samples WS delivery, and prints a percentile
 table. With `--json`, also writes the raw report including the
 **accounting block**: `pump_sent` vs `server_ingested` vs `persisted` /
@@ -77,7 +81,44 @@ table. With `--json`, also writes the raw report including the
 PUSH in-flight backlog is drained before reconciling). `--http-port N`
 exposes the service on a fixed port for the dashboard probe.
 
+**Query load model** — `--model closed` (default) or `--model open`:
+
+| | `--model closed` | `--model open` |
+|---|---|---|
+| Client socket | `REQ` (lockstep) | `DEALER` (pipelined) against the broker's `ROUTER` |
+| Pacing | next request after the last reply | fixed schedule, `--query-rate` ops/s aggregate |
+| Latency measured from | actual send | the **scheduled** fire time |
+| Answers | response time at saturation | behaviour under an arrival stream |
+
+Open-loop records two figures per request: `zmq_query` (service time, from the
+actual send) and `zmq_query_co` (corrected, from the scheduled time). The gap
+between them is the queueing delay a closed-loop harness hides — measured at
+**6.8× at p50** once the service saturates, and ~1.00× when it does not, which
+is the check that the correction is not just inflating every sample.
+
+```bash
+scripts/run-stress-rig.sh --duration 300 --rate 2000 --clients 8 \
+    --model open --query-rate 250 --tag arrival
+```
+
+**`--max-inflight` is the cross-client total, not per-client.** It mirrors the
+broker's single global `max_inflight` (`len(broker._router_tasks) >=
+max_inflight` in `src/sqtseries/messaging/broker.py`) — one pool for the whole
+process. The default 64 splits to 8 per client at 8 clients. Reading it
+per-client lets 8 × 64 = 512 requests pile up against a broker servicing 64; the
+broker sheds them, and the report then blames the generator for being slow.
+
+**Check three fields before quoting any open-loop number** — they exist to catch
+a generator that is broken rather than a server that is slow:
+
+| Field | Failure it catches |
+|---|---|
+| `sent_ops` | **0 means the generator never fired.** A pacer that only sleeps still reports a perfect achieved rate. |
+| `zmq_query` `n` | must equal `sent_ops`; a shortfall means unanswered requests |
+| `client_shed` | non-zero means the generator hit its own cap, so the offered rate was **not** achieved and the run does not certify that rate |
+
 ### `benchmark.py`
+
 
 Engine-level micro-benchmarks (pooled vs fresh reader connections, batched
 inserts). The numbers cited in `dist/docs/benchmarks.md` come from here and

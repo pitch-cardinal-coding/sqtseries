@@ -3,229 +3,695 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Camera Analytics — sqtseries</title>
+<title>sqtseries — Camera analytics: a feed stored and watched live</title>
+<meta name="description" content="Pump a live camera metrics feed into sqtseries, watch it on a live page, and answer questions about it afterwards.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a class="here" href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Camera analytics: pumping a metrics feed and answering everything</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>A camera with edge analytics streams JSON over a WebSocket — people and
-vehicle counts, per-minute rates, battery and CPU telemetry. sqtseries
-stores each number as a flat measurement tagged with the camera ID, and
-once data accumulates you can answer questions like <em>what was the
-busiest hour?</em>, <em>how fast is the battery draining?</em>, and
-<em>does heavy footfall load the CPU?</em></p>
-
-<h3>How it works</h3>
-<p>One message from the feed (about 4 per second) looks like this:</p>
-<pre><code>{
-  "camera_id": "test_cam_001",
-  "generated_at": "2026-08-08T16:26:30.33+00:00",
-  "current_visible_people": 21,
-  "total_detected_people": 150,
-  "current_visible_cars": 6,
-  "total_detected_vehicles": 81,
-  "people_last_minute": 20,
-  "cars_last_minute": 6,
-  "system_metrics": {
-    "batteryPercent": 84.3,
-    "batteryTemperature": 28.9,
-    "cpuUsagePercent": 38.5,
-    "cpuTemperature": 63.8
-  }
-}</code></pre>
-<p>sqtseries stores flat <code>metric + value + tags</code>, so
-<code>camera_feed.py</code> flattens each message into 11 measurements,
-all tagged with <code>camera_id=test_cam_001</code>:</p><pre><code>traffic.people.current        21      camera_id=test_cam_001
-traffic.people.total          237     camera_id=test_cam_001
-traffic.vehicles.current      9       camera_id=test_cam_001
-traffic.vehicles.total        100     camera_id=test_cam_001
-traffic.people.last_minute    21      camera_id=test_cam_001
-traffic.cars.last_minute      9       camera_id=test_cam_001
-system.battery.percent        84.3    camera_id=test_cam_001
-system.battery.temperature    28.5    camera_id=test_cam_001
-system.cpu.usage              41.3    camera_id=test_cam_001
-system.cpu.temperature        62.4    camera_id=test_cam_001
-status.detection_overlay      1       camera_id=test_cam_001</code></pre>
-<p>String fields (battery health, footer text, overlay URLs) are not
-numeric and are skipped. All points of one message are written in a single
-HTTP batch, which keeps the writes well under the default rate limit.</p>
-
-<h3>Live dashboard</h3>
-<p>The simulator also serves a live web page at the same port — open
-<code>http://&lt;host&gt;:&lt;port&gt;/</code> (or
-<code>/overlay.html</code>) in any browser. The page connects to the
-same-origin metrics WebSocket and renders each reading as it arrives:
-people and vehicle counts, per-minute rates, battery charge/temperature/
-health, CPU usage/temperature, and the detection-overlay status — with a
-connection badge that auto-reconnects if the simulator restarts. It is a
-single self-contained file (<code>examples/camera/overlay.html</code>, no
-external assets), so it works offline on a LAN and can be dropped into an
-OBS browser source. The dashboard reads the raw feed only; it does not
-touch sqtseries. It uses inline CSS/JS by design (it is a trusted,
-developer-owned artifact with no user input) — the sqtseries HTTP gateway,
-by contrast, serves strict security headers on every response.</p>
-
-<h3>Also subscribing to the time-series database</h3>
-<p>Give the page a <code>?sqtseries=</code> parameter pointing at the
-<code>/ws/subscribe</code> endpoint of a running sqtseries instance and it
-adds a <em>Time-series DB</em> card that streams what the database
-publishes back to the same page — the last reading per metric, with its
-tags and age, plus a frame counter and its own auto-reconnecting connection
-badge. HTTP writes to <code>/api/v1/write</code> are broadcast to live
-subscribers just like ZMQ ingests, so with the camera feed pumping, this
-card confirms the whole loop: camera → overlay WebSocket → sqtseries → page.
-An optional <code>&amp;metric=&lt;prefix&gt;</code> filters to one topic
-prefix (default <code>*</code>).</p>
-<pre><code># camera page + live sqtseries stream (sqtseries default HTTP port 12505)
-# &lt;port&gt; is the simulator's printed WebSocket port (random by default)
-http://&lt;host&gt;:&lt;port&gt;/overlay.html?sqtseries=ws://&lt;host&gt;:12505/ws/subscribe&amp;metric=traffic.
-
-# when started by examples/camera/sqtcam.sh (HTTP port 17105)
-http://&lt;host&gt;:&lt;port&gt;/overlay.html?sqtseries=ws://&lt;host&gt;:17105/ws/subscribe</code></pre>
-<p>Without the parameter the card shows a "not configured" hint and the
-page makes no connection attempts, so it stays usable as a pure overlay.</p>
-
-<h3>Live subscribers, clients, and activity</h3>
-<p>The DB card also shows, in real time, who is connected to sqtseries — by
-watching the push-only <code>/ws/connections</code> feed (no polling):
-a <em>Connected clients</em> table of active WebSocket subscribers (kind,
-peer, topic, arrival datetime, connected-for), a <em>ZMQ subscribers</em>
-table (topic, count, since), and an <em>Activity</em> log of every join and
-leave with its <code>YYYY-MM-DD HH:MM:SS</code> timestamp and duration.
-Arrival and leaving times come from the feed itself: <code>conn</code>
-events carry <code>connected_at</code> and (on leave) <code>left_at</code>;
-<code>sub</code> events carry <code>arrived_at</code>/<code>left_at</code> and
-<code>first_seen</code>. Joins and leaves are pushed the instant they happen.</p>
-<pre><code># validate the feed end to end against a running sqtseries (joins/leaves,
-# exact counts, arrival/leaving times, push latency)
-python3 examples/camera/conn_validate.py \
-    --host 127.0.0.1 --http-port 12505 --stream-port 12503
-# ...connects 3 WebSocket clients + 2 ZMQ subscribers, joins/leaves them, and
-# prints each event's latency; exits non-zero on any mismatch
-</code></pre>
-<p><code>examples/camera/conn_validate.py</code> is the same harness the test
-suite runs (<code>tests/test_websocket_edge.py</code>,
-<code>tests/test_camera_overlay_page.py</code>), so the page's live figures
-and the server's registry always agree.</p>
-
-<h3>Running the full pipeline</h3>
-<p>The repository includes a simulator (<code>overlay_server.py</code>)
-that generates this feed on a random free port, so the whole flow works
-end to end without any camera hardware. The one-command runner
-(<code>examples/camera/sqtcam.sh</code>) starts everything in a single
-tmux session — ideal for leaving overnight to accumulate data:</p>
-<pre><code># one command: sqtseries + simulator + camera feed in a tmux session
-bash examples/camera/sqtcam.sh
-tmux attach -t sqtcam             # watch the three windows live
-tmux kill-session -t sqtcam       # stop everything (data persists)
-
-# anytime — answer every question from the stored data
-python3 examples/camera/camera_feed.py --ask --host 127.0.0.1 --http-port 17105</code></pre>
-<p><code>sqtcam.sh</code> starts three windows: <code>sqtseries</code>
-(the service, config at <code>/tmp/sqtcam/conf.toml</code>, ports
-17101–17106), <code>overlay</code> (the simulator), and <code>camera</code>
-(the feed, wired to the simulator's random port automatically). It refuses
-to start a second session if one is already running.</p>
-<p>Without the runner, the same flow works in four terminals:</p>
-<pre><code># terminal 1 — the data source (note the printed WebSocket URL)
-python3 examples/camera/overlay_server.py
-
-# terminal 2 — sqtseries
-sqtseries --config config.toml run
-
-# terminal 3 — pump the feed into sqtseries
-python3 examples/camera/camera_feed.py --ws ws://localhost:&lt;port&gt;/ws/metrics
-#   let it run for a few minutes (or hours/days for real data)
-
-# terminal 4 — answer every question from the stored data
-python3 examples/camera/camera_feed.py --ask</code></pre>
-<p><code>--ask</code> runs 17 questions: traffic levels and percentiles,
-busiest hour and day, total footfall, day-over-day trend, pass-through
-turnover, anomaly vs the same hour on previous days, battery drain rate
-and time-to-empty projection, CPU and thermal profile, footfall/CPU
-correlation, feed staleness and uptime, per-camera notes, monthly
-projection, storage growth, and overlay availability. Every question is
-safe to run against sparse data: if the window holds less history than a
-question needs, it prints a short "not enough data" note instead of
-guessing (for example, a battery that gained charge is reported as a
-recharge rather than a negative drain rate).</p>
-<p>The pump script only needs the standard library plus
-<code>websockets</code> — it talks to sqtseries over plain HTTP on the same
-machine (the service binds local-only), so it can run from a different venv
-or be rewritten in a different language without installing sqtseries.</p>
-
-<h3>The scripts</h3>
-<div class="table-wrap"><table>
-  <tr><th>Script</th><th>Purpose</th><th>Options (default)</th><th>Runs until</th></tr>
-  <tr><td><code>examples/camera/overlay_server.py</code></td>
-      <td>Simulated camera-metrics WebSocket source (people/vehicles,
-          battery, CPU) — feeds <code>camera_feed.py</code> and serves the
-          live dashboard page</td>
-      <td><code>--port</code> (default: a random free port),
-          <code>TEST_*</code> env vars (host, port, push interval,
-          camera ID)</td>
-      <td>streaming — Ctrl+C</td></tr>
-  <tr><td><code>examples/camera/overlay.html</code></td>
-      <td>Live dashboard served by the simulator at <code>/</code> and
-          <code>/overlay.html</code> — subscribes to the same-origin
-          <code>/ws/metrics</code> WebSocket and renders each reading as it
-          arrives, with auto-reconnect</td>
-      <td>— (no options; point a browser at the simulator's URL)</td>
-      <td>— stays live while the tab is open</td></tr>
-  <tr><td><code>examples/camera/camera_feed.py</code></td>
-      <td>Pump a camera WebSocket feed into sqtseries and answer every
-          question the stored data can answer</td>
-      <td>pump: <code>--ws</code> URL, <code>--host</code>,
-          <code>--http-port</code>; <code>--ask</code> (17 questions),
-          <code>--hours</code> window, <code>--once</code></td>
-      <td>pump: streaming — Ctrl+C; <code>--ask</code>: one pass</td></tr>
-  <tr><td><code>examples/camera/sqtcam.sh</code></td>
-      <td>One-command runner: starts sqtseries, the overlay simulator, and
-          the camera feed in a three-window tmux session for long data
-          collection</td>
-      <td>— (uses <code>/tmp/sqtcam/conf.toml</code>; refuses to start a
-          second session)</td>
-      <td>— runs until <code>tmux kill-session -t sqtcam</code></td></tr>
-</table></div>
-
-<h2>Where to go next</h2>
-<div class="cards">
-  <div class="card"><h3><a href="ingestion.html">Ingestion</a></h3>
-    <p>All the ways to get data in: ZMQ, HTTP, and the Client, with
-    timestamps and the clock-skew guard.</p></div>
-  <div class="card"><h3><a href="streaming.html">Streaming</a></h3>
-    <p>Live data over ZMQ SUB, WebSocket, and the Client.</p></div>
-  <div class="card"><h3><a href="queries.html">Queries</a></h3>
-    <p>Aggregations, intervals, the rollup fast path, gap filling, and
-    streaming queries in bounded memory.</p></div>
-  <div class="card"><h3><a href="examples.html">Examples</a></h3>
-    <p>Every example script and the question catalogs.</p></div>
-</div>
-
-
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · worked example</a></div>
+  <h1>Camera analytics</h1>
+  <p class="tagline">A complete worked example: a script that generates realistic camera metrics, pushes them in over HTTP, and answers seventeen questions about the result — with a live page watching the same data as it lands.</p>
+  <div class="meta">
+    <span><b>Scripts</b> three, in <code>examples/camera/</code></span>
+    <span><b>Input</b> a metrics URL, polled on an interval</span>
+    <span><b>Storage</b> the normal write path, nothing special</span>
+    <span><b>Live page</b> built on <code>/ws/subscribe</code></span>
+    <span><b>Tested</b> run by the suite against a live service</span>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</header>
+
+<main>
+<section>
+  <h2>What this example does</h2>
+  <p class="lede">A camera posts a stream of analytics — people, vehicles, battery, CPU
+  — as JSON over a WebSocket. Three scripts turn that into stored measurements, a
+  live page you can watch, and seventeen questions you can ask afterwards.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Pump</strong> — the script that subscribes to the camera and writes
+    readings into sqtseries.<br>
+    <strong>Ask</strong> — the same script, in a different mode, reading stored data
+    back and answering the catalogue.<br>
+    <strong>Overlay server</strong> — a simulator that stands in for a real camera. It
+    serves a page and emits plausible numbers.<br>
+    <strong>Flatten</strong> — turning a nested JSON object into many flat
+    <code>metric + value + tags</code> measurements.<br>
+    <strong><code>camera_id</code></strong> — the tag every measurement carries, so
+    several cameras can share one database.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">11</div><div class="l">Metrics per camera</div></div>
+    <div class="stat"><div class="n">17</div><div class="l">Questions answered</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Scripts</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">sqtseries imports needed</div></div>
+    <div class="stat"><div class="n">0.25 s</div><div class="l">Simulator push interval</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Why it is worth reading</h2>
+  <p>Nothing in sqtseries knows or cares that the source is a camera. The feed
+  produces ordinary measurements with ordinary tags and goes through the same write
+  path as anything else. That is the point of the example: <strong>it is a workload,
+  not a feature</strong>, and everything it demonstrates is something you get for
+  free.</p>
+
+  <div class="box ok">
+    <span class="lbl">The one dependency, and where it is not needed</span>
+    <p><code>camera_feed.py</code> in pump mode needs the <code>websockets</code>
+    package, and nothing else. It deliberately <strong>does not import
+    sqtseries</strong> — it speaks plain HTTP. So it runs from any Python
+    environment, a different virtualenv, or a different machine, as long as it can
+    reach the HTTP port.</p>
+<pre><span class="p">$</span> pip install websockets     <span class="c"># only needed for pump mode</span></pre>
+    <p><code>--ask</code> mode needs nothing beyond the standard library, and neither
+    does <code>overlay_server.py</code> beyond what sqtseries already depends
+    on.</p>
+  </div>
+</section>
+
+<section>
+  <h2>How the nested JSON is flattened</h2>
+  <p>A camera sends one message with nesting. sqtseries stores flat triples. So each
+  message becomes eleven measurements, every one tagged with the camera it came
+  from.</p>
+
+<pre><span class="c">// one message from the camera, nested</span>
+{
+  <span class="v">"current_visible_people"</span>: 21,
+  <span class="v">"total_detected_people"</span>: 237,
+  <span class="v">"current_visible_cars"</span>: 9,
+  <span class="v">"people_last_minute"</span>: 21,
+  <span class="v">"system_metrics"</span>: {
+    <span class="v">"batteryPercent"</span>: 84.3,
+    <span class="v">"cpuUsagePercent"</span>: 41.3,
+    <span class="v">"cpuTemperature"</span>: 62.4
+  },
+  <span class="v">"detection_overlay_enabled"</span>: <span class="k">true</span>
+}
+
+<span class="c">// becomes eleven measurements, all tagged camera_id=test_cam_001</span>
+traffic.people.current      21     traffic.vehicles.current   9
+traffic.people.total        237    traffic.vehicles.total     100
+traffic.people.last_minute  21     traffic.cars.last_minute   9
+system.battery.percent      84.3   system.battery.temperature 28.5
+system.cpu.usage            41.3   system.cpu.temperature     62.4
+status.detection_overlay    1      <span class="c">// true -&gt; 1.0, false -&gt; 0.0</span></pre>
+
+  <p>Two details worth copying if you write your own flattener:</p>
+
+  <ul>
+    <li><strong>A boolean becomes 1.0 or 0.0.</strong> A flag like
+    <code>detection_overlay_enabled</code> is still a measurement, and storing it as a
+    number means you can <code>avg</code> it to find out how often the overlay was
+    on.</li>
+    <li><strong>Strings are skipped.</strong> <code>batteryHealth</code>,
+    <code>stats_footer_text</code> and the overlay URLs cannot be numeric
+    measurements, so they are dropped. If you need them, they belong somewhere else
+    — sqtseries stores numbers, and pretending otherwise would cost you the ability
+    to aggregate.</li>
+  </ul>
+
+  <p>Because every measurement carries <code>camera_id</code> as a tag, ten cameras
+  in one database are ten series per metric — not one blended series. See
+  <a href="ingestion.html#tags">tags as dimensions</a> for why that matters.</p>
+</section>
+
+<section>
+  <h2>Run it</h2>
+  <p>Four terminals. Start at the top.</p>
+
+  <h3>Terminal 1 — the camera, or the simulator</h3>
+  <p>With a real camera, point at its metrics WebSocket. With the bundled simulator,
+  start it and note the port it prints — it picks a random free one unless you say
+  otherwise.</p>
+
+<pre><span class="p">$</span> python3 examples/camera/overlay_server.py
+<span class="c"># Overlay server on http://0.0.0.0:58547</span>
+<span class="c"># metrics WebSocket:  ws://localhost:58547/ws/metrics</span></pre>
+
+  <pre><span class="c"># or pin the port</span>
+<span class="p">$</span> python3 examples/camera/overlay_server.py <span class="o">--port</span> <span class="v">30080</span></pre>
+
+  <p>Environment variables also steer it:
+  <code>TEST_HOST</code>, <code>TEST_PORT</code>, <code>TEST_CAMERA_ID</code>,
+  <code>TEST_PUSH_INTERVAL</code> and <code>TEST_ERROR_INTERVAL</code>. The last one
+  injects errors on a schedule, which is how you test that a client survives a
+  flaky feed rather than only a healthy one.</p>
+
+  <h3>Terminal 2 — sqtseries</h3>
+
+<pre><span class="p">$</span> sqtseries <span class="o">--config</span> config.toml <span class="o">run</span></pre>
+
+  <h3>Terminal 3 — the pump</h3>
+
+<pre><span class="p">$</span> python3 examples/camera/camera_feed.py <span class="o">--ws</span> <span class="v">ws://localhost:58547/ws/metrics</span>
+connected to ws://localhost:58547/ws/metrics
+stored 11 measurements   <span class="c"># per message</span>
+…</pre>
+
+  <p>Leave it running. The faster you want data, the shorter the wall-clock window
+  you need to answer questions over — an hour of data is enough for the catalogue
+  once there is some.</p>
+
+  <p>Every option it takes:</p>
+
+  <div class="tablewrap"><table class="opts">
+    <thead><tr><th>Option</th><th>Argument</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">--ws</td><td>URL</td>
+        <td class="def">ws://localhost:30080/ws/metrics</td>
+        <td>The camera's metrics WebSocket. The default assumes the simulator was
+        started with <code>--port 30080</code>; the simulator normally picks a random
+        port, so in practice pass the URL it printed.</td></tr>
+      <tr><td class="opt">--host</td><td>HOST</td><td class="def">127.0.0.1</td>
+        <td>sqtseries HTTP host.</td></tr>
+      <tr><td class="opt">--http-port</td><td>PORT</td><td class="def">12505</td>
+        <td>sqtseries HTTP port.</td></tr>
+      <tr><td class="opt">--ask</td><td class="muted">none</td><td class="def">off</td>
+        <td>Answer the question catalogue from stored data instead of pumping.</td></tr>
+      <tr><td class="opt">--hours</td><td>N</td><td class="def">24</td>
+        <td>The window for <code>--ask</code>.</td></tr>
+      <tr><td class="opt">--once</td><td class="muted">none</td><td class="def">off</td>
+        <td>Pump a single message and exit. This is what the test suite uses.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Terminal 4 — the questions</h3>
+
+<pre><span class="p">$</span> python3 examples/camera/camera_feed.py <span class="o">--ask</span>
+<span class="p">$</span> python3 examples/camera/camera_feed.py <span class="o">--ask</span> <span class="o">--hours</span> <span class="v">6</span></pre>
+</section>
+
+<section>
+  <h2>The seventeen questions</h2>
+  <p>These are the questions <code>camera_feed.py --ask</code> actually asks, in the
+  order it asks them. Every one is plain HTTP against the query API — there is no
+  camera support anywhere in the service.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>#</th><th>Question</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">1</td><td>Traffic levels — visible people</td>
+        <td><code>aggregate(traffic.people.current, avg, min, max, median, p95, p99)</code></td></tr>
+      <tr><td class="opt">2</td><td>Busiest hour and busiest day</td>
+        <td><code>read(traffic.people.last_minute, sum, 1h)</code> and the same at
+        <code>1d</code>, then take the extremes</td></tr>
+      <tr><td class="opt">3</td><td>Total footfall</td>
+        <td><code>aggregate(traffic.people.total, max)</code> — a running total is a
+        <em>max</em>, not a sum</td></tr>
+      <tr><td class="opt">4</td><td>Day-over-day trend</td>
+        <td>daily footfall sums from <code>read(…, sum, 1d)</code>, compared with
+        each other</td></tr>
+      <tr><td class="opt">5</td><td>Turnover — detected total vs currently visible</td>
+        <td>the two counters side by side; the gap is how long people linger</td></tr>
+      <tr><td class="opt">6</td><td>Capacity planning — percentile ladder</td>
+        <td>a ladder of percentiles on footfall, to size the site</td></tr>
+      <tr><td class="opt">7</td><td>Anomaly detection</td>
+        <td>the current hour against the same hour on previous days</td></tr>
+      <tr><td class="opt">8</td><td>Battery — drain rate and life projection</td>
+        <td><code>read(system.battery.percent, avg, 1h)</code>, then a rate and an
+        extrapolation</td></tr>
+      <tr><td class="opt">9</td><td>CPU and thermal</td>
+        <td><code>aggregate(system.cpu.usage)</code> and
+        <code>aggregate(system.cpu.temperature)</code></td></tr>
+      <tr><td class="opt">10</td><td>Correlation — footfall against CPU, per hour</td>
+        <td>both bucketed at <code>1h</code>, then correlated in Python</td></tr>
+      <tr><td class="opt">11</td><td>Battery drain on busy days against quiet ones</td>
+        <td>split by footfall, then compare the drain slopes</td></tr>
+      <tr><td class="opt">12</td><td>Feed health — staleness</td>
+        <td><code>read(…, limit=1, order=desc)</code>, then the age of the newest
+        point against the push interval</td></tr>
+      <tr><td class="opt">13</td><td>Feed uptime — expected against received</td>
+        <td>a count per hour against the expected number of pushes</td></tr>
+      <tr><td class="opt">14</td><td>Per-camera breakdown</td>
+        <td>the same aggregate for each <code>camera_id</code></td></tr>
+      <tr><td class="opt">15</td><td>Monthly projection</td>
+        <td>the observed daily rate extended over a month</td></tr>
+      <tr><td class="opt">16</td><td>Storage growth</td>
+        <td><code>read(…, count, 1d)</code>, then points per day against the
+        retention window</td></tr>
+      <tr><td class="opt">17</td><td>Overlay availability</td>
+        <td><code>aggregate(status.detection_overlay, avg)</code> — near 1 means
+        usually on</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box key">
+    <span class="lbl">Questions 10 and 11 are the interesting ones</span>
+    <p>A time-series store aggregates <em>one metric at a time</em>. It will not divide
+    two metrics together, and it will not correlate them for you — and that is not a
+    missing feature so much as a consequence of the model. Aggregating each series
+    into hourly buckets and doing the arithmetic over a few dozen rows is cheap,
+    portable, and inspectable.</p>
+    <p>It is also the honest answer. Correlation computed by a database is a number
+    you cannot explain; correlation computed over two hourly series is something you
+    can.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Watching it live</h2>
+  <p>The stock dashboard shows service health. This shows <em>data</em> — the same
+  measurements as they land — using the public <code>/ws/subscribe</code> endpoint
+  and nothing else. There is no build step and no custom server.</p>
+
+<pre><span class="c">// open examples/camera/overlay.html through any static server, or</span>
+<span class="c">// read it and paste the script part into a console on your own page</span>
+cat examples/camera/overlay.html</pre>
+
+  <p>The three lines that matter:</p>
+
+<pre><span class="k">const</span> ws = <span class="k">new</span> WebSocket(
+  <span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=system."</span>   <span class="c">// one topic prefix</span>
+);
+ws.onmessage = (e) =&gt; {
+  <span class="k">const</span> m = JSON.parse(e.data);
+  <span class="k">if</span> (m.type === <span class="v">"ping"</span>) <span class="k">return</span>;      <span class="c">// idle keepalive, not data</span>
+  render(m.metric, m.value, m.tags);
+};</pre>
+
+  <p>That is the whole integration. A browser, a topic filter, and a JSON frame.</p>
+
+  <div class="box">
+    <span class="lbl">Why the overlay page is served separately</span>
+    <p><code>overlay_server.py</code> runs its own HTTP listener rather than adding a
+    route to sqtseries. That is deliberate: an overlay has to be reachable as a
+    browser source from elsewhere on the network, and putting that on the gateway
+    would add a second, unauthenticated listener to the port that holds your
+    data.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Proving the live path still works</h2>
+  <p><code>conn_validate.py</code> checks the connection-tracking feed end to end: it
+  joins and leaves clients and ZeroMQ subscribers, and asserts that every change
+  arrives over <code>/ws/connections</code>. It is what the test suite runs, so a
+  change that broke connection tracking fails a test rather than quietly degrading
+  the dashboard.</p>
+
+<pre><span class="p">$</span> python3 examples/camera/conn_validate.py
+connecting 3 WebSocket clients and 2 ZMQ subscribers…
+  ws client 1 joined      ok
+  ws client 2 joined      ok
+  ws client 3 joined      ok
+  zmq subscriber 1 joined ok
+  zmq subscriber 2 joined ok
+…leaving…
+  all joins and leaves observed in order
+PASS</pre>
+
+  <div class="tablewrap"><table class="opts">
+    <thead><tr><th>Option</th><th>Argument</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">--host</td><td>HOST</td><td class="def">127.0.0.1</td>
+        <td>sqtseries host.</td></tr>
+      <tr><td class="opt">--http-port</td><td>PORT</td><td class="def">12505</td>
+        <td>HTTP and WebSocket port.</td></tr>
+      <tr><td class="opt">--stream-port</td><td>PORT</td><td class="def">12503</td>
+        <td>ZeroMQ streaming port.</td></tr>
+      <tr><td class="opt">--clients</td><td>N</td><td class="def">3</td>
+        <td>How many WebSocket clients to join and leave.</td></tr>
+      <tr><td class="opt">--zmq-subs</td><td>N</td><td class="def">2</td>
+        <td>How many ZeroMQ subscribers to join and leave.</td></tr>
+      <tr><td class="opt">--timeout</td><td>SECONDS</td><td class="def">5.0</td>
+        <td>How long to wait for each expected event before failing.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Adapting it to your own source</h2>
+  <p>The flattener is about thirty lines and is the only part specific to a camera.
+  Everything after it — the writes, the questions, the live page — is generic.</p>
+
+  <ol class="steps">
+    <li><b>Point at your source</b><span>Any WebSocket, HTTP poll, MQTT topic or
+    file tail works. Keep the pump separate from sqtseries and it stays a
+    five-line client.</span></li>
+    <li><b>Flatten to numbers</b><span>One metric name per leaf, booleans as 1.0 and
+    0.0, strings skipped. Decide your tag set here and keep it small and stable —
+    it is permanent.</span></li>
+    <li><b>Write in batches over HTTP</b><span>Send an array of measurements per
+    message. It is validated as a unit, so a bad item rejects the batch instead of
+    leaving a gap.</span></li>
+    <li><b>Ask the catalogue</b><span>Every question above is one HTTP call. Replace
+    the metric names and they work unchanged.</span></li>
+  </ol>
+
+  <p>The higher-rate alternative is to swap the HTTP write for a ZeroMQ PUSH socket —
+  same JSON, no reply, and it does not block on a reply. Everything downstream is
+  identical, so this is a one-function change in the pump.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>The write path in depth: batches, tags as dimensions, the clock-skew guard,
+      and the bounded queue.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>Every aggregation the catalogue uses, buckets, and why five of the ten are
+      fast and five are not.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>The <code>/ws/subscribe</code> protocol the live page uses, and topic
+      matching.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>The rest of the example scripts — monitoring, alerting, retention, a
+      sustained high-rate pump.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>The same HTTP calls from Go, Rust, PHP, Node.js and the shell.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>The stock page, for service health rather than data — the two complement
+      each other.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>It is an ordinary write path</h5>
+      <p>
+            The camera feed produces ordinary measurements with ordinary tags.
+            Nothing in the engine knows or cares that the source is a camera, which
+            is the point: the example is a workload, not a feature.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Why the live page exists</h5>
+      <p>
+            The stock dashboard shows <em>service</em> health. This second page
+            shows <em>data</em> — the metric as it arrives — using the same
+            <code>/ws/subscribe</code> endpoint any browser can use. It is a small
+            HTML file and no build step.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The overlay server is separate on purpose</h5>
+      <p>
+            The overlay page is served by its own tiny HTTP server, not by the
+            sqtseries gateway. An overlay has to be reachable as a browser source
+            on the network, and mixing that into the data gateway would put a
+            second, unauthenticated listener on the port that holds your data.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Connection validation is a real tool</h5>
+      <p>
+            <code>conn_validate.py</code> checks the live page end to end: it
+            connects, waits for real frames, and reports what it saw. It is how the
+            suite proves the page still works after a change.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The seventeen questions are the point</h5>
+      <p>
+            Once a feed is stored it is just time-series data, so every question on
+            the <a href="queries.html">Queries</a> page applies. The questions are
+            listed with their exact calls on this page.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Running it yourself</h5>
+      <p>
+            The steps below run all three scripts against a live service. The suite
+            runs the same path, so a break here is a test failure, not a silent
+            drift.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — a camera feed, stored and watched live.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

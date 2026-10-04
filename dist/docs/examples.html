@@ -3,697 +3,763 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Examples — sqtseries</title>
+<title>sqtseries — Examples: the scripts, run and shown</title>
+<meta name="description" content="Runnable sqtseries examples: server monitoring, dashboards, alerting, retention, high-rate ingest, health checks, and the four canonical questions.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a class="here" href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
-
-<h2>Examples &amp; Scenarios</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>Each section shows a real-world task with complete code you can copy and
-run. Every example assumes sqtseries is running on <code>127.0.0.1</code> with
-its default ports. If you have not installed it yet, start with the
-<a href="quickstart.html">Quick Start</a>.</p>
-
-<div class="note">
-  <strong>Ready-to-run scripts.</strong> The <code>examples/</code> directory
-  in the project repository contains standalone scripts for every operation
-  described below. They run against any sqtseries instance — most accept
-  <code>--host</code> and port-specific flags (e.g. <code>--write-port</code>,
-  <code>--query-port</code>, <code>--http-port</code>). Run them with
-  <code>python3 examples/&lt;name&gt;.py</code>.
-  <br><br>
-  <strong>The camera pipeline</strong> lives in its own subdirectory,
-  <code>examples/camera/</code>: <code>overlay_server.py</code> (simulated
-  camera-metrics WebSocket source that also serves a live dashboard page),
-  <code>overlay.html</code> (that dashboard — subscribes to the same-origin
-  metrics WebSocket and renders readings as they arrive),
-  <code>camera_feed.py</code> (pump a camera feed into sqtseries and answer
-  every question the data can answer), <code>sqtcam.sh</code>
-  (one-command runner: sqtseries + simulator + feed in a tmux session, for
-  overnight data collection), and <code>conn_validate.py</code> (validate the
-  live connection/subscription feed).
-  <br><br>
-  <strong>Available scripts:</strong>
-  <code>run_custom.py</code> (start/verify/stop your own instance with your
-  own config, ports, and database),
-  <code>producer.py</code> (ZMQ ingestion),
-  <code>ingest_http.py</code> (HTTP ingestion),
-  <code>consumer.py</code> (ZMQ/HTTP query),
-  <code>query_examples.py</code> (every query type),
-  <code>question_examples.py</code> (13 classic questions answered end to end,
-  each with machine-readable output),
-  <code>question_examples_advanced.py</code> (10 advanced questions: per-series,
-  percentiles, trends, data quality, staleness, and more),
-  <code>stream_examples.py</code> (live subscription),
-  <code>admin_examples.py</code> (all 9 admin commands),
-  <code>stats_monitor.py</code> (live stats feed),
-  <code>maintenance_examples.py</code> (backup, vacuum, health loop),
-  <code>tags_examples.py</code> (why tags exist, whole-metric vs per-tag
-  queries, cardinality).
-  <br><br>
-  <strong>The question catalog.</strong> Start with
-  <code>question_examples.py</code>: it seeds deterministic sample data and
-  answers the classic questions people ask — averages, yesterday's peak,
-  99th percentiles, counts, trends, buckets, busiest hour/day, sums,
-  staleness, all-time stats, and HTTP/curl variants — printing each answer
-  as a machine-readable <code>ANSWER: key = value</code> line. A short note:
-  the demo seeds "history" (yesterday, last week), so start the service with
-  the clock-skew guard raised:
-  <code>[ingestion] reject_client_timestamp_skew_s = 864000</code> (10 days).
-</div>
-
-<h3>0. Running the service with your own config, ports, and database</h3>
-<p>Every example below assumes sqtseries is running on the default ports.
-When you want your own ports or your own database file, the one command
-that starts it is (global options like <code>--config</code> and
-<code>--db</code> come <em>before</em> the <code>run</code> subcommand):</p>
-<pre><code>sqtseries --config /etc/sqtseries/config.toml run
-# identical with python -m (what the examples/ scripts and systemd use):
-python3 -m sqtseries --config /etc/sqtseries/config.toml run
-</code></pre>
-<p>Pick any ports, DB path, etc. in the config — see
-<a href="configuration.html">Configuration</a>. To choose only the
-database on the command line:
-<code>sqtseries --db /data/tsdb.sqlite run</code>.</p>
-<p>The script <code>examples/run_custom.py</code> walks the full cycle for
-you: it writes a config with free ports and a fresh database file, starts
-the service with <code>--config … run</code>, waits for the admin ping,
-writes and queries one metric over those ports, then stops the service —
-and on each step prints the exact command it ran, so you can copy it line
-by line:</p>
-<pre><code>python3 examples/run_custom.py</code></pre>
-<p>To register the service with systemd instead, the unit embeds the same
-config (plus the database path as an environment variable) — install it
-with the global <code>--config</code> flag:</p>
-<pre><code>sqtseries --config /etc/sqtseries/config.toml install   # user unit
-sqtseries --config /etc/sqtseries/config.toml install --system  # system unit
-</code></pre>
-
-<hr>
-
-<h3>0a. Script reference: every example and its options</h3>
-<p>Most scripts accept <code>--host</code> (default <code>127.0.0.1</code>)
-and the port flag(s) listed below, so they work against any sqtseries
-instance — including one running on custom ports
-(<code>run_custom.py</code> and <code>camera/overlay_server.py</code> are
-the exceptions: they manage their own ports). Unless stated otherwise, scripts
-connect to an already-running service and exit on their own; the ones
-marked <em>streaming</em> run until Ctrl+C.</p>
-<div class="table-wrap"><table>
-  <tr><th>Script</th><th>Purpose</th><th>Options (default)</th><th>Runs until</th></tr>
-  <tr><td><code>producer.py</code></td>
-      <td>Send measurements via ZMQ PUSH</td>
-      <td><code>--port</code> 12501, <code>--rate</code> 10 msg/s
-          (0 = as fast as possible), <code>--count</code> 0 (0 = forever),
-          <code>--batch</code> 500 (checkpoint print)</td>
-      <td>— count sent or forever</td></tr>
-  <tr><td><code>ingest_http.py</code></td>
-      <td>Send measurements via HTTP (no ZMQ needed)</td>
-      <td><code>--port</code> 12505, <code>--rate</code> 2 msg/s,
-          <code>--batch</code> 20 points per request,
-          <code>--count</code> 0 (0 = forever)</td>
-      <td>— count sent or forever</td></tr>
-  <tr><td><code>consumer.py</code></td>
-      <td>Run a query over ZMQ or HTTP</td>
-      <td><code>--port</code> 12502 (ZMQ query),
-          <code>--http</code> base URL (e.g. <code>http://127.0.0.1:12505</code>)</td>
-      <td>— one query</td></tr>
-  <tr><td><code>query_examples.py</code></td>
-      <td>Every query type: raw, whole-window agg, downsampling,
-          multi-agg, HTTP</td>
-      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
-          <code>--http-port</code> 12505</td>
-      <td>— seeds data, then runs</td></tr>
-  <tr><td><code>question_examples.py</code></td>
-      <td>13 classic questions answered (question catalog)</td>
-      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
-          <code>--http-port</code> 12505</td>
-      <td>— seeds data, then runs</td></tr>
-  <tr><td><code>stream_examples.py</code></td>
-      <td>Live measurements (ZMQ SUB, Python client, or WebSocket)</td>
-      <td>positional <code>topic</code> prefix (<code>*</code> = all),
-          <code>--port</code> 12503, <code>--http-port</code> 12505 (for
-          <code>--ws</code>), <code>--ws</code>, <code>--client</code></td>
-      <td>streaming — Ctrl+C</td></tr>
-  <tr><td><code>admin_examples.py</code></td>
-      <td>Every admin command (ping → vacuum)</td>
-      <td><code>--port</code> 12504</td>
-      <td>— one pass</td></tr>
-  <tr><td><code>stats_monitor.py</code></td>
-      <td>Live stats PUB events (conn/sub/report)</td>
-      <td>positional <code>filter</code> prefix
-          (conn, sub, report, or empty = all), <code>--port</code> 12506</td>
-      <td>streaming — Ctrl+C</td></tr>
-  <tr><td><code>maintenance_examples.py</code></td>
-      <td>Health check, stats, backup, optimize, vacuum</td>
-      <td><code>--admin-port</code> 12504, <code>--http-port</code> 12505,
-          <code>--backup-only</code>, <code>--health-loop</code> N seconds
-          (0 = run once)</td>
-      <td>— one pass (or loop with Ctrl+C)</td></tr>
-  <tr><td><code>question_examples_advanced.py</code></td>
-      <td>10 advanced questions: per-series breakdowns, percentiles,
-          trends, data quality, staleness</td>
-      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
-          <code>--http-port</code> 12505, <code>--admin-port</code> 12504,
-          <code>--db</code> PATH (needed for the per-series questions)</td>
-      <td>— seeds data, then runs</td></tr>
-  <tr><td><code>run_custom.py</code></td>
-      <td>Start, verify, and stop your own instance (writes a config,
-          picks free ports, runs <code>python3 -m sqtseries
-          --config … run</code>)</td>
-      <td><code>--workdir</code> (default <code>sqt-custom-work</code>)</td>
-      <td>— full lifecycle, then exits</td></tr>
-  <tr><td><code>scale_check.py</code></td>
-      <td>Churn N subscriber connections and verify the registry counts
-          every join and leave exactly (baseline restored afterwards)</td>
-      <td><code>--port</code> 12503, <code>--admin-port</code> 12504,
-          <code>--topics</code> (default 200)</td>
-      <td><code>python3 examples/scale_check.py</code></td></tr>
-  <tr><td><code>run_all_examples.py</code></td>
-      <td>Run every example above against a live service on free ports
-          and report pass/fail (keeps examples from going stale)</td>
-      <td><code>--skip-camera</code></td>
-      <td><code>python3 examples/run_all_examples.py</code></td></tr>
-  <tr><td><code>camera/overlay_server.py</code></td>
-      <td>Simulated camera-metrics WebSocket source (people/vehicles,
-          battery, CPU) — feeds <code>camera_feed.py</code> and serves the
-          live dashboard page</td>
-      <td><code>--port</code> (default: a random free port),
-          <code>TEST_*</code> env vars (host, port, push interval,
-          camera ID)</td>
-      <td>streaming — Ctrl+C</td></tr>
-  <tr><td><code>camera/overlay.html</code></td>
-      <td>Live dashboard served by the simulator at <code>/</code> and
-          <code>/overlay.html</code> — subscribes to the same-origin
-          <code>/ws/metrics</code> WebSocket and renders each reading as it
-          arrives, with auto-reconnect; add
-          <code>?sqtseries=ws://…/ws/subscribe</code> to also stream what
-          the time-series database publishes</td>
-      <td><code>?sqtseries=</code> WS URL to sqtseries,
-          <code>&amp;metric=</code> topic prefix filter</td>
-      <td>— stays live while the tab is open</td></tr>
-  <tr><td><code>camera/camera_feed.py</code></td>
-      <td>Pump a camera WebSocket feed into sqtseries and answer every
-          question the stored data can answer</td>
-      <td>pump: <code>--ws</code> URL, <code>--host</code>,
-          <code>--http-port</code>; <code>--ask</code> (17 questions),
-          <code>--hours</code> window, <code>--once</code></td>
-      <td>pump: streaming — Ctrl+C; <code>--ask</code>: one pass</td></tr>
-  <tr><td><code>camera/sqtcam.sh</code></td>
-      <td>One-command runner: starts sqtseries, the overlay simulator, and
-          the camera feed in a three-window tmux session for long data
-          collection</td>
-      <td>— (uses <code>/tmp/sqtcam/conf.toml</code>; refuses to start a
-          second session)</td>
-      <td>— runs until <code>tmux kill-session -t sqtcam</code></td></tr>
-  <tr><td><code>camera/conn_validate.py</code></td>
-      <td>Validate the live connection/subscription feed of a running
-          sqtseries: joins/leaves WebSocket + ZMQ subscribers and asserts
-          exact counts, arrival/leaving times, and push latency</td>
-      <td><code>--http-port</code> 12505, <code>--stream-port</code> 12503,
-          <code>--clients</code> 3, <code>--zmq-subs</code> 2,
-          <code>--timeout</code> 5</td>
-      <td>— one pass (exits non-zero on any mismatch)</td></tr>
-  <tr><td><code>tags_examples.py</code></td>
-      <td>Walk through tags: why they exist, series identity, whole-metric vs
-          per-tag queries, validation, cardinality — with a live dataset</td>
-      <td><code>--write-port</code> 12501, <code>--query-port</code> 12502,
-          <code>--http-port</code> 12505, <code>--db</code> PATH (needed for
-          the per-tag breakdown)</td>
-      <td>— one pass</td></tr>
-  <tr><td><code>iso_timestamps.py</code></td>
-      <td>ISO-8601 timestamps beside epoch: write dated points with
-          millisecond-to-nanosecond precision, read them back over an ISO
-          window, prove the ISO window matches the epoch window</td>
-      <td>— (embedded DB in a temp dir; no running service needed)</td>
-      <td><code>python3 examples/iso_timestamps.py</code></td></tr>
-</table></div>
-<p>Note: <code>question_examples.py</code> and <code>query_examples.py</code>
-backfill historical data, so the service must be running with
-<code>reject_client_timestamp_skew_s</code> raised (see the skew note under
-<em>Ready-to-run scripts</em> above).</p>
-
-<hr>
-
-<h3>1. Server monitoring</h3>
-<p>You want to record CPU, memory, and disk usage from several servers and
-query per-machine averages over the last hour. Each server sends readings with
-a <code>host</code> tag to distinguish them.</p>
-
-<h4>Send data (Python, one machine)</h4>
-<pre><code>from sqtseries import Client
-import psutil
-
-c = Client()
-
-while True:
-    c.write("cpu.percent", psutil.cpu_percent(), {"host": "web1"})
-    c.write("mem.percent", psutil.virtual_memory().percent, {"host": "web1"})
-    c.write("disk.percent", psutil.disk_usage("/").percent, {"host": "web1"})
-    time.sleep(10)
-</code></pre>
-
-<h4>Send data (Go, another program on the same machine — no sqtseries installed)</h4>
-<pre><code>// go get github.com/pebbe/zmq4
-sock, _ := zmq.NewSocket(zmq.PUSH)
-sock.Connect("tcp://127.0.0.1:12501")  // sqtseries binds local-only, so this runs on the same machine
-sock.Send(`{"metric":"cpu.percent","value":42.0,"tags":{"host":"web2"}}`, 0)
-</code></pre>
-
-<h4>Query the last hour of CPU</h4>
-<pre><code>import time
-from sqtseries import Client
-
-c = Client()
-now_ns = time.time_ns()
-rows = c.query("cpu.percent", start=now_ns - 3600 * 10**9, end=now_ns,
-               aggregation="avg", interval="1m")
-for row in rows:
-    print(f"Average CPU at {row['timestamp']}: {row['value']:.1f}%")
-</code></pre>
-<p>Note that the client takes <em>nanosecond</em> epochs (or ISO-8601 strings
-like <code>"2026-09-11T14:00:00Z"</code>) for
-<code>start</code>/<code>end</code>; returned rows carry epoch-
-<em>seconds</em> timestamps.</p>
-
-<h4>Peak across all machines</h4>
-<pre><code>stats = c.aggregate("cpu.percent", funcs=["avg", "max", "p95"])
-print(f"Average: {stats['avg']:.1f}%, Max: {stats['max']:.1f}%, P95: {stats['p95']:.1f}%")
-</code></pre>
-
-<hr>
-
-<h3>2. Instant dashboard (browser)</h3>
-<p>You want a web page that shows live readings the moment they arrive, and
-also displays how many other viewers are watching right now.</p>
-
-<h4>Live data feed (WebSocket)</h4>
-<pre><code>const ws = new WebSocket("ws://127.0.0.1:12505/ws/subscribe?metric=sensor.");
-ws.onmessage = (e) => {
-    const point = JSON.parse(e.data);
-    document.getElementById("latest").textContent =
-        `${point.metric}: ${point.value}`;
-};
-// the service also sends {"type":"ping"} roughly every 30s — ignore it
-</code></pre>
-
-<h4>Viewer count (admin socket)</h4>
-<p>Every 10 seconds, ask the admin socket how many WebSocket clients are
-connected:</p>
-<pre><code>import zmq, orjson, time
-
-ctx = zmq.Context()
-s = ctx.socket(zmq.REQ)
-s.connect("tcp://127.0.0.1:12504")
-
-while True:
-    s.send(orjson.dumps({"cmd": "connections"}))
-    reply = orjson.loads(s.recv())
-    print(f"Connected viewers: {len(reply.get('data', []))}")
-    time.sleep(10)
-</code></pre>
-
-<p>Or subscribe to the stats PUB socket (port 12506) for a push-based
-alternative — see example 5 below.</p>
-
-<hr>
-
-<h3>3. Logging sensor data and running reports</h3>
-<p>You have 20 temperature sensors around a building, each writing once per
-minute. You want daily summary reports showing the minimum, maximum, and
-average per sensor.</p>
-
-<h4>Writing (this runs on each sensor's device)</h4>
-<pre><code>from sqtseries import Client
-c = Client()
-c.write("temp.celsius", 19.2, {"room": "lobby", "floor": "1"})
-c.write("temp.celsius", 22.7, {"room": "kitchen", "floor": "1"})
-c.write("temp.celsius", 18.1, {"room": "basement", "floor": "-1"})
-</code></pre>
-
-<h4>Daily report (run once a day from a script)</h4>
-<pre><code>import time
-from sqtseries import Client
-
-c = Client()
-now_ns = time.time_ns()
-yesterday_ns = now_ns - 86400 * 10**9
-
-rows = c.query("temp.celsius", start=yesterday_ns, end=now_ns,
-               aggregation="avg", interval="1h")
-# each row is one hour's average temperature across all sensors
-
-# Or ask for the summary numbers directly:
-stats = c.aggregate("temp.celsius", start=yesterday_ns, end=now_ns,
-                    funcs=["avg", "min", "max", "count"])
-print(f"Yesterday: avg={stats['avg']:.1f}, min={stats['min']:.1f}, "
-      f"max={stats['max']:.1f}, readings={stats['count']}")
-</code></pre>
-
-<h4>Which rooms are too hot?</h4>
-<p>Query the embedded engine directly when you need per-tag breakdowns (the
-wire protocol filters by metric, not by tag):</p>
-<pre><code>from sqtseries.engine import StorageEngine, create_sqlite_engine
-import orjson
-
-engine = create_sqlite_engine("~/.sqtseries/data/db.sqlite")
-store = StorageEngine(engine)
-
-# group every series_id by its room tag
-rooms = {}
-for sid in store.series_ids_for_metric("temp.celsius"):
-    _, tags_json = store.get_series_meta(sid)
-    tags = orjson.loads(tags_json) if tags_json else {}
-    rooms.setdefault(tags.get("room", "unknown"), []).append(sid)
-
-# query each room separately
-for room, sids in sorted(rooms.items()):
-    rows = list(store.query_time_range(
-        series_ids=sids, start_ns=yesterday_ns, end_ns=now_ns))
-    avg = sum(v for _, v in rows) / len(rows) if rows else 0
-    print(f"{room}: {avg:.1f} °C")
-</code></pre>
-
-<hr>
-
-<h3>4. Alerting on anomalies</h3>
-<p>You want to know instantly when a reading goes outside normal bounds. You
-subscribe to the live stream and check every value as it arrives.</p>
-
-<h4>Python subscriber that alerts</h4>
-<pre><code>from sqtseries import Client
-
-c = Client()
-THRESHOLD = 90.0  # alert if CPU goes above 90%
-
-for payload in c.subscribe("cpu."):
-    if payload is None:   # idle heartbeat
-        continue
-    value = payload["value"]
-    if value > THRESHOLD:
-        print(f"ALERT: {payload['metric']} = {value}% "
-              f"on {payload['tags']['host']}")
-</code></pre>
-
-<h4>ZMQ subscriber (Go — no Python needed)</h4>
-<pre><code>sub, _ := zmq.NewSocket(zmq.SUB)
-sub.Connect("tcp://127.0.0.1:12503")
-sub.SetSubscribe("cpu.")
-
-for {
-    msg, _ := sub.RecvMessage(0)
-    if len(msg) >= 2 {
-        fmt.Println("ALERT:", string(msg[1]))
-    }
-}
-</code></pre>
-
-<hr>
-
-<h3>5. Monitoring connections (admin + stats socket)</h3>
-<p>You want to know at all times how many clients are connected, which topics
-they are watching, and whether a specific device is still online.</p>
-
-<h4>Quick check: who is connected right now?</h4>
-<pre><code>from sqtseries import Client
-c = Client()
-reply = c.admin("connections")
-for conn in reply["data"]:
-    print(f"{conn['id']}: {conn['kind']} from {conn['peer']} "
-          f"watching {conn['topic']}")
-</code></pre>
-
-<h4>Is this specific device still connected?</h4>
-<pre><code># You saved a connection ID when the WebSocket first connected:
-device_id = "a1b2c3d4e5f6"
-
-reply = c.admin("conncheck", ids=[device_id])
-if device_id in reply["present"]:
-    print("Device is online")
-else:
-    print("Device has disconnected")
-</code></pre>
-
-<h4>How many subscribers does each topic have?</h4>
-<pre><code>reply = c.admin("subscribers")
-for sub in reply["topics"]:
-    print(f"{sub['topic']}: {sub['subscribers']} listeners, {sub['total']} points")
-</code></pre>
-
-<h4>Live stats feed (PUB socket subscription)</h4>
-<p>The stats PUB socket (port 12506) emits events in real time — no polling
-needed. Subscribe with a prefix to receive only what you care about:</p>
-<pre><code>import zmq, orjson
-
-ctx = zmq.Context()
-stats = ctx.socket(zmq.SUB)
-stats.connect("tcp://127.0.0.1:12506")
-stats.setsockopt(zmq.SUBSCRIBE, b"conn")  # only connection events
-
-while True:
-    event_type, payload = stats.recv_multipart()
-    data = orjson.loads(payload)
-    if data.get("connected"):
-        print(f"CONNECTED: {data['id']} from {data['peer']} "
-              f"({data['kind']})")
-    else:
-        print(f"DISCONNECTED: {data['id']}")
-</code></pre>
-
-<p>Subscribe to <code>b"sub"</code> for ZMQ subscription events, or
-<code>b""</code> for all events including the periodic report (every 10
-seconds: <code>uptime_s</code>, <code>ws_connections</code>,
-<code>zmq_subscribers</code>, <code>active_topics</code>).</p>
-
-<hr>
-
-<h3>6. Data retention and cleanup</h3>
-<p>You want to keep the last 30 days of detailed data but drop anything older.
-By default this happens automatically — no configuration needed. To change the
-window or disable it:</p>
-
-<pre><code># config.toml
-[retention]
-enabled = true
-default_ttl = "90d"      # keep 90 days instead of 30
-check_interval = "1h"    # check every hour
-</code></pre>
-
-<p>When a partition's data is entirely older than the TTL, its table and all
-associated rollup rows are dropped in one operation (<code>DROP TABLE</code>,
-whole monthly partition at a time). The pages are freed to SQLite's internal
-freelist and reused by new data, but the file itself keeps its peak size
-until you run <code>sqtseries vacuum</code> — see
-<a href="backup.html">Backup &amp; Restore</a> for how vacuum works and
-when to run it.</p>
-
-<h4>Manual cleanup on demand</h4>
-<pre><code># Check current storage:
-sqtseries stats
-
-# Shrink the file (stop the service first for a full VACUUM):
-sqtseries stop
-sqtseries vacuum
-
-# Or run ANALYZE to refresh query-plan statistics while running:
-sqtseries optimize
-</code></pre>
-
-<hr>
-
-<h3>7. High-rate ingestion</h3>
-<p>You are logging millions of rows and need the fastest possible write path.
-Batch your measurements and send them over ZeroMQ.</p>
-
-<pre><code>import zmq, orjson
-import time, random
-
-ctx = zmq.Context()
-sock = ctx.socket(zmq.PUSH)
-sock.setsockopt(zmq.SNDHWM, 10000)
-sock.setsockopt(zmq.LINGER, 500)
-sock.connect("tcp://127.0.0.1:12501")
-
-# Generate and send 100,000 points as fast as possible
-start = time.monotonic()
-for i in range(100_000):
-    sock.send(orjson.dumps({
-        "metric": "throughput.test",
-        "value": random.random(),
-        "tags": {"batch": str(i % 100)},
-    }))
-sock.close(linger=0)
-
-elapsed = time.monotonic() - start
-print(f"sent 100,000 points in {elapsed:.1f}s "
-      f"({100_000 / elapsed:.0f} pts/sec)")
-</code></pre>
-
-<p><span style="color:#888">pts/sec = points per second; one
-<em>point</em> is one measurement (metric + value + tags + timestamp).</span></p>
-
-<p>What to expect: the service batch-drains the ingest socket (up to 1024
-frames per tick) and commits <em>one transaction per drained batch</em>, so
-the live path sustains a large fraction of the engine-level numbers (batched
-<code>executemany</code> inserts via <code>scripts/benchmark.py</code>,
-~65–253K rows/s on an NVMe machine). The PUSH HWM (101,000) still acts as
-backpressure between bursts. Verify the numbers reliably on your own hardware
-(the reference figures come from the development machine: Intel Core Ultra 7
-255U, 12 cores / 14 threads, 22 GiB RAM, NVMe SSD) with
-<code>python3 scripts/benchmark.py</code> and
-<code>scripts/stress_percentiles.py</code> (reports P50/P90/P99 per live
-path).</p>
-
-<hr>
-
-<h3>8. Health check for load balancers</h3>
-<p>You want your load balancer or monitoring tool to know if sqtseries is
-healthy. Two options — CLI and HTTP:</p>
-
-<pre><code># CLI: exits 0 if the database passes its check
-sqtseries health
-echo $?  # 0 = healthy, 1 = degraded
-
-# HTTP: returns JSON (status + version only)
-curl http://127.0.0.1:12505/api/v1/health
-# {"status":"ok","version":"0.1.0"}
-
-# ZMQ admin (inside a Python health check):
-from sqtseries import Client
-c = Client()
-h = c.admin("health")
-if h["status"] == "ok" and h["database"] is True:
-    print("healthy")
-</code></pre>
-
-<p>The HTTP health endpoint runs a <code>quick_check</code> on the SQLite
-file — it is not just a port check. If the database file is corrupted, the
-endpoint returns <code>{"status":"degraded"}</code>. Use it in your load
-balancer's health check configuration.</p>
-
-<hr>
-
-<h2>The question catalog — four canonical questions</h2>
-<p>The repo's <code>examples/question_examples.py</code> answers 13 questions;
-the four most common ones are shown below, each over the Python client
-(nanosecond epochs or ISO-8601, <code>aggregate(funcs=…)</code>) and over HTTP with curl
-(second epochs or ISO-8601, <code>funcs=…</code>). Timestamps differ by API: the HTTP
-gateway takes epoch <em>seconds</em>, the ZMQ client takes epoch
-<em>nanoseconds</em> — both also take ISO-8601 strings. The values in the sample responses are illustrative
-shapes from the seeded demo data, not measured outputs.</p>
-
-<h3>Q1. Average CPU load over the last hour</h3>
-<pre><code>import time
-from sqtseries import Client
-
-c = Client()
-now_ns = time.time_ns()
-avg = c.aggregate("cpu.load", start=now_ns - 3600 * 10**9, end=now_ns,
-                  funcs=["avg"])["avg"]
-print(f"Answer: {avg:.2f}")
-</code></pre>
-<pre><code>now=$(date +%s)
-curl "http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&start=$((now-3600))&end=$now&funcs=avg"
-# {"status":"ok","aggregations":{"avg":52.3}}
-</code></pre>
-
-<h3>Q2. Peak temperature yesterday</h3>
-<pre><code>import time
-from sqtseries import Client
-
-c = Client()
-day_ns = (time.time() // 86400) * 86400 * 10**9               # UTC midnight today
-peak = c.aggregate("temp.celsius",
-                   start=day_ns - 86400 * 10**9, end=day_ns,
-                   funcs=["max"])["max"]
-print(f"Answer: {peak:.2f} °C")
-</code></pre>
-<pre><code>now=$(date +%s)
-yesterday=$((now / 86400 * 86400 - 86400))   # UTC midnight yesterday
-today=$((now / 86400 * 86400))               # UTC midnight today
-curl "http://127.0.0.1:12505/api/v1/aggregate?metric=temp.celsius&start=$yesterday&end=$today&funcs=max"
-# {"status":"ok","aggregations":{"max":24.5}}
-</code></pre>
-
-<h3>Q3. p99 response time over the past week</h3>
-<pre><code>import time
-from sqtseries import Client
-
-c = Client()
-now_ns = time.time_ns()
-p99 = c.aggregate("latency.web", start=now_ns - 7 * 86400 * 10**9, end=now_ns,
-                  funcs=["p99"])["p99"]
-print(f"Answer: {p99:.0f} ms")
-</code></pre>
-<pre><code>now=$(date +%s)
-curl "http://127.0.0.1:12505/api/v1/aggregate?metric=latency.web&start=$((now - 7*86400))&end=$now&funcs=p99"
-# {"status":"ok","aggregations":{"p99":107.0}}
-</code></pre>
-<p><code>p99</code> (like <code>median</code>/<code>p95</code>) is served from
-raw rows — it has no rollup fast path. <code>avg</code>/<code>sum</code>/
-<code>min</code>/<code>max</code>/<code>count</code> over wide windows use the
-hourly rollup automatically when the window spans completed hours.</p>
-
-<h3>Q4. How many measurements were recorded today?</h3>
-<pre><code>import time
-from sqtseries import Client
-
-c = Client()
-day_start_ns = (time.time() // 86400) * 86400 * 10**9
-count = c.aggregate("visitors.web", start=day_start_ns, end=time.time_ns(),
-                    funcs=["count"])["count"]
-print(f"Answer: {count:.0f} readings")
-</code></pre>
-<pre><code>now=$(date +%s)
-day=$((now / 86400 * 86400))
-curl "http://127.0.0.1:12505/api/v1/aggregate?metric=visitors.web&start=$day&end=$now&funcs=count"
-# {"status":"ok","aggregations":{"count":288.0}}
-</code></pre>
-
-<p>Run <code>python3 examples/question_examples.py</code> to see all 13
-questions answered end to end against a seeded instance.</p>
-
-<hr>
-
-<h2>Where to go next</h2>
-<div class="cards">
-  <div class="card"><h3><a href="ingestion.html">Ingestion</a></h3>
-    <p>All the ways to get data in: ZMQ, HTTP, and the Client, with
-    timestamps and the clock-skew guard.</p></div>
-  <div class="card"><h3><a href="queries.html">Queries</a></h3>
-    <p>Aggregations, intervals, the rollup fast path, gap filling, and
-    streaming queries in bounded memory.</p></div>
-  <div class="card"><h3><a href="api.html">API Reference</a></h3>
-    <p>The embedded Python API, Client, CLI, wire protocol, every admin
-    command, and the stats PUB socket.</p></div>
-  <div class="card"><h3><a href="architecture.html">Architecture</a></h3>
-    <p>The engine layout, SQLite schema, write path, rollup design, and error
-    handling strategy.</p></div>
-</div>
-
-
+<div class="sheet">
+
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · worked examples</a></div>
+  <h1>Examples</h1>
+  <p class="tagline">Every example script in the repository, what it does, the exact command to run it, and the output to expect — plus four worked questions with the real calls that answer them.</p>
+  <div class="meta">
+    <span><b>Scripts</b> 17, every one runnable</span>
+    <span><b>Runner</b> <code>run_all_examples.py</code> runs them all</span>
+    <span><b>Coverage</b> a test runs the suite against a live service</span>
+    <span><b>Questions</b> 4 canonical, with exact calls</span>
+    <span><b>Camera</b> 17 questions answered with real calls</span>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</header>
+
+<main>
+<section>
+  <h2>Runnable, and run</h2>
+  <p class="lede">Eighteen runnable example scripts in the repository, each one executed
+  against a live service by the test suite. A sample that stops working fails a test,
+  so nothing here can quietly rot.</p>
+
+  <div class="box key">
+    <span class="lbl">Before you run the question examples</span>
+    <p>The two question catalogues seed <strong>6 hours to 8 days of history</strong>.
+    The default <code>reject_client_timestamp_skew_s</code> is 300, so a service with
+    default settings <strong>refuses every one of those writes</strong>.</p>
+    <p>They now fail loudly rather than printing "no data" and exiting 0, so if you see
+    this you know exactly what happened:</p>
+<pre>seed did not land for cpu.load, temp.celsius, latency.web, visitors.web (counts={…: 0.0}).
+This service rejects historical writes: set ingestion.reject_client_timestamp_skew_s = 0
+to seed demo history.</pre>
+    <p>To run them, either start the service with that setting, or use
+    <code>run_all_examples.py</code>, which does it for you. The guard is
+    <em>correct</em> behaviour — it stops a client's clock drift from writing into an
+    hour that has already been summarised. The examples simply need to write history
+    on purpose.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">18</div><div class="l">Scripts</div></div>
+    <div class="stat"><div class="n">14</div><div class="l">Checks in the runner</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Stale samples</div></div>
+    <div class="stat"><div class="n">13</div><div class="l">Questions answered</div></div>
+    <div class="stat"><div class="n">17</div><div class="l">On the camera page</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Run everything at once</h2>
+  <p>The runner starts a service on scratch ports, runs every example, and tears it
+  down. It is the fastest way to see what any of them does.</p>
+
+<pre><span class="p">$</span> $PY examples/run_all_examples.py
+Starting sqtseries on ports: {'ingest': 54365, 'query': 33667, 'streaming': 39015, 'admin': 56247, 'http': 48661, 'stats': 45427}
+Service started OK
+
+  PASS: ingest_http.py
+  PASS: producer.py
+  PASS: consumer.py
+  PASS: consumer.py (http)
+  PASS: run_custom.py
+  PASS: scale_check.py
+  PASS: tags_examples.py
+  PASS: question_examples.py
+  PASS: admin_examples.py
+  PASS: maintenance_examples.py
+  PASS: stream_examples.py
+  PASS: stats_monitor.py
+  PASS: query_examples.py
+  PASS: camera_feed.py (--ask)
+
+==================================================
+Results: 14 passed, 0 failed out of 14</pre>
+
+  <p>Two flags narrow it:</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Option</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">--skip-camera</td><td class="muted">off</td>
+        <td>skip the camera examples. They need the <code>websockets</code>
+        package.</td></tr>
+      <tr><td class="opt">--skip-advanced</td><td class="muted">off</td>
+        <td>skip the advanced question catalogue.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box">
+    <span class="lbl">What PASS means, and what it does not</span>
+    <p>The runner checks the <strong>exit code</strong> of each script. A script that
+    printed nonsense and exited 0 would pass — which is exactly how the question
+    examples managed to report a pass while answering "no data" to everything, until
+    they were given the seed check above.</p>
+    <p>So when you read an example's output, read the output. The exit code only tells
+    you the script did not crash.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The scripts</h2>
+
+  <h3>Writing data</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">ingest_http.py</td>
+        <td>Writing over HTTP with nothing but the standard library. The path to take
+        when you have no ZMQ binding.</td>
+        <td><code>--host</code> <code>--port</code> <code>--rate</code>
+        <code>--batch</code> <code>--count</code></td></tr>
+      <tr><td class="opt">producer.py</td>
+        <td>Writing over ZeroMQ with raw <code>zmq</code> and <code>orjson</code>. Does
+        not import the <code>Client</code>, so it doubles as the reference for another
+        language.</td>
+        <td><code>--host</code> <code>--port</code> <code>--rate</code>
+        <code>--count</code> <code>--batch</code></td></tr>
+      <tr><td class="opt">iso_timestamps.py</td>
+        <td>ISO-8601 beside epoch, for both writes and queries. Uses an embedded
+        database in a temp directory, so it needs <strong>no running service</strong>.</td>
+        <td class="muted">none</td></tr>
+      <tr><td class="opt">tags_examples.py</td>
+        <td>Tags as dimensions: the same metric for several hosts, and reading them
+        back apart.</td>
+        <td><code>--host</code> <code>--write-port</code> <code>--query-port</code>
+        <code>--http-port</code> <code>--db</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Reading data</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">query_examples.py</td>
+        <td>Every query shape: raw reads, all ten aggregations, downsampling with
+        intervals, and a whole-window multi-aggregation — over ZeroMQ and over
+        HTTP.</td>
+        <td><code>--host</code> <code>--write-port</code> <code>--query-port</code>
+        <code>--http-port</code></td></tr>
+      <tr><td class="opt">consumer.py</td>
+        <td>Querying from a <em>separate process</em>, over both transports, with raw
+        ZeroMQ calls.</td>
+        <td><code>--host</code> <code>--port</code> <code>--http</code></td></tr>
+      <tr><td class="opt">question_examples.py</td>
+        <td><strong>The question catalogue.</strong> Thirteen questions phrased the way
+        a human asks them, each with working code. Seeds its own deterministic
+        data.</td>
+        <td><code>--host</code> <code>--write-port</code> <code>--query-port</code>
+        <code>--http-port</code></td></tr>
+      <tr><td class="opt">question_examples_advanced.py</td>
+        <td>The questions past the basics: per-series breakdowns, two windows at once,
+        rates, and data-quality checks.</td>
+        <td>the above plus <code>--admin-port</code> <code>--db</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Watching and operating</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">stream_examples.py</td>
+        <td>Subscribing to live data, two ways: a raw SUB socket and the
+        <code>Client</code>.</td>
+        <td><code>--host</code> <code>--port</code> <code>--http-port</code>
+        <code>--ws</code> <code>--client</code></td></tr>
+      <tr><td class="opt">stats_monitor.py</td>
+        <td>Live connect, disconnect and subscription events from the stats socket.
+        A template for an alerting pipeline.</td>
+        <td><code>--host</code> <code>--port</code></td></tr>
+      <tr><td class="opt">admin_examples.py</td>
+        <td>All nine admin commands with their real replies. The quickest way to see
+        what the admin surface returns.</td>
+        <td><code>--host</code> <code>--port</code></td></tr>
+      <tr><td class="opt">maintenance_examples.py</td>
+        <td>Backup, vacuum, optimize and health checks — the periodic operations.</td>
+        <td><code>--host</code> <code>--admin-port</code> <code>--http-port</code>
+        <code>--backup-only</code> <code>--health-loop</code></td></tr>
+      <tr><td class="opt">scale_check.py</td>
+        <td>Churning many subscribers and verifying the registry tracks every join and
+        leave exactly, returning to baseline.</td>
+        <td><code>--host</code> <code>--port</code> <code>--admin-port</code>
+        <code>--topics</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Running your own instance</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">run_custom.py</td>
+        <td><strong>Start here.</strong> A service of your own, on your own ports, with
+        your own database file — the one command every other example depends
+        on.</td>
+        <td><code>--workdir</code></td></tr>
+      <tr><td class="opt">run_all_examples.py</td>
+        <td>All of the above, against a throwaway service.</td>
+        <td><code>--skip-camera</code> <code>--skip-advanced</code></td></tr>
+      <tr><td class="opt">camera_feed.py</td>
+        <td>A camera feed pumped in, and seventeen questions answered from it. See
+        <a href="camera.html">Camera analytics</a>.</td>
+        <td><code>--ws</code> <code>--host</code> <code>--http-port</code>
+        <code>--ask</code> <code>--hours</code> <code>--once</code></td></tr>
+      <tr><td class="opt">overlay_server.py</td>
+        <td>The detector side: an annotated MJPEG feed. Uses only
+        <code>Pillow</code>, which sqtseries already depends on. See
+        <a href="camera.html">Camera analytics</a>.</td>
+        <td><code>--port</code></td></tr>
+      <tr><td class="opt">conn_validate.py</td>
+        <td>Checks the connection-tracking feed end to end — read, aggregate and
+        subscribe. See <a href="camera.html">Camera analytics</a>.</td>
+        <td><code>--host</code> <code>--port</code> <code>--admin-port</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Start with your own instance</h2>
+  <p>Every example needs a running service. This script gives you one, on ports that
+  will not collide with anything, and prints them.</p>
+
+<pre><span class="p">$</span> $PY examples/run_custom.py
+workdir: sqt-custom-work
+config:  sqt-custom-work/config.toml
+  <span class="c"># the ports it chose, and the links</span>
+
+<span class="c"># then, in another terminal, point an example at them:</span>
+<span class="p">$</span> $PY examples/question_examples.py \
+    <span class="o">--write-port</span> <span class="v">54365</span> <span class="o">--query-port</span> <span class="v">33667</span> <span class="o">--http-port</span> <span class="v">48661</span></pre>
+</section>
+
+<section>
+  <h2>The question catalogue</h2>
+  <p>Thirteen questions, phrased the way a person asks them, each answered with working
+  code. The seed data is deterministic, so the answers are reproducible.</p>
+
+<pre><span class="p">$</span> $PY examples/question_examples.py <span class="o">--write-port</span> 54365 <span class="o">--query-port</span> 33667 <span class="o">--http-port</span> 48661
+=== Seeding sample data (deterministic) ===
+  cpu.load     : every 5 min for 6 hours (72 points)
+  temp.celsius : every 60 min for 1 day (24 points)
+  latency.web  : every 30 min for 8 days (384 points)
+  visitors.web : every 30 min for 8 days (384 points)
+  seeded OK: cpu.load=72, temp.celsius=24, latency.web=384, visitors.web=384
+
+=== 1. What was the average CPU load over the last hour? ===
+  ANSWER: avg_cpu_last_hour = 62.27
+
+=== 2. What was the peak temperature yesterday? ===
+  ANSWER: peak_temp_yesterday = 24.49
+
+=== 3. Show me the 99th percentile response time for the past week ===
+  ANSWER: p99_latency_week = 108.00
+
+=== 4. How many measurements did I record today? ===
+  ANSWER: count_today = 37
+
+=== 5. Is the load rising? (last hour vs the hour before) ===
+  ANSWER: trend = rising
+  this hour: 62.27 , previous hour: 57.25
+
+=== 6. Per-minute average of the last hour (a curve, not one number) ===
+    bucket t=1790789940 avg=42.00
+    bucket t=1790790240 avg=49.00
+    bucket t=1790790540 avg=56.00
+    bucket t=1790790840 avg=63.00
+    bucket t=1790791140 avg=70.00
+    ... 11 one-minute buckets total</pre>
+
+  <p class="small muted">That <code>seeded OK</code> line is the check described at the
+  top of this page. If your service refuses the seed, the script stops there instead of
+  printing "no data" thirteen times.</p>
+
+  <h3>The first four, and the call behind each</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>#</th><th>Question</th><th>The call</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">1</td><td>Average CPU load over the last hour</td>
+        <td><code>aggregate("cpu.load", start=hour_ago_ns(), funcs=["avg"])</code></td></tr>
+      <tr><td class="opt">2</td><td>Peak temperature yesterday</td>
+        <td><code>aggregate("temp.celsius", start=…, end=…, funcs=["max"])</code></td></tr>
+      <tr><td class="opt">3</td><td>p99 response time over the past week</td>
+        <td><code>aggregate("latency.web", start=…, funcs=["p99"])</code></td></tr>
+      <tr><td class="opt">4</td><td>Measurements recorded today</td>
+        <td><code>aggregate("cpu.load", start=day_start, funcs=["count"])</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Note question 1 uses <strong>nanoseconds</strong>
+  (<code>time.time_ns()</code>) because it goes over ZeroMQ. Over HTTP the same query
+  takes seconds. See <a href="clients.html">Client Libraries</a>.</p>
+
+  <h3>The rest of the catalogue</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>#</th><th>Question</th><th>Shape</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">5</td><td>Is the load rising?</td>
+        <td>two windows compared</td></tr>
+      <tr><td class="opt">6</td><td>A curve, not a number</td>
+        <td><code>interval=1m</code></td></tr>
+      <tr><td class="opt">7</td><td>Min, average and max per hour</td>
+        <td>three <code>interval=1h</code> calls</td></tr>
+      <tr><td class="opt">8</td><td>Min, average and max per day</td>
+        <td>three <code>interval=1d</code> calls</td></tr>
+      <tr><td class="opt">9</td><td>Busiest hour and busiest day</td>
+        <td>bucket, then take the extreme</td></tr>
+      <tr><td class="opt">10</td><td>Visitors in the last 24 hours</td>
+        <td><code>funcs=["sum"]</code></td></tr>
+      <tr><td class="opt">11</td><td>When did the last reading arrive?</td>
+        <td><code>limit=1, order=desc</code>, then subtract from now</td></tr>
+      <tr><td class="opt">12</td><td>All-time numbers</td>
+        <td>no window, plus the median and percentiles</td></tr>
+      <tr><td class="opt">13</td><td>The same questions over HTTP</td>
+        <td>the <code>curl</code> equivalents, printed</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Question 11 is the one worth copying for a staleness check: read the newest point
+  and compare its timestamp against now. A gap means the producer stopped, which is
+  usually the alert you actually want.</p>
+
+  <h3>The advanced catalogue</h3>
+  <p><code>question_examples_advanced.py</code> covers what you need once the basics are
+  done: per-series breakdowns when one metric has many tag sets, rates between two
+  timestamps, pattern detection over bucketed data, and data-quality checks such as
+  gaps and duplicates. Its seed data is independent of the first script's, so the two
+  can be run in either order.</p>
+</section>
+
+<section>
+  <h2>Writing data at rate</h2>
+  <p>The producer is the one to reach for when you want to see what the service does
+  under load, and the one to copy when writing a producer in another language — it uses
+  raw <code>zmq</code> and <code>orjson</code>, with no sqtseries import at all.</p>
+
+<pre><span class="p">$</span> $PY examples/producer.py <span class="o">--port</span> <span class="v">12500</span> <span class="o">--rate</span> <span class="v">1000</span> <span class="o">--count</span> <span class="v">100000</span>
+<span class="c"># 100,000 points at 1,000/s over the ZeroMQ PUSH socket</span>
+
+<span class="c"># and a burst, to exercise the batch commit</span>
+<span class="p">$</span> $PY examples/producer.py <span class="o">--rate</span> <span class="v">0</span> <span class="o">--count</span> <span class="v">100000</span> <span class="o">--batch</span> <span class="v">5000</span></pre>
+
+  <p>Then check the accounting. Every accepted point lands in exactly one of
+  <em>persisted</em>, <em>dropped</em> or <em>invalid</em>, so this always
+  balances:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"stats"</span>)[<span class="v">"persisted"</span>] - c.admin(<span class="v">"stats"</span>)[<span class="v">"dropped"</span>]</pre>
+
+  <p>For a properly instrumented run — sustained rate, concurrent query load, memory
+  trend, and a leak verdict at the end — use the rig rather than a single producer:</p>
+
+<pre><span class="p">$</span> bash scripts/run-stress-rig.sh <span class="o">--duration</span> <span class="v">300</span> <span class="o">--rate</span> <span class="v">2000</span> <span class="o">--clients</span> <span class="v">8</span> <span class="o">--tag</span> <span class="v">baseline</span></pre>
+</section>
+
+<section>
+  <h2>Operations</h2>
+
+  <h3>Every admin command, with its real reply</h3>
+<pre><span class="p">$</span> $PY examples/admin_examples.py <span class="o">--port</span> <span class="v">12504</span>
+<span class="c"># runs ping, health, stats, connections, conncheck, subscribers,</span>
+<span class="c"># optimize and backup, and prints what each one returned</span></pre>
+
+  <h3>Periodic maintenance</h3>
+<pre><span class="p">$</span> $PY examples/maintenance_examples.py <span class="o">--admin-port</span> <span class="v">12504</span>
+<span class="c"># backup, vacuum, optimize, and a health check</span>
+
+<span class="p">$</span> $PY examples/maintenance_examples.py <span class="o">--backup-only</span>
+<span class="c"># just the snapshot</span></pre>
+
+  <h3>Connection tracking under churn</h3>
+<pre><span class="p">$</span> $PY examples/scale_check.py <span class="o">--topics</span> <span class="v">200</span> <span class="c">--port</span> <span class="v">12503</span> <span class="c">--admin-port</span> <span class="v">12504</span>
+<span class="c"># joins and leaves many subscribers, then verifies the registry</span>
+<span class="c"># returns to baseline — no drift, no leak</span></pre>
+
+  <div class="box ok">
+    <span class="lbl">Why scale_check matters</span>
+    <p>Subscriber counts come from XPUB events on the wire rather than from polling,
+    so they should be exact. This script is the proof: it churns hundreds of joins and
+    leaves and then asserts the totals match what it created. If a future change
+    broke the accounting, this fails rather than leaving a quietly wrong number on the
+    dashboard.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Timestamps, the practical version</h2>
+  <p><code>iso_timestamps.py</code> needs no service at all — it opens an embedded
+  database in a temp directory — so it is the fastest thing to run when you only want
+  to settle a timestamp question.</p>
+
+<pre><span class="p">$</span> $PY examples/iso_timestamps.py
+<span class="c"># epoch seconds, ISO with Z, ISO with an offset, naive ISO,</span>
+<span class="c"># and nanosecond precision — each written and read back</span></pre>
+
+  <p>It also demonstrates the one that catches people: a naive string is read as
+  <strong>UTC</strong>, not as local time. And a value whose absolute size exceeds
+  <code>1e12</code> is read as nanoseconds, which is what lets an ISO timestamp keep
+  its precision through JSON.</p>
+</section>
+
+<section>
+  <h2>Adapting an example to your problem</h2>
+  <ol class="steps">
+    <li><b>Start from the closest one</b><span>Monitoring, alerting, retention and
+    high-rate ingest each have a script. Read that one rather than starting from the
+    API reference.</span></li>
+    <li><b>Change the metric names and tags</b><span>That is usually the whole change.
+    Keep the tag set small and stable — see
+    <a href="ingestion.html">Ingestion</a>.</span></li>
+    <li><b>Keep the timestamps right</b><span>Nanoseconds over ZeroMQ, seconds over
+    HTTP. Copy from a script that already gets it right for your transport.</span></li>
+    <li><b>Set LINGER before you connect</b><span>On a PUSH socket, or the last
+    measurement is silently lost. Every producer here does.</span></li>
+  </ol>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>What every call in these scripts does, and the rules behind the row cap and
+      the rollup.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>Timestamps, tags, the clock-skew guard, and the backfill behaviour the question
+      examples rely on.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>The same patterns in five other languages.</p>
+    </div>
+    <div class="card">
+      <h4><a href="camera.html">Camera analytics</a></h4>
+      <p>The other worked example — a live feed, a live page, and seventeen
+      questions.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The authoritative version of every call these scripts make.</p>
+    </div>
+    <div class="card">
+      <h4><a href="benchmarks.md">Benchmarks</a></h4>
+      <p>What the service actually does at rate, measured.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>These are real scripts, not snippets</h5>
+      <p>
+            Each one lives in <code>examples/</code>, runs against a live service,
+            and is executed by the test suite. If a script breaks, a test fails — so
+            a sample that no longer works cannot sit here quietly.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Run one, or run them all</h5>
+      <p>
+            Every script takes <code>--help</code> and documents its own options.
+            <code>run_all_examples.py</code> starts a service on scratch ports, runs
+            the whole set, and tears it down, which is the fastest way to see what
+            any of them does.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The four canonical questions</h5>
+      <p>
+            Average CPU load over the last hour; peak temperature yesterday; p99
+            response time over the past week; how many measurements were recorded
+            today. Four questions, four exact calls, four explanations of why each
+            is shaped the way it is.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Two examples are about the service, not the data</h5>
+      <p>
+            The connection monitor and the load-balancer health check talk to the
+            admin and health surfaces rather than storing anything. They are here
+            because “is it up” and “is it busy” are the questions you ask before
+            any of the others.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The scripts are the fastest way to a working integration</h5>
+      <p>
+            Pick the one closest to what you are building, read it, and change the
+            metric names. That is usually less work than starting from the API
+            reference.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Checked against the running service</h5>
+      <p>
+            A test boots a service, runs the examples, and asserts the output. That
+            is why the numbers on this page are measured rather than remembered.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — the scripts, run and shown.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

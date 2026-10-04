@@ -1,0 +1,360 @@
+<section>
+  <h2>What this example does</h2>
+  <p class="lede">A camera posts a stream of analytics — people, vehicles, battery, CPU
+  — as JSON over a WebSocket. Three scripts turn that into stored measurements, a
+  live page you can watch, and seventeen questions you can ask afterwards.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Pump</strong> — the script that subscribes to the camera and writes
+    readings into sqtseries.<br>
+    <strong>Ask</strong> — the same script, in a different mode, reading stored data
+    back and answering the catalogue.<br>
+    <strong>Overlay server</strong> — a simulator that stands in for a real camera. It
+    serves a page and emits plausible numbers.<br>
+    <strong>Flatten</strong> — turning a nested JSON object into many flat
+    <code>metric + value + tags</code> measurements.<br>
+    <strong><code>camera_id</code></strong> — the tag every measurement carries, so
+    several cameras can share one database.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">11</div><div class="l">Metrics per camera</div></div>
+    <div class="stat"><div class="n">17</div><div class="l">Questions answered</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Scripts</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">sqtseries imports needed</div></div>
+    <div class="stat"><div class="n">0.25 s</div><div class="l">Simulator push interval</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Why it is worth reading</h2>
+  <p>Nothing in sqtseries knows or cares that the source is a camera. The feed
+  produces ordinary measurements with ordinary tags and goes through the same write
+  path as anything else. That is the point of the example: <strong>it is a workload,
+  not a feature</strong>, and everything it demonstrates is something you get for
+  free.</p>
+
+  <div class="box ok">
+    <span class="lbl">The one dependency, and where it is not needed</span>
+    <p><code>camera_feed.py</code> in pump mode needs the <code>websockets</code>
+    package, and nothing else. It deliberately <strong>does not import
+    sqtseries</strong> — it speaks plain HTTP. So it runs from any Python
+    environment, a different virtualenv, or a different machine, as long as it can
+    reach the HTTP port.</p>
+<pre><span class="p">$</span> pip install websockets     <span class="c"># only needed for pump mode</span></pre>
+    <p><code>--ask</code> mode needs nothing beyond the standard library, and neither
+    does <code>overlay_server.py</code> beyond what sqtseries already depends
+    on.</p>
+  </div>
+</section>
+
+<section>
+  <h2>How the nested JSON is flattened</h2>
+  <p>A camera sends one message with nesting. sqtseries stores flat triples. So each
+  message becomes eleven measurements, every one tagged with the camera it came
+  from.</p>
+
+<pre><span class="c">// one message from the camera, nested</span>
+{
+  <span class="v">"current_visible_people"</span>: 21,
+  <span class="v">"total_detected_people"</span>: 237,
+  <span class="v">"current_visible_cars"</span>: 9,
+  <span class="v">"people_last_minute"</span>: 21,
+  <span class="v">"system_metrics"</span>: {
+    <span class="v">"batteryPercent"</span>: 84.3,
+    <span class="v">"cpuUsagePercent"</span>: 41.3,
+    <span class="v">"cpuTemperature"</span>: 62.4
+  },
+  <span class="v">"detection_overlay_enabled"</span>: <span class="k">true</span>
+}
+
+<span class="c">// becomes eleven measurements, all tagged camera_id=test_cam_001</span>
+traffic.people.current      21     traffic.vehicles.current   9
+traffic.people.total        237    traffic.vehicles.total     100
+traffic.people.last_minute  21     traffic.cars.last_minute   9
+system.battery.percent      84.3   system.battery.temperature 28.5
+system.cpu.usage            41.3   system.cpu.temperature     62.4
+status.detection_overlay    1      <span class="c">// true -&gt; 1.0, false -&gt; 0.0</span></pre>
+
+  <p>Two details worth copying if you write your own flattener:</p>
+
+  <ul>
+    <li><strong>A boolean becomes 1.0 or 0.0.</strong> A flag like
+    <code>detection_overlay_enabled</code> is still a measurement, and storing it as a
+    number means you can <code>avg</code> it to find out how often the overlay was
+    on.</li>
+    <li><strong>Strings are skipped.</strong> <code>batteryHealth</code>,
+    <code>stats_footer_text</code> and the overlay URLs cannot be numeric
+    measurements, so they are dropped. If you need them, they belong somewhere else
+    — sqtseries stores numbers, and pretending otherwise would cost you the ability
+    to aggregate.</li>
+  </ul>
+
+  <p>Because every measurement carries <code>camera_id</code> as a tag, ten cameras
+  in one database are ten series per metric — not one blended series. See
+  <a href="ingestion.html#tags">tags as dimensions</a> for why that matters.</p>
+</section>
+
+<section>
+  <h2>Run it</h2>
+  <p>Four terminals. Start at the top.</p>
+
+  <h3>Terminal 1 — the camera, or the simulator</h3>
+  <p>With a real camera, point at its metrics WebSocket. With the bundled simulator,
+  start it and note the port it prints — it picks a random free one unless you say
+  otherwise.</p>
+
+<pre><span class="p">$</span> python3 examples/camera/overlay_server.py
+<span class="c"># Overlay server on http://0.0.0.0:58547</span>
+<span class="c"># metrics WebSocket:  ws://localhost:58547/ws/metrics</span></pre>
+
+  <pre><span class="c"># or pin the port</span>
+<span class="p">$</span> python3 examples/camera/overlay_server.py <span class="o">--port</span> <span class="v">30080</span></pre>
+
+  <p>Environment variables also steer it:
+  <code>TEST_HOST</code>, <code>TEST_PORT</code>, <code>TEST_CAMERA_ID</code>,
+  <code>TEST_PUSH_INTERVAL</code> and <code>TEST_ERROR_INTERVAL</code>. The last one
+  injects errors on a schedule, which is how you test that a client survives a
+  flaky feed rather than only a healthy one.</p>
+
+  <h3>Terminal 2 — sqtseries</h3>
+
+<pre><span class="p">$</span> sqtseries <span class="o">--config</span> config.toml <span class="o">run</span></pre>
+
+  <h3>Terminal 3 — the pump</h3>
+
+<pre><span class="p">$</span> python3 examples/camera/camera_feed.py <span class="o">--ws</span> <span class="v">ws://localhost:58547/ws/metrics</span>
+connected to ws://localhost:58547/ws/metrics
+stored 11 measurements   <span class="c"># per message</span>
+…</pre>
+
+  <p>Leave it running. The faster you want data, the shorter the wall-clock window
+  you need to answer questions over — an hour of data is enough for the catalogue
+  once there is some.</p>
+
+  <p>Every option it takes:</p>
+
+  <table class="opts">
+    <thead><tr><th>Option</th><th>Argument</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">--ws</td><td>URL</td>
+        <td class="def">ws://localhost:30080/ws/metrics</td>
+        <td>The camera's metrics WebSocket. The default assumes the simulator was
+        started with <code>--port 30080</code>; the simulator normally picks a random
+        port, so in practice pass the URL it printed.</td></tr>
+      <tr><td class="opt">--host</td><td>HOST</td><td class="def">127.0.0.1</td>
+        <td>sqtseries HTTP host.</td></tr>
+      <tr><td class="opt">--http-port</td><td>PORT</td><td class="def">12505</td>
+        <td>sqtseries HTTP port.</td></tr>
+      <tr><td class="opt">--ask</td><td class="muted">none</td><td class="def">off</td>
+        <td>Answer the question catalogue from stored data instead of pumping.</td></tr>
+      <tr><td class="opt">--hours</td><td>N</td><td class="def">24</td>
+        <td>The window for <code>--ask</code>.</td></tr>
+      <tr><td class="opt">--once</td><td class="muted">none</td><td class="def">off</td>
+        <td>Pump a single message and exit. This is what the test suite uses.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Terminal 4 — the questions</h3>
+
+<pre><span class="p">$</span> python3 examples/camera/camera_feed.py <span class="o">--ask</span>
+<span class="p">$</span> python3 examples/camera/camera_feed.py <span class="o">--ask</span> <span class="o">--hours</span> <span class="v">6</span></pre>
+</section>
+
+<section>
+  <h2>The seventeen questions</h2>
+  <p>These are the questions <code>camera_feed.py --ask</code> actually asks, in the
+  order it asks them. Every one is plain HTTP against the query API — there is no
+  camera support anywhere in the service.</p>
+
+  <table>
+    <thead><tr><th>#</th><th>Question</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">1</td><td>Traffic levels — visible people</td>
+        <td><code>aggregate(traffic.people.current, avg, min, max, median, p95, p99)</code></td></tr>
+      <tr><td class="opt">2</td><td>Busiest hour and busiest day</td>
+        <td><code>read(traffic.people.last_minute, sum, 1h)</code> and the same at
+        <code>1d</code>, then take the extremes</td></tr>
+      <tr><td class="opt">3</td><td>Total footfall</td>
+        <td><code>aggregate(traffic.people.total, max)</code> — a running total is a
+        <em>max</em>, not a sum</td></tr>
+      <tr><td class="opt">4</td><td>Day-over-day trend</td>
+        <td>daily footfall sums from <code>read(…, sum, 1d)</code>, compared with
+        each other</td></tr>
+      <tr><td class="opt">5</td><td>Turnover — detected total vs currently visible</td>
+        <td>the two counters side by side; the gap is how long people linger</td></tr>
+      <tr><td class="opt">6</td><td>Capacity planning — percentile ladder</td>
+        <td>a ladder of percentiles on footfall, to size the site</td></tr>
+      <tr><td class="opt">7</td><td>Anomaly detection</td>
+        <td>the current hour against the same hour on previous days</td></tr>
+      <tr><td class="opt">8</td><td>Battery — drain rate and life projection</td>
+        <td><code>read(system.battery.percent, avg, 1h)</code>, then a rate and an
+        extrapolation</td></tr>
+      <tr><td class="opt">9</td><td>CPU and thermal</td>
+        <td><code>aggregate(system.cpu.usage)</code> and
+        <code>aggregate(system.cpu.temperature)</code></td></tr>
+      <tr><td class="opt">10</td><td>Correlation — footfall against CPU, per hour</td>
+        <td>both bucketed at <code>1h</code>, then correlated in Python</td></tr>
+      <tr><td class="opt">11</td><td>Battery drain on busy days against quiet ones</td>
+        <td>split by footfall, then compare the drain slopes</td></tr>
+      <tr><td class="opt">12</td><td>Feed health — staleness</td>
+        <td><code>read(…, limit=1, order=desc)</code>, then the age of the newest
+        point against the push interval</td></tr>
+      <tr><td class="opt">13</td><td>Feed uptime — expected against received</td>
+        <td>a count per hour against the expected number of pushes</td></tr>
+      <tr><td class="opt">14</td><td>Per-camera breakdown</td>
+        <td>the same aggregate for each <code>camera_id</code></td></tr>
+      <tr><td class="opt">15</td><td>Monthly projection</td>
+        <td>the observed daily rate extended over a month</td></tr>
+      <tr><td class="opt">16</td><td>Storage growth</td>
+        <td><code>read(…, count, 1d)</code>, then points per day against the
+        retention window</td></tr>
+      <tr><td class="opt">17</td><td>Overlay availability</td>
+        <td><code>aggregate(status.detection_overlay, avg)</code> — near 1 means
+        usually on</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box key">
+    <span class="lbl">Questions 10 and 11 are the interesting ones</span>
+    <p>A time-series store aggregates <em>one metric at a time</em>. It will not divide
+    two metrics together, and it will not correlate them for you — and that is not a
+    missing feature so much as a consequence of the model. Aggregating each series
+    into hourly buckets and doing the arithmetic over a few dozen rows is cheap,
+    portable, and inspectable.</p>
+    <p>It is also the honest answer. Correlation computed by a database is a number
+    you cannot explain; correlation computed over two hourly series is something you
+    can.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Watching it live</h2>
+  <p>The stock dashboard shows service health. This shows <em>data</em> — the same
+  measurements as they land — using the public <code>/ws/subscribe</code> endpoint
+  and nothing else. There is no build step and no custom server.</p>
+
+<pre><span class="c">// open examples/camera/overlay.html through any static server, or</span>
+<span class="c">// read it and paste the script part into a console on your own page</span>
+cat examples/camera/overlay.html</pre>
+
+  <p>The three lines that matter:</p>
+
+<pre><span class="k">const</span> ws = <span class="k">new</span> WebSocket(
+  <span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=system."</span>   <span class="c">// one topic prefix</span>
+);
+ws.onmessage = (e) =&gt; {
+  <span class="k">const</span> m = JSON.parse(e.data);
+  <span class="k">if</span> (m.type === <span class="v">"ping"</span>) <span class="k">return</span>;      <span class="c">// idle keepalive, not data</span>
+  render(m.metric, m.value, m.tags);
+};</pre>
+
+  <p>That is the whole integration. A browser, a topic filter, and a JSON frame.</p>
+
+  <div class="box">
+    <span class="lbl">Why the overlay page is served separately</span>
+    <p><code>overlay_server.py</code> runs its own HTTP listener rather than adding a
+    route to sqtseries. That is deliberate: an overlay has to be reachable as a
+    browser source from elsewhere on the network, and putting that on the gateway
+    would add a second, unauthenticated listener to the port that holds your
+    data.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Proving the live path still works</h2>
+  <p><code>conn_validate.py</code> checks the connection-tracking feed end to end: it
+  joins and leaves clients and ZeroMQ subscribers, and asserts that every change
+  arrives over <code>/ws/connections</code>. It is what the test suite runs, so a
+  change that broke connection tracking fails a test rather than quietly degrading
+  the dashboard.</p>
+
+<pre><span class="p">$</span> python3 examples/camera/conn_validate.py
+connecting 3 WebSocket clients and 2 ZMQ subscribers…
+  ws client 1 joined      ok
+  ws client 2 joined      ok
+  ws client 3 joined      ok
+  zmq subscriber 1 joined ok
+  zmq subscriber 2 joined ok
+…leaving…
+  all joins and leaves observed in order
+PASS</pre>
+
+  <table class="opts">
+    <thead><tr><th>Option</th><th>Argument</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">--host</td><td>HOST</td><td class="def">127.0.0.1</td>
+        <td>sqtseries host.</td></tr>
+      <tr><td class="opt">--http-port</td><td>PORT</td><td class="def">12505</td>
+        <td>HTTP and WebSocket port.</td></tr>
+      <tr><td class="opt">--stream-port</td><td>PORT</td><td class="def">12503</td>
+        <td>ZeroMQ streaming port.</td></tr>
+      <tr><td class="opt">--clients</td><td>N</td><td class="def">3</td>
+        <td>How many WebSocket clients to join and leave.</td></tr>
+      <tr><td class="opt">--zmq-subs</td><td>N</td><td class="def">2</td>
+        <td>How many ZeroMQ subscribers to join and leave.</td></tr>
+      <tr><td class="opt">--timeout</td><td>SECONDS</td><td class="def">5.0</td>
+        <td>How long to wait for each expected event before failing.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Adapting it to your own source</h2>
+  <p>The flattener is about thirty lines and is the only part specific to a camera.
+  Everything after it — the writes, the questions, the live page — is generic.</p>
+
+  <ol class="steps">
+    <li><b>Point at your source</b><span>Any WebSocket, HTTP poll, MQTT topic or
+    file tail works. Keep the pump separate from sqtseries and it stays a
+    five-line client.</span></li>
+    <li><b>Flatten to numbers</b><span>One metric name per leaf, booleans as 1.0 and
+    0.0, strings skipped. Decide your tag set here and keep it small and stable —
+    it is permanent.</span></li>
+    <li><b>Write in batches over HTTP</b><span>Send an array of measurements per
+    message. It is validated as a unit, so a bad item rejects the batch instead of
+    leaving a gap.</span></li>
+    <li><b>Ask the catalogue</b><span>Every question above is one HTTP call. Replace
+    the metric names and they work unchanged.</span></li>
+  </ol>
+
+  <p>The higher-rate alternative is to swap the HTTP write for a ZeroMQ PUSH socket —
+  same JSON, no reply, and it does not block on a reply. Everything downstream is
+  identical, so this is a one-function change in the pump.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>The write path in depth: batches, tags as dimensions, the clock-skew guard,
+      and the bounded queue.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>Every aggregation the catalogue uses, buckets, and why five of the ten are
+      fast and five are not.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>The <code>/ws/subscribe</code> protocol the live page uses, and topic
+      matching.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>The rest of the example scripts — monitoring, alerting, retention, a
+      sustained high-rate pump.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>The same HTTP calls from Go, Rust, PHP, Node.js and the shell.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>The stock page, for service health rather than data — the two complement
+      each other.</p>
+    </div>
+  </div>
+</section>

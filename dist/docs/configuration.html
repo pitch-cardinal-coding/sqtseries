@@ -3,490 +3,1066 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Configuration — sqtseries</title>
+<title>sqtseries — Configuration: every setting, every variable</title>
+<meta name="description" content="Every sqtseries setting: the TOML key, the environment variable, the default, the validation rule, and the port allocation mechanism.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a class="here" href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Configuration</h2>
-<p>You do not have to configure anything to start using sqtseries — the
-defaults work out of the box. When you do want to change something, settings
-can come from three places. If the same setting appears in more than one, the
-one lower in this list wins:</p>
-<ol>
-  <li>Built-in defaults</li>
-  <li>A config file (TOML / YAML / JSON) passed with <code>--config</code> or
-      <code>SQT_SERIES_CONFIG_FILE</code></li>
-  <li>Environment variables (<code>SQT_SERIES_*</code>) — these beat the
-      file</li>
-</ol>
-<p>On top of that, the <code>--db</code> command-line flag overrides
-<code>database.path</code> no matter what the config file or the environment
-say — the CLI always wins for that one setting.</p>
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Reference · settings</a></div>
+  <h1>Configuration</h1>
+  <p class="tagline">Every setting the service reads, with the exact key, the environment variable that overrides it, the default in the code, and the rule that refuses a bad value at start-up rather than halfway through a run.</p>
+  <div class="meta">
+    <span><b>Sections</b> 13 in the settings tree</span>
+    <span><b>Override order</b> defaults, file, environment, CLI</span>
+    <span><b>Formats</b> TOML, YAML, JSON by suffix</span>
+    <span><b>Prefix</b> <code>SQT_SERIES_</code>, nested with <code>__</code></span>
+    <span><b>Durations</b> two different syntaxes — read the note</span>
+  </div>
+</header>
 
-<h3>The CLI: global flags come first</h3>
-<p>Global flags — <code>--version</code>, <code>--config FILE</code>,
-<code>--db FILE</code>, <code>--help</code> — belong to the
-<code>sqtseries</code> command itself and therefore have to come
-<strong>before</strong> the subcommand. Putting them after it fails with
-"No such option":</p>
-<pre><code>sqtseries --config c.toml run       # correct
-sqtseries run --config c.toml       # ERROR: No such option</code></pre>
-<p>The commands, all of which accept <code>--config</code> and
-<code>--db</code> in front of them:</p>
-<div class="table-wrap"><table>
-  <tr><th>Command</th><th>What it does</th></tr>
-  <tr><td><code>run</code></td><td>Start the service in the foreground. Prints <code>Serving &lt;db&gt;</code> plus dashboard/docs/health/help links, then the log. Refuses to start when the same database is already being served, or when a different database in the same directory is live (it names the offending pid and database). Ctrl-C stops gracefully with exit code 0.</td></tr>
-  <tr><td><code>stop</code></td><td>Send SIGTERM to the running instance (read from <code>runtime.json</code>). Refuses when the runtime database differs from the resolved one.</td></tr>
-  <tr><td><code>status</code></td><td>Show pid, version, database path, and per-port lines, followed by dashboard/docs/health/help links; warns when the runtime database differs from the configured one.</td></tr>
-  <tr><td><code>ports</code></td><td>Show the active ports plus dashboard/docs/health/help links; when not running, show the configured ones (ingest/query/stream/admin/http) with the same links.</td></tr>
-  <tr><td><code>health</code></td><td>Read-only <code>PRAGMA quick_check</code> probe; prints "ok" or "degraded: ...", exits 0/1 accordingly.</td></tr>
-  <tr><td><code>stats</code></td><td>Print metric and series counts.</td></tr>
-  <tr><td><code>vacuum</code></td><td>Full <code>VACUUM</code> (stop the service first).</td></tr>
-  <tr><td><code>optimize</code></td><td><code>PRAGMA optimize</code> for query-planner statistics.</td></tr>
-  <tr><td><code>backup</code></td><td>Consistent snapshot via <code>VACUUM INTO</code> into <code>backup.path</code>.</td></tr>
-  <tr><td><code>install</code></td><td>Install the systemd unit; <code>--system</code> targets <code>/etc/systemd/system</code>.</td></tr>
-  <tr><td><code>uninstall</code></td><td>Remove the systemd unit; <code>--system</code> targets the system unit.</td></tr>
-</table></div>
-<p>Commands exit 0 on success and 1 on a ClickException (a refused
-operation or a validation error); bad usage (an unknown flag, e.g.
-<code>sqtseries run --config x</code>) exits 2; a missing or unparseable
-config file raises an uncaught traceback and exits 1. <code>health</code>
-is the exception with its own 0/1 body. The only flags on subcommands
-themselves are <code>install --system</code> and
-<code>uninstall --system</code>.</p>
+<main>
+<section>
+  <h2>How a setting gets its value</h2>
+  <p class="lede">Four sources can set a value. They are applied in a fixed order, so
+  you always know which one wins. A setting the environment touches ignores the file
+  entirely — that is deliberate, and it is why a container variable reliably beats a
+  baked-in config.</p>
 
-<h3>Choosing a database file with --db</h3>
-<p>The database lives wherever <code>database.path</code> says, but you can
-override it per command without editing any file:</p>
-<pre><code>sqtseries --db /data/tsdb.sqlite run
-sqtseries --config prod.toml --db /data/other.sqlite stats
-</code></pre>
-<p>One directory may hold several databases, each with its own
-<code>runtime.json</code> next to the <code>.sqlite</code> file. sqtseries
-checks for conflicts before acting:</p>
-<ul>
-  <li><code>run</code> refuses to start when a live instance is already
-      serving this database (<code>Database ... is already being served (pid
-      N)</code>), or when a live instance in the same directory serves a
-      <em>different</em> database (<code>Conflicting databases: ...</code> —
-      it tells you which pid and which file, and how to point
-      <code>--db</code> at it).</li>
-  <li><code>run</code> prints a note when other <code>.sqlite</code> files
-      exist in the database directory, suggesting <code>--db</code> to pick
-      one.</li>
-  <li><code>stop</code> refuses to send SIGTERM to an instance whose database
-      differs from the one the command resolves to; pass that database's
-      <code>--db</code> path instead.</li>
-  <li><code>status</code> prints a <em>Warning</em> when the running
-      instance's database differs from the one the command resolves to.</li>
-</ul>
+  <ol class="steps">
+    <li><b>The default in the code</b><span>Every setting has one, and it is what you
+    get with no configuration at all. Every default on this page was read out of
+    <code>src/sqtseries/config.py</code>.</span></li>
+    <li><b>The config file</b><span>Named by <code>--config</code>, or by
+    <code>SQT_SERIES_CONFIG_FILE</code>. TOML, YAML or JSON, chosen by suffix.</span></li>
+    <li><b>Environment variables</b><span>Anything prefixed
+    <code>SQT_SERIES_</code>. A variable beats the file for the same leaf, always.</span></li>
+    <li><b><code>--db</code></b><span>Applied after everything else, so it wins over
+    the file and the environment for the database path.</span></li>
+  </ol>
 
-<h3>Configuration file</h3>
-<p>Each group of settings has its own section. You only need to list the
-settings you actually want to change — anything you leave out keeps its
-default.</p>
-<pre><code># config.toml — a complete example with changed values
+  <div class="box key">
+    <span class="lbl">The file does not simply override the environment</span>
+    <p>Settings loaders usually let an init argument beat an environment variable.
+    Here that would be wrong: a file could shadow a variable that an operator set on
+    purpose. So the loader reads the file, works out which leaves the environment
+    actually set, and then re-applies <strong>only the file keys the environment did
+    not touch</strong>. A variable therefore always wins, and the file still fills in
+    everything else.</p>
+  </div>
+
+  <h3>Writing a config file</h3>
+  <p>Format is chosen by suffix: <code>.toml</code>, <code>.yaml</code>,
+  <code>.yml</code> or <code>.json</code>. A missing file is an error, not a silent
+  fall back to defaults.</p>
+
+<pre><span class="c"># config.toml</span>
 [database]
-path = "~/.sqtseries/data/db.sqlite"   # db file location
-page_size = 8192                        # config-only (fixed 8192 in the engine)
-cache_size = -64000                     # config-only (fixed -64000 ≈ 64 MiB)
-mmap_size = 268435456                   # config-only (fixed 256 MiB)
-busy_timeout = 5000                     # config-only (fixed 5000 ms)
-journal_size_limit = 67108864           # config-only (fixed 64 MiB)
-threads = 4                             # config-only (fixed 4)
-batch_size = 2000                       # config-only; see note below
-flush_interval = 1.0                    # config-only; see note below
+path        = <span class="v">"~/.sqtseries/data/db.sqlite"</span>
+batch_size  = <span class="v">2000</span>
 
 [ingestion]
-port = 12501
-hwm = 101000
-pending_max = 100                       # validated; unused
-max_message_size = 52428800             # 50 MiB
-reject_client_timestamp_skew_s = 300.0  # reject timestamps skewed &gt; 5 min
+port        = <span class="v">12501</span>
+hwm         = <span class="v">101000</span>
 
 [query]
-port = 12502
-timeout_s = 30.0                         # see note below
-max_rows = 10000                         # raw-row cap per query (0 = unbounded)
-max_inflight = 64                        # concurrent query dispatch cap
-
-[streaming]
-port = 12503
-linger_seconds = 30.0
-
-[admin]
-port = 12504
+port        = <span class="v">12502</span>
+timeout_s   = <span class="v">30.0</span>
+max_rows    = <span class="v">10000</span>
 
 [http]
-port = 12505
-host = "0.0.0.0"
-cors_origins = ["*"]
-rate_limit_per_minute = 600
-max_websocket_connections = 1000
-
-[logging]
-level = "INFO"            # DEBUG | INFO | WARNING | ERROR | CRITICAL
-format = "console"        # console | json
-file = null               # optional log file path (rotating, 10 MB x 5)
+host        = <span class="v">"127.0.0.1"</span>   <span class="c"># local-only; the default is 0.0.0.0</span>
+cors_origins = [<span class="v">"http://localhost:3000"</span>]
 
 [retention]
-enabled = true
-default_ttl = "30d"
-check_interval = "1h"
-partition_interval = "month"   # only "month" is supported
+default_ttl = <span class="v">"90d"</span></pre>
 
-[rollup]
-enabled = true
-interval = "5m"           # how often completed hours are rolled up
+<pre><span class="c"># equivalent JSON</span>
+{
+  <span class="v">"database"</span>: {<span class="v">"path"</span>: <span class="v">"~/.sqtseries/data/db.sqlite"</span>, <span class="v">"batch_size"</span>: 2000},
+  <span class="v">"http"</span>:     {<span class="v">"host"</span>: <span class="v">"127.0.0.1"</span>}
+}</pre>
 
-[maintenance]
-enabled = true
-analyze_interval = "1h"   # how often ANALYZE refreshes planner stats
+  <p class="small muted">YAML needs <code>pyyaml</code>, which is not a declared
+  dependency. TOML is built in and JSON goes through <code>orjson</code>; if you
+  want YAML, install <code>pyyaml</code> or use TOML.</p>
 
-[backup]
-enabled = true
-interval = "24h"
-path = "~/.sqtseries/backups/"
+  <h3>Environment variables</h3>
+  <p>The prefix is <code>SQT_SERIES_</code>. Nest one level with a double
+  underscore, so <code>http.rate_limit_per_minute</code> becomes:</p>
 
+<pre><span class="p">$</span> <span class="f">export</span> SQT_SERIES_HTTP__RATE_LIMIT_PER_MINUTE=<span class="v">42</span>
+<span class="p">$</span> <span class="f">export</span> SQT_SERIES_DATABASE__BATCH_SIZE=<span class="v">500</span>
+<span class="p">$</span> <span class="f">export</span> SQT_SERIES_CONFIG_FILE=<span class="v">/etc/sqtseries/config.toml</span></pre>
+
+  <p>Names are case-insensitive, and an empty value counts as unset. So
+  <code>SQT_SERIES_DATABASE__PATH=</code> with nothing after the equals means
+  "use the default", not "use an empty path".</p>
+</section>
+
+<section>
+  <h2>Ports, and why ingest is not the one you set</h2>
+  <p>Six ports, five fixed and one chosen at start-up. This surprises almost
+  everyone, so it is worth reading before you point a client at a number.</p>
+
+  <div class="tablewrap"><table class="ports">
+    <thead><tr><th>Port</th><th>Socket</th><th>Binds</th><th>Carries</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">12500+</td><td>auto-detected</td><td>127.0.0.1</td>
+        <td><strong>Ingest.</strong> The first free port in
+        <code>port_range_start…port_range_end</code>, not the configured
+        <code>ingestion.port</code>. Read the real one from
+        <code>sqtseries status</code> or <code>runtime.json</code>.</td></tr>
+      <tr><td class="opt">12502</td><td>ROUTER</td><td>127.0.0.1</td>
+        <td><strong>Query.</strong> One request frame in, one reply frame out.
+        Wire-compatible with a plain REQ client.</td></tr>
+      <tr><td class="opt">12503</td><td>XPUB</td><td>127.0.0.1</td>
+        <td><strong>Stream.</strong> Two-part frames, <code>[topic, json]</code>.
+        XPUB, not PUB, so subscribe and unsubscribe events arrive on the wire
+        and subscriber counts are exact.</td></tr>
+      <tr><td class="opt">12504</td><td>REP</td><td>127.0.0.1</td>
+        <td><strong>Admin.</strong> <code>{"cmd": …}</code> in, a status
+        envelope out.</td></tr>
+      <tr><td class="opt">12505</td><td>HTTP + WebSocket</td><td><code>http.host</code></td>
+        <td><strong>HTTP.</strong> The REST API, the three WebSocket streams,
+        the admin dashboard, these docs, and the self-hosted Swagger/ReDoc.
+        Binds <code>0.0.0.0</code> by default, so a LAN machine can reach it.</td></tr>
+      <tr><td class="opt">12506</td><td>PUB</td><td>127.0.0.1</td>
+        <td><strong>Stats.</strong> Connect, disconnect and subscription
+        events, plus a periodic <code>report</code>. Two-part frames like the
+        stream socket.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="box warn">
+    <span class="lbl">The ingest port is not the one you configured</span>
+    <p>With <code>ports.auto_detect = true</code> (the default) the ingest port
+    is the <strong>first free port in the range</strong>, which is normally
+    12500 — not <code>ingestion.port</code>, which is 12501. A client hard-coded
+    to 12501 works only when <code>auto_detect = false</code> or when 12500 is
+    already taken. Always read the real ports from
+    <code>sqtseries status</code>, or pass them from the same source your
+    launcher used. The five fixed ports are reserved before the detector runs,
+    so it can never hand out one of them.</p>
+  </div>
+
+  <p>The detector probes each candidate by binding <code>127.0.0.1</code> on it,
+  then closing the socket and moving on. It is race-tolerant: if something takes the
+  port in the gap between the probe and the real bind, the bind fails and you get a
+  clean error rather than silent misdirection. The five fixed ports are reserved in
+  the allocator <em>before</em> the detector runs, so it can never hand out one of
+  them.</p>
+
+  <h3>Running beside something else</h3>
+  <p>Use <code>port_offset</code> to shift the whole detection window, or set
+  <code>auto_detect = false</code> and pin <code>ingestion.port</code> yourself:</p>
+
+<pre><span class="c"># a second instance: detection window 12600-12800</span>
 [ports]
-auto_detect = true        # free-port auto-detection for the ingest port
-port_range_start = 12500
-port_range_end = 12700
-port_offset = 0
+auto_detect = true
+port_offset = <span class="v">100</span>
 
-[stats]
-enabled = true
-port = 12506
-</code></pre>
-<p>Supported suffixes: <code>.toml</code>, <code>.yaml</code> /
-<code>.yml</code>, <code>.json</code>, chosen by file extension. YAML
-requires the <code>pyyaml</code> package, which is <em>not</em> a dependency
-of sqtseries — install it yourself or stick to TOML/JSON when it is missing.
-Errors are raised as uncaught exceptions (a traceback and exit 1):
-<code>Config file not found: &lt;path&gt;</code> and
-<code>Unsupported config file format: &lt;suffix&gt; (use .toml, .yaml,
-.json)</code>. Unknown keys in the file and unknown
-<code>SQT_SERIES_*</code> environment variables are silently ignored — a
-typo like <code>batc_size</code> does nothing and produces no warning, so
-check your spelling.</p>
-<p>Commands that touch the database (<code>health</code>, <code>stats</code>,
-<code>vacuum</code>, <code>optimize</code>, <code>backup</code>) open the
-database file and therefore <em>create</em> it (and its parent directory)
-if it does not exist yet — <code>sqtseries health</code> on a never-created
-database exits 0 ("ok"), because an empty file passes the integrity probe.</p>
+<span class="c"># or pin everything, and fail loudly if it is taken</span>
+[ports]
+auto_detect = false
 
-<h3>Environment variables</h3>
-<p>Every setting can be set with an environment variable. The naming rule:
-the <code>SQT_SERIES_</code> prefix, then the section, then
-<code>__</code>, then the key — all uppercase:</p>
-<pre><code>SQT_SERIES_&lt;SECTION&gt;__&lt;KEY&gt;
-SQT_SERIES_DATABASE__PATH         # sets database.path
-SQT_SERIES_HTTP__CORS_ORIGINS    # sets http.cors_origins</code></pre>
-<p>Variables are case-insensitive, and an empty value means "unset" (the
-default applies). The special variable <code>SQT_SERIES_CONFIG_FILE</code>
-selects a config file just like <code>--config</code> would.</p>
-<pre><code># Examples
-SQT_SERIES_DATABASE__PATH=/data/tsdb.sqlite SQT_SERIES_QUERY__PORT=14002 sqtseries run
-SQT_SERIES_CONFIG_FILE=~/prod.toml sqtseries run</code></pre>
-<p>The full table of settings, their defaults and env names:</p>
+[ingestion]
+port = <span class="v">12601</span></pre>
+</section>
 
-<h4>database</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>path</code></td><td><code>~/.sqtseries/data/db.sqlite</code></td><td><code>SQT_SERIES_DATABASE__PATH</code></td><td>Database file location</td></tr>
-  <tr><td><code>page_size</code></td><td><code>8192</code></td><td><code>SQT_SERIES_DATABASE__PAGE_SIZE</code></td><td>Config-only — the engine fixes 8192 on fresh files</td></tr>
-  <tr><td><code>cache_size</code></td><td><code>-64000</code></td><td><code>SQT_SERIES_DATABASE__CACHE_SIZE</code></td><td>Config-only — page cache is fixed at −64000 (≈64 MiB)</td></tr>
-  <tr><td><code>mmap_size</code></td><td><code>268435456</code></td><td><code>SQT_SERIES_DATABASE__MMAP_SIZE</code></td><td>Config-only — memory-mapped reads fixed at 256 MiB</td></tr>
-  <tr><td><code>busy_timeout</code></td><td><code>5000</code></td><td><code>SQT_SERIES_DATABASE__BUSY_TIMEOUT</code></td><td>Config-only — write-lock wait fixed at 5000 ms</td></tr>
-  <tr><td><code>journal_size_limit</code></td><td><code>67108864</code></td><td><code>SQT_SERIES_DATABASE__JOURNAL_SIZE_LIMIT</code></td><td>Config-only — WAL cap fixed at 64 MiB</td></tr>
-  <tr><td><code>threads</code></td><td><code>4</code></td><td><code>SQT_SERIES_DATABASE__THREADS</code></td><td>Config-only — parallel sort threads fixed at 4</td></tr>
-  <tr><td><code>batch_size</code></td><td><code>2000</code></td><td><code>SQT_SERIES_DATABASE__BATCH_SIZE</code></td><td>Validated (1–8191), config-only</td></tr>
-  <tr><td><code>flush_interval</code></td><td><code>1.0</code></td><td><code>SQT_SERIES_DATABASE__FLUSH_INTERVAL</code></td><td>Config-only (not consumed by the write path)</td></tr>
-</table></div>
+<section>
+  <h2>Duration values — two syntaxes</h2>
+  <p>This is the single most common configuration mistake, and it is a mistake
+  because there are two similar parsers with different rules.</p>
 
-<h4>ingestion</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>port</code></td><td><code>12501</code></td><td><code>SQT_SERIES_INGESTION__PORT</code></td><td>Auto-detected PULL socket (the only one)</td></tr>
-  <tr><td><code>hwm</code></td><td><code>101000</code></td><td><code>SQT_SERIES_INGESTION__HWM</code></td><td>PUSH/PULL high-water mark</td></tr>
-  <tr><td><code>pending_max</code></td><td><code>100</code></td><td><code>SQT_SERIES_INGESTION__PENDING_MAX</code></td><td>Max outstanding ingest batches (semaphore-bound hand-off)</td></tr>
-  <tr><td><code>max_message_size</code></td><td><code>52428800</code></td><td><code>SQT_SERIES_INGESTION__MAX_MESSAGE_SIZE</code></td><td>Max frame size (50 MiB); larger frames are dropped</td></tr>
-  <tr><td><code>reject_client_timestamp_skew_s</code></td><td><code>300.0</code></td><td><code>SQT_SERIES_INGESTION__REJECT_CLIENT_TIMESTAMP_SKEW_S</code></td><td>Skew guard for timestamps (±5 min)</td></tr>
-</table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th></th><th>Interval strings</th><th>TTL strings</th></tr></thead>
+    <tbody>
+      <tr><td>Used by</td>
+        <td><code>rollup.interval</code>, <code>backup.interval</code>,
+        <code>maintenance.analyze_interval</code></td>
+        <td><code>retention.default_ttl</code>,
+        <code>retention.check_interval</code></td></tr>
+      <tr><td>Units accepted</td>
+        <td><code>s</code> <code>m</code> <code>h</code> <code>d</code></td>
+        <td><code>s</code> <code>m</code> <code>h</code> <code>d</code>
+        <strong><code>w</code></strong></td></tr>
+      <tr><td><code>1m</code> means</td><td>one minute</td><td>one minute</td></tr>
+      <tr><td><code>1w</code></td>
+        <td class="muted">rejected</td><td>one week</td></tr>
+      <tr><td>Granularity of the effect</td>
+        <td>how often the task runs</td>
+        <td>retention drops whole <strong>monthly</strong> partitions, so a TTL is
+        applied at month granularity whatever it says</td></tr>
+    </tbody>
+  </table></div>
 
-<h4>query</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>port</code></td><td><code>12502</code></td><td><code>SQT_SERIES_QUERY__PORT</code></td><td>Query REP socket</td></tr>
-  <tr><td><code>timeout_s</code></td><td><code>30.0</code></td><td><code>SQT_SERIES_QUERY__TIMEOUT_S</code></td><td>Query budget on the wire: a query running longer gets <code>QUERY_TIMEOUT</code> back (0 disables)</td></tr>
-  <tr><td><code>max_rows</code></td><td><code>10000</code></td><td><code>SQT_SERIES_QUERY__MAX_ROWS</code></td><td>Max raw rows materialized per query (0 = unbounded); over-limit reads fail with <code>MAX_ROWS_EXCEEDED</code> (HTTP 413) instead of truncating</td></tr>
-  <tr><td><code>max_inflight</code></td><td><code>64</code></td><td><code>SQT_SERIES_QUERY__MAX_INFLIGHT</code></td><td>Max concurrent in-flight query dispatches; excess stays queued and is counted, not spawned</td></tr>
-</table></div>
-
-<h4>streaming</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>port</code></td><td><code>12503</code></td><td><code>SQT_SERIES_STREAMING__PORT</code></td><td>Live subscription XPUB socket</td></tr>
-  <tr><td><code>linger_seconds</code></td><td><code>30.0</code></td><td><code>SQT_SERIES_STREAMING__LINGER_SECONDS</code></td><td>Linger window after a topic unsubscribes</td></tr>
-</table></div>
-
-<h4>admin</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>port</code></td><td><code>12504</code></td><td><code>SQT_SERIES_ADMIN__PORT</code></td><td>Admin commands REP socket</td></tr>
-</table></div>
-
-<h4>stats</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>enabled</code></td><td><code>true</code></td><td><code>SQT_SERIES_STATS__ENABLED</code></td><td>Publish stats events</td></tr>
-  <tr><td><code>port</code></td><td><code>12506</code></td><td><code>SQT_SERIES_STATS__PORT</code></td><td>Stats PUB socket</td></tr>
-</table></div>
-
-<h4>http</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>port</code></td><td><code>12505</code></td><td><code>SQT_SERIES_HTTP__PORT</code></td><td>HTTP + WebSocket gateway</td></tr>
-  <tr><td><code>host</code></td><td><code>0.0.0.0</code></td><td><code>SQT_SERIES_HTTP__HOST</code></td><td>Bind address (all interfaces by default; set <code>127.0.0.1</code> for local-only HTTP)</td></tr>
-  <tr><td><code>cors_origins</code></td><td><code>["*"]</code></td><td><code>SQT_SERIES_HTTP__CORS_ORIGINS</code></td><td>Allowed CORS origins (JSON list)</td></tr>
-  <tr><td><code>rate_limit_per_minute</code></td><td><code>600</code></td><td><code>SQT_SERIES_HTTP__RATE_LIMIT_PER_MINUTE</code></td><td>Requests per minute per client</td></tr>
-  <tr><td><code>max_websocket_connections</code></td><td><code>1000</code></td><td><code>SQT_SERIES_HTTP__MAX_WEBSOCKET_CONNECTIONS</code></td><td>Live WebSocket cap; new connections beyond it close with code 1013</td></tr>
-</table></div>
-
-<h4>logging</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>level</code></td><td><code>INFO</code></td><td><code>SQT_SERIES_LOGGING__LEVEL</code></td><td>DEBUG | INFO | WARNING | ERROR | CRITICAL</td></tr>
-  <tr><td><code>format</code></td><td><code>console</code></td><td><code>SQT_SERIES_LOGGING__FORMAT</code></td><td>console | json</td></tr>
-  <tr><td><code>file</code></td><td><code>null</code></td><td><code>SQT_SERIES_LOGGING__FILE</code></td><td>Optional log file (rotating 10 MB × 5)</td></tr>
-</table></div>
-
-<h4>retention</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>enabled</code></td><td><code>true</code></td><td><code>SQT_SERIES_RETENTION__ENABLED</code></td><td>Drop old monthly partitions</td></tr>
-  <tr><td><code>default_ttl</code></td><td><code>30d</code></td><td><code>SQT_SERIES_RETENTION__DEFAULT_TTL</code></td><td>How long data is kept (s/m/h/d/w)</td></tr>
-  <tr><td><code>check_interval</code></td><td><code>1h</code></td><td><code>SQT_SERIES_RETENTION__CHECK_INTERVAL</code></td><td>How often to check</td></tr>
-  <tr><td><code>partition_interval</code></td><td><code>month</code></td><td><code>SQT_SERIES_RETENTION__PARTITION_INTERVAL</code></td><td>Only "month" is supported</td></tr>
-</table></div>
-
-<h4>rollup</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>enabled</code></td><td><code>true</code></td><td><code>SQT_SERIES_ROLLUP__ENABLED</code></td><td>Pre-aggregate completed hours</td></tr>
-  <tr><td><code>interval</code></td><td><code>5m</code></td><td><code>SQT_SERIES_ROLLUP__INTERVAL</code></td><td>How often the rollup task runs</td></tr>
-</table></div>
-
-<h4>maintenance</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>enabled</code></td><td><code>true</code></td><td><code>SQT_SERIES_MAINTENANCE__ENABLED</code></td><td>Periodic ANALYZE</td></tr>
-  <tr><td><code>analyze_interval</code></td><td><code>1h</code></td><td><code>SQT_SERIES_MAINTENANCE__ANALYZE_INTERVAL</code></td><td>Refresh planner statistics</td></tr>
-</table></div>
-
-<h4>backup</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>enabled</code></td><td><code>true</code></td><td><code>SQT_SERIES_BACKUP__ENABLED</code></td><td>Periodic snapshot scheduling</td></tr>
-  <tr><td><code>interval</code></td><td><code>24h</code></td><td><code>SQT_SERIES_BACKUP__INTERVAL</code></td><td>How often a snapshot is taken (e.g. <code>24h</code>, <code>6h</code>, <code>1d</code>)</td></tr>
-  <tr><td><code>path</code></td><td><code>~/.sqtseries/backups/</code></td><td><code>SQT_SERIES_BACKUP__PATH</code></td><td>Where backups are written</td></tr>
-</table></div>
-
-<h4>ports</h4>
-<div class="table-wrap"><table>
-  <tr><th>Key</th><th>Default</th><th>Environment variable</th><th>Purpose</th></tr>
-  <tr><td><code>port_range_start</code></td><td><code>12500</code></td><td><code>SQT_SERIES_PORTS__PORT_RANGE_START</code></td><td>Start of the auto-detect range</td></tr>
-  <tr><td><code>port_range_end</code></td><td><code>12700</code></td><td><code>SQT_SERIES_PORTS__PORT_RANGE_END</code></td><td>End of the auto-detect range</td></tr>
-  <tr><td><code>auto_detect</code></td><td><code>true</code></td><td><code>SQT_SERIES_PORTS__AUTO_DETECT</code></td><td>Auto-pick a free ingest port</td></tr>
-  <tr><td><code>port_offset</code></td><td><code>0</code></td><td><code>SQT_SERIES_PORTS__PORT_OFFSET</code></td><td>Offset added to the base range</td></tr>
-</table></div>
-
-<h3>Duration values</h3>
-<p>Durations like <code>5m</code>, <code>1h</code>, <code>30d</code> are a
-number plus one of <code>s</code> (seconds), <code>m</code> (minutes),
-<code>h</code> (hours), <code>d</code> (days). Retention TTLs
-(<code>retention.default_ttl</code>, <code>check_interval</code>)
-additionally accept <code>w</code> (weeks), e.g. <code>4w</code>.</p>
-
-<h3>Validation rules</h3>
-<p>Invalid settings stop startup with a clear message instead of a crash
-mid-flight:</p>
-<ul>
-  <li>Each of <code>ingestion</code>, <code>query</code>,
-      <code>streaming</code>, <code>admin</code>, <code>http</code>, and
-      <code>stats</code> ports must be 1–65535, and the six must be
-      unique.</li>
-  <li><code>ingestion.hwm</code> ≥ 1 and <code>ingestion.pending_max</code> ≥ 1.</li>
-  <li><code>database.batch_size</code> must be 1–8191 (SQLite's safe variable
-      limit).</li>
-  <li><code>rollup.interval</code> and
-      <code>maintenance.analyze_interval</code> must parse as durations
-      (s/m/h/d, ≥ 1) — validated only when enabled.</li>
-  <li><code>retention.default_ttl</code> and
-      <code>retention.check_interval</code> must parse as TTLs
-      (s/m/h/d/w) — validated only when enabled.</li>
-  <li>Environment variables are case-insensitive, and an empty value means
-      "unset" so it cannot break parsing.</li>
-</ul>
-
-<h3>Port allocation</h3>
-<p>Only the <strong>ingest port</strong> is auto-detected. If
-<code>ports.auto_detect</code> is on (default), <code>run</code> scans
-<code>[port_range_start, port_range_end] + port_offset</code> and binds the
-first free port, skipping the query/streaming/admin/http/stats ports along
-the way (the scan starts at <code>port_range_start</code>, so with defaults the
-ingest port is usually 12500 — not the configured 12501). The other five
-ports — query, streaming, admin, stats, http — are <strong>fixed</strong>:
-if one of them is already bound at startup, the service fails to start with
-a port error. <code>port_offset</code> is added to the base range
-<em>in both modes</em>. With <code>auto_detect = false</code> the configured
-ingest port is used verbatim; if it is taken, startup fails with a ZMQ bind
-error (EADDRINUSE).</p>
-<p>The ZeroMQ sockets bind to <code>127.0.0.1</code>. The HTTP + WebSocket
-gateway binds per <code>[http] host</code> (default <code>0.0.0.0</code> —
-reachable from other machines; set <code>127.0.0.1</code> to restrict it to
-this machine). The final, actually-bound
-ingest port plus the fixed ports (ingest/query/stream/admin/http/stats) are
-written to <code>runtime.json</code> (next to the database) and shown by
-<code>sqtseries ports</code> and <code>sqtseries status</code>.</p>
-
-<h3>Notes on some settings</h3>
-<ul>
-  <li>Every <code>[database]</code> key except <code>path</code> is
-      <em>config-only</em>: <code>batch_size</code> is validated (1–8191) but
-      not consumed by the write path (benchmark tooling batches with it), and <code>page_size</code>, <code>cache_size</code>,
-      <code>mmap_size</code>, <code>busy_timeout</code>,
-      <code>journal_size_limit</code>, <code>threads</code>, and
-      <code>flush_interval</code> are not consumed at all — the engine uses its
-      fixed values (see the PRAGMA tables below). <code>ingestion.pending_max</code>,
-      by contrast, is live: it bounds outstanding ingest batches through a
-      semaphore between the drain loop and the persister. The write path drains ingest
-      frames in bursts (up to 1024 per tick) and commits one transaction per
-      burst, so the remaining knobs have no effect today. They exist so a future
-      write path can honor them.</li>
-  <li><code>ingestion.max_message_size</code> (50 MiB) — frames larger than
-      this are dropped at the socket level (the peer is disconnected) and
-      never ingested.</li>
-  <li><code>query.timeout_s</code> (30) — answers over the wire can take no
-      longer than this budget. Queries are run off the event loop in a
-      worker thread; if the budget is exceeded the client receives a
-      <code>QUERY_TIMEOUT</code> error instead of waiting forever, and the
-      service stays responsive to other traffic. Set to <code>0</code> to
-      disable the server-side budget entirely (queries then run to
-      completion). Identical queries within a 5-second TTL are served from
-      an LRU cache (512 entries), avoiding redundant SQLite scans.</li>
-  <li><code>streaming.linger_seconds</code> (30) — the pubsub subscription
-      tracker's linger window after a topic unsubscribes.</li>
-  <li><code>backup.enabled</code>/<code>interval</code> — automatic
-      snapshots. The backup manager takes a consistent <code>VACUUM INTO</code>
-      snapshot on startup and then every <code>interval</code> (default 24h),
-      in a background thread. A snapshot younger than the interval is
-      skipped (restarts don't create duplicate backups). On-demand backups
-      are still available via <code>sqtseries backup</code> (CLI) or the
-      admin <code>backup</code> command.</li>
-</ul>
-
-<h3>SQLite internals (normally left alone)</h3>
-<p>sqtseries tunes the underlying SQLite engine for speed. On a fresh file,
-two settings are baked in before tables exist (they can never change
-afterwards):</p>
-<div class="table-wrap"><table>
-  <tr><th>PRAGMA</th><th>Value</th><th>Effect</th></tr>
-  <tr><td><code>page_size</code></td><td>8192</td><td>Storage page size</td></tr>
-  <tr><td><code>auto_vacuum</code></td><td>INCREMENTAL</td><td>Space is reclaimed after deletes</td></tr>
-</table></div>
-<p>The rest are applied per connection:</p>
-<div class="table-wrap"><table>
-  <tr><th>PRAGMA</th><th>Value</th><th>Effect</th></tr>
-  <tr><td><code>journal_mode</code></td><td>WAL</td><td>Concurrent readers with a single writer</td></tr>
-  <tr><td><code>synchronous</code></td><td>NORMAL</td><td>Fast, durable in WAL mode</td></tr>
-  <tr><td><code>cache_size</code></td><td>−64000 (64 MiB)</td><td>Page cache</td></tr>
-  <tr><td><code>mmap_size</code></td><td>268435456 (256 MiB)</td><td>Memory-mapped reads</td></tr>
-  <tr><td><code>busy_timeout</code></td><td>5000 ms</td><td>Wait on write-lock contention</td></tr>
-  <tr><td><code>journal_size_limit</code></td><td>67108864 (64 MiB)</td><td>Cap WAL growth</td></tr>
-  <tr><td><code>threads</code></td><td>4</td><td>Parallel sort</td></tr>
-  <tr><td><code>foreign_keys</code></td><td>ON</td><td>Enforce referential integrity</td></tr>
-</table></div>
-
-<h2 id="abbreviations">Abbreviations &amp; jargon</h2>
-<p>Every abbreviation used in these docs, spelled out once. Time-series terms first, then
-storage/engine terms, then transports and project/tech terms.</p>
-<div class="table-wrap"><table>
-<tr><th>Abbreviation</th><th>Stands for</th><th>Meaning in context</th></tr>
-<tr><td>TSDB</td><td>Time-Series Database</td><td>A database optimized for timestamped measurements; sqtseries is an embedded TSDB on SQLite.</td></tr>
-<tr><td>WAL</td><td>Write-Ahead Log</td><td>SQLite journal mode for crash-atomic writes; checkpointed periodically and on shutdown.</td></tr>
-<tr><td>TTL</td><td>Time To Live</td><td>Retention horizon (e.g., "30d") after which whole monthly partitions are dropped.</td></tr>
-<tr><td>HWM</td><td>High Water Mark</td><td>ZeroMQ socket queue limit before backpressure/drop (ingest default 101000).</td></tr>
-<tr><td>XPUB</td><td>Extended PUB</td><td>ZMQ PUB socket that also emits subscription events — used to track live subscribers exactly.</td></tr>
-<tr><td>REQ / REP</td><td>Request / Reply</td><td>ZMQ socket pattern for synchronous command/response (query port 12502, admin port 12504).</td></tr>
-<tr><td>PUSH / PULL</td><td>Push / Pull</td><td>ZMQ socket pattern for fire-and-forget ingestion (ingest port 12501).</td></tr>
-<tr><td>PUB / SUB</td><td>Publish / Subscribe</td><td>ZMQ pattern for live streaming (streaming port 12503) and stats events (stats port 12506).</td></tr>
-<tr><td>HTTP / WS</td><td>HyperText Transfer Protocol / WebSocket</td><td>REST API + browser streaming on port 12505.</td></tr>
-<tr><td>ZMQ / ZeroMQ</td><td>ZeroMQ</td><td>The messaging library used for all wire transports except HTTP.</td></tr>
-<tr><td>SQLite</td><td>—</td><td>The embedded storage engine; single file, WAL mode, monthly partitions.</td></tr>
-<tr><td>PRAGMA</td><td>—</td><td>SQLite runtime configuration commands (page_size, journal_mode, etc.).</td></tr>
-<tr><td>JSON</td><td>JavaScript Object Notation</td><td>Wire format for all APIs (ZMQ and HTTP); serialized with orjson.</td></tr>
-<tr><td>TOML / YAML</td><td>Tom's Obvious Minimal Language / YAML Ain't Markup Language</td><td>Config file formats supported (also JSON).</td></tr>
-<tr><td>CLI</td><td>Command-Line Interface</td><td>The <code>sqtseries</code> command (click-based).</td></tr>
-<tr><td>API</td><td>Application Programming Interface</td><td>Both the embedded Python API and the wire protocols (ZMQ/HTTP).</td></tr>
-<tr><td>RSS</td><td>Resident Set Size</td><td>Process memory usage; monitored in leak tests.</td></tr>
-<tr><td>fd</td><td>File Descriptor</td><td>Handle to an open file/socket/pipe; tracked to prevent leaks.</td></tr>
-<tr><td>PEP</td><td>Python Enhancement Proposal</td><td>PEP 758 (comma-except syntax) requires Python ≥ 3.14.</td></tr>
-<tr><td>UUID</td><td>Universally Unique Identifier</td><td>Used for connection IDs and subscriber tracking.</td></tr>
-<tr><td>CORS</td><td>Cross-Origin Resource Sharing</td><td>HTTP gateway CORS policy (configurable via <code>http.cors_origins</code>).</td></tr>
-<tr><td>VACUUM</td><td>—</td><td>SQLite command to rebuild the database file; <code>VACUUM INTO</code> creates consistent backups.</td></tr>
-<tr><td>ANALYZE</td><td>—</td><td>SQLite command to refresh query-planner statistics; run periodically by MaintenanceManager.</td></tr>
-<tr><td>OBS</td><td>Open Broadcaster Software</td><td>Target consumer for the camera overlay (browser source).</td></tr>
-</table></div>
-<p>Project-specific terms (Measurement, Metric, Series, Tags, Partition, Watermark, Skew guard, fast path, embedded API)
-are defined in the <a href="codebase-guide.html#glossary">Codebase Guide glossary</a>.</p>
-
-<h3>Security</h3>
-<div class="note">
-  <strong>HTTP is network-reachable by default; ZeroMQ is local-only.</strong>
-  The HTTP gateway binds <code>0.0.0.0</code> so other machines can use the
-  dashboard and API, while the ZeroMQ ports stay on 127.0.0.1. There is no
-  authentication — on an untrusted network set
-  <code>host = "127.0.0.1"</code> and put an authenticating reverse proxy in
-  front instead.
-</div>
-
-<h2>Where to go next</h2>
-<div class="cards">
-  <div class="card"><h3><a href="quickstart.html">Quick Start</a></h3>
-    <p>Put these settings to work: run, send data, and query it back.</p></div>
-  <div class="card"><h3><a href="systemd.html">Systemd</a></h3>
-    <p>Run with your config file as a service that stays up.</p></div>
-  <div class="card"><h3><a href="backup.html">Backup &amp; Restore</a></h3>
-    <p>Protect the database file these settings point at.</p></div>
-  <div class="card"><h3><a href="api.html">API Reference</a></h3>
-    <p>Every CLI command, wire message, and error code in one page — plus
-    live Swagger UI and ReDoc specs.</p></div>
-</div>
-
-
+  <div class="box warn">
+    <span class="lbl">There is no month syntax anywhere</span>
+    <p>Both parsers treat <code>m</code> as <strong>minutes</strong>. If you want
+    "keep a year of data", write <code>365d</code> or <code>52w</code> — not
+    <code>12m</code>, which keeps twelve minutes and then drops whole monthly
+    partitions, deleting far more than you intended.</p>
+<pre>[retention]
+default_ttl     = <span class="v">"365d"</span>   <span class="c"># a year — this is what you want</span>
+default_ttl     = <span class="v">"12m"</span>    <span class="c"># twelve MINUTES — almost certainly a mistake</span></pre>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</section>
+
+<section>
+  <h2>The database settings</h2>
+  <p>These map onto SQLite's own file-level and per-connection settings. The defaults
+  are what the shipped code uses; the notes explain the ones that look unusual.</p>
+
+  <div class="tablewrap"><table class="opts">
+    <thead><tr><th>Key</th><th>Environment variable</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">database.path</td><td class="opt">SQT_SERIES_DATABASE__PATH</td>
+        <td class="def">~/.sqtseries/data/db.sqlite</td>
+        <td>The one SQLite file that holds everything. Parent directories are
+        created. <code>~</code> is expanded.</td></tr>
+      <tr><td class="opt">database.page_size</td><td class="opt">SQT_SERIES_DATABASE__PAGE_SIZE</td>
+        <td class="def">8192</td>
+        <td>SQLite page size in bytes. Applied <strong>only when the file is
+        created</strong> — SQLite cannot change it afterwards. It must be set
+        before WAL, so the bootstrap connection skips WAL.</td></tr>
+      <tr><td class="opt">database.cache_size</td><td class="opt">SQT_SERIES_DATABASE__CACHE_SIZE</td>
+        <td class="def">-64000</td>
+        <td>Page cache per connection, in KiB when negative. 8 MB on the
+        shipped code path — see the note below on why this default is smaller
+        than it looks.</td></tr>
+      <tr><td class="opt">database.mmap_size</td><td class="opt">SQT_SERIES_DATABASE__MMAP_SIZE</td>
+        <td class="def">268435456</td>
+        <td>Bytes of the file mapped into the address space (256 MiB). Reading
+        through the mapping skips a copy from the page cache.</td></tr>
+      <tr><td class="opt">database.busy_timeout</td><td class="opt">SQT_SERIES_DATABASE__BUSY_TIMEOUT</td>
+        <td class="def">5000</td>
+        <td>Milliseconds SQLite waits on a locked database before returning
+        <code>SQLITE_BUSY</code>.</td></tr>
+      <tr><td class="opt">database.journal_size_limit</td><td class="opt">SQT_SERIES_DATABASE__JOURNAL_SIZE_LIMIT</td>
+        <td class="def">67108864</td>
+        <td>Bytes the WAL may keep after a checkpoint (64 MiB).</td></tr>
+      <tr><td class="opt">database.threads</td><td class="opt">SQT_SERIES_DATABASE__THREADS</td>
+        <td class="def">4</td>
+        <td>SQLite worker threads.</td></tr>
+      <tr><td class="opt">database.batch_size</td><td class="opt">SQT_SERIES_DATABASE__BATCH_SIZE</td>
+        <td class="def">2000</td>
+        <td>Points per insert transaction. Must be <strong>1…8191</strong>: above
+        8191 the batch can exceed <code>SQLITE_MAX_VARIABLE_NUMBER</code> and a
+        valid batch starts failing. A burst commits in one
+        <code>BEGIN IMMEDIATE</code>, so a batch is all-or-nothing.</td></tr>
+      <tr><td class="opt">database.flush_interval</td><td class="opt">SQT_SERIES_DATABASE__FLUSH_INTERVAL</td>
+        <td class="def">1.0</td>
+        <td>Seconds.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box">
+    <span class="lbl">Why the page cache default is 8 MB, not 64 MB</span>
+    <p>The setting says <code>-64000</code> (64 MB in KiB-negative form), but the code
+    path applies <code>cache_size = -8000</code> per connection instead, and that is
+    deliberate. A 64 MB cache on a handle shared across executor threads makes glibc
+    arena allocations balloon: pages cached on thread A's arena stay in A even when
+    thread B later runs the same handle, because <code>free()</code> returns memory to
+    its <em>allocating</em> thread's arena. Total resident memory then climbs roughly
+    with threads times working set. Measured on 2026-09-09 at 10k pts/s: 60–100 MB
+    anonymous arena mappings per handle in <code>smaps</code>, and anonymous memory
+    growing about 25 MB per snapshot.</p>
+    <p>8 MB keeps the hot working set of a steady-state run resident per handle
+    without the cross-thread duplication, and a miss falls through to the OS page
+    cache, which <em>is</em> shared. A transient connection — one opened because every
+    pooled reader is checked out — gets the same 8 MB rather than the full figure.</p>
+  </div>
+
+  <div class="box warn">
+    <span class="lbl">batch_size has a hard ceiling of 8191</span>
+    <p>A batch becomes one <code>INSERT</code> with a bound parameter per column per
+    row, so it can run into <code>SQLITE_MAX_VARIABLE_NUMBER</code>. Above 8191 the
+    service refuses to start and says so, rather than failing every burst at 3 a.m.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Ports, ingest, query and HTTP settings</h2>
+  <p>Every setting that decides where traffic goes, how much of it is accepted, and
+  what happens when a client asks for too much.</p>
+
+  <div class="tablewrap"><table class="opts">
+    <thead><tr><th>Key</th><th>Environment variable</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">ingestion.port</td><td class="opt">SQT_SERIES_INGESTION__PORT</td>
+        <td class="def">12501</td>
+        <td>Configured ingest port. Used as-is only when
+        <code>ports.auto_detect = false</code>.</td></tr>
+      <tr><td class="opt">ingestion.hwm</td><td class="opt">SQT_SERIES_INGESTION__HWM</td>
+        <td class="def">101000</td>
+        <td>Receive high-water mark on the PULL socket. Frames buffer up to
+        this before senders block, so a producer burst is absorbed rather than
+        refused. Must be ≥ 1.</td></tr>
+      <tr><td class="opt">ingestion.pending_max</td><td class="opt">SQT_SERIES_INGESTION__PENDING_MAX</td>
+        <td class="def">100</td>
+        <td>Batches outstanding between the receive loop and the persister.
+        This is the backpressure point: at 100, the receiver stops reading and
+        the socket's HWM takes over. Must be ≥ 1.</td></tr>
+      <tr><td class="opt">ingestion.max_message_size</td><td class="opt">SQT_SERIES_INGESTION__MAX_MESSAGE_SIZE</td>
+        <td class="def">52428800</td>
+        <td>Largest accepted frame in bytes (50 MiB). A larger frame is
+        refused by the socket, not parsed.</td></tr>
+      <tr><td class="opt">ingestion.reject_client_timestamp_skew_s</td><td class="opt">SQT_SERIES_INGESTION__REJECT_CLIENT_TIMESTAMP_SKEW_S</td>
+        <td class="def">300.0</td>
+        <td>Seconds a client timestamp may differ from the server clock
+        before the write is refused (400 over HTTP, counted invalid over ZMQ).
+        Set <code>0</code> to accept any timestamp. This also sets how long an
+        hour must be finished before the rollup will touch it, so a write can
+        never land in an hour already summarised.</td></tr>
+      <tr><td class="opt">query.port</td><td class="opt">SQT_SERIES_QUERY__PORT</td>
+        <td class="def">12502</td>
+        <td>Query socket port.</td></tr>
+      <tr><td class="opt">query.timeout_s</td><td class="opt">SQT_SERIES_QUERY__TIMEOUT_S</td>
+        <td class="def">30.0</td>
+        <td>Seconds one query may run. Over HTTP the client gets
+        <code>504</code>; over ZMQ it gets <code>QUERY_TIMEOUT</code>. Also
+        bounds one HTTP read. <code>None</code> or ≤ 0 disables the cap — the
+        query still runs off the event loop.</td></tr>
+      <tr><td class="opt">query.max_rows</td><td class="opt">SQT_SERIES_QUERY__MAX_ROWS</td>
+        <td class="def">10000</td>
+        <td>Hard cap on raw rows one query may materialise. Exceeding it is an
+        error, never a silent truncation: <code>413</code> over HTTP,
+        <code>MAX_ROWS_EXCEEDED</code> over ZMQ. <code>0</code> means unbounded.
+        The check is a cheap <code>COUNT(*)</code> before the fetch, so an
+        over-cap query never pays for the rows.</td></tr>
+      <tr><td class="opt">query.max_inflight</td><td class="opt">SQT_SERIES_QUERY__MAX_INFLIGHT</td>
+        <td class="def">64</td>
+        <td>Concurrent query dispatches. Past it, requests stay in the socket
+        pipe (HWM-bounded) and are counted in <code>queries_shed</code> rather
+        than spawning another handler. Must be ≥ 1.</td></tr>
+      <tr><td class="opt">streaming.port</td><td class="opt">SQT_SERIES_STREAMING__PORT</td>
+        <td class="def">12503</td>
+        <td>XPUB stream socket port.</td></tr>
+      <tr><td class="opt">streaming.linger_seconds</td><td class="opt">SQT_SERIES_STREAMING__LINGER_SECONDS</td>
+        <td class="def">30.0</td>
+        <td>Seconds a just-unsubscribed topic is remembered as "lingering"
+        before it stops being reported. Keeps a flapping subscriber from
+        flickering in the topic list.</td></tr>
+      <tr><td class="opt">streaming.topic_totals_max</td><td class="opt">SQT_SERIES_STREAMING__TOPIC_TOTALS_MAX</td>
+        <td class="def">10000</td>
+        <td>How many recent topics keep a running publish total in memory. The
+        counter is updated on the ingest path, so a producer using a new metric
+        name per point would otherwise grow it without limit. The oldest topic
+        is dropped past this cap; it still appears in the Topics panel (which
+        unions this counter with the stored metrics) with its total shown as
+        unknown. Must be ≥ 1.</td></tr>
+      <tr><td class="opt">admin.port</td><td class="opt">SQT_SERIES_ADMIN__PORT</td>
+        <td class="def">12504</td>
+        <td>Admin socket port.</td></tr>
+      <tr><td class="opt">stats.enabled</td><td class="opt">SQT_SERIES_STATS__ENABLED</td>
+        <td class="def">true</td>
+        <td>Run the stats publisher. Off means port 12506 is never bound.</td></tr>
+      <tr><td class="opt">stats.port</td><td class="opt">SQT_SERIES_STATS__PORT</td>
+        <td class="def">12506</td>
+        <td>Stats PUB socket port.</td></tr>
+      <tr><td class="opt">http.port</td><td class="opt">SQT_SERIES_HTTP__PORT</td>
+        <td class="def">12505</td>
+        <td>HTTP and WebSocket port.</td></tr>
+      <tr><td class="opt">http.host</td><td class="opt">SQT_SERIES_HTTP__HOST</td>
+        <td class="def">0.0.0.0</td>
+        <td>Interface the HTTP gateway binds. The default is every interface,
+        so a phone on the same network can open the dashboard. Set
+        <code>127.0.0.1</code> for local-only. The five ZMQ ports stay
+        loopback-only whatever this is set to.</td></tr>
+      <tr><td class="opt">http.cors_origins</td><td class="opt">SQT_SERIES_HTTP__CORS_ORIGINS</td>
+        <td class="def">["*"]</td>
+        <td>Allowed browser origins. A list in TOML. There is no
+        authentication, so <code>*</code> plus a non-loopback
+        <code>http.host</code> means anyone who can reach the port can read and
+        write. Narrow both on an untrusted network.</td></tr>
+      <tr><td class="opt">http.rate_limit_per_minute</td><td class="opt">SQT_SERIES_HTTP__RATE_LIMIT_PER_MINUTE</td>
+        <td class="def">600</td>
+        <td>Requests per minute per peer address, on a fixed one-minute window.
+        Over the limit is <code>429</code>. Must be ≥ 1. Keyed on the socket peer
+        address; <code>X-Forwarded-For</code> is deliberately not trusted.</td></tr>
+      <tr><td class="opt">http.max_websocket_connections</td><td class="opt">SQT_SERIES_HTTP__MAX_WEBSOCKET_CONNECTIONS</td>
+        <td class="def">1000</td>
+        <td>Total live WebSocket budget across all three endpoints. A new
+        connection past the cap is closed with code <code>1013</code>. Must be
+        ≥ 1.</td></tr>
+      <tr><td class="opt">ports.port_range_start</td><td class="opt">SQT_SERIES_PORTS__PORT_RANGE_START</td>
+        <td class="def">12500</td>
+        <td>First port the ingest detector may use.</td></tr>
+      <tr><td class="opt">ports.port_range_end</td><td class="opt">SQT_SERIES_PORTS__PORT_RANGE_END</td>
+        <td class="def">12700</td>
+        <td>Last port the ingest detector may use.</td></tr>
+      <tr><td class="opt">ports.auto_detect</td><td class="opt">SQT_SERIES_PORTS__AUTO_DETECT</td>
+        <td class="def">true</td>
+        <td>Pick the first free ingest port in the range. False means bind
+        <code>ingestion.port</code> exactly and fail if it is taken.</td></tr>
+      <tr><td class="opt">ports.port_offset</td><td class="opt">SQT_SERIES_PORTS__PORT_OFFSET</td>
+        <td class="def">0</td>
+        <td>Shift the whole detection range, so a second instance can run
+        beside the first: <code>12500</code> becomes
+        <code>port_range_start + port_offset</code>.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Background tasks and logging</h2>
+  <p>The rollup, retention, maintenance and backup tasks, and how the service logs.
+  Each task runs on boot and then on its interval, in a worker thread so a long pass
+  never stalls the event loop.</p>
+
+  <div class="tablewrap"><table class="opts">
+    <thead><tr><th>Key</th><th>Environment variable</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">rollup.enabled</td><td class="opt">SQT_SERIES_ROLLUP__ENABLED</td>
+        <td class="def">true</td>
+        <td>Keep the hourly summary table current. Off means wide queries scan
+        raw rows, which is correct but slower.</td></tr>
+      <tr><td class="opt">rollup.interval</td><td class="opt">SQT_SERIES_ROLLUP__INTERVAL</td>
+        <td class="def">5m</td>
+        <td>How often the rollup task runs. An interval string
+        (<code>Ns/Nm/Nh/Nd</code>), not a count of hours — <code>5m</code> means
+        "every five minutes", not "every five hours".</td></tr>
+      <tr><td class="opt">retention.enabled</td><td class="opt">SQT_SERIES_RETENTION__ENABLED</td>
+        <td class="def">true</td>
+        <td>Drop expired partitions automatically.</td></tr>
+      <tr><td class="opt">retention.default_ttl</td><td class="opt">SQT_SERIES_RETENTION__DEFAULT_TTL</td>
+        <td class="def">30d</td>
+        <td>How long data is kept. A TTL string: <code>s</code>, <code>m</code>,
+        <code>h</code>, <code>d</code>, <code>w</code> — so <code>4w</code> is
+        valid and <code>1m</code> means one month, not one minute.</td></tr>
+      <tr><td class="opt">retention.check_interval</td><td class="opt">SQT_SERIES_RETENTION__CHECK_INTERVAL</td>
+        <td class="def">1h</td>
+        <td>How often retention runs. Also a TTL string.</td></tr>
+      <tr><td class="opt">retention.partition_interval</td><td class="opt">SQT_SERIES_RETENTION__PARTITION_INTERVAL</td>
+        <td class="def">month</td>
+        <td>Partition width. <strong>Only <code>month</code> is supported.</strong>
+        Retention drops whole partitions, so this is also the coarsest
+        granularity at which anything is deleted.</td></tr>
+      <tr><td class="opt">maintenance.enabled</td><td class="opt">SQT_SERIES_MAINTENANCE__ENABLED</td>
+        <td class="def">true</td>
+        <td>Run periodic <code>ANALYZE</code>.</td></tr>
+      <tr><td class="opt">maintenance.analyze_interval</td><td class="opt">SQT_SERIES_MAINTENANCE__ANALYZE_INTERVAL</td>
+        <td class="def">1h</td>
+        <td>How often <code>ANALYZE</code> runs. An interval string.</td></tr>
+      <tr><td class="opt">backup.enabled</td><td class="opt">SQT_SERIES_BACKUP__ENABLED</td>
+        <td class="def">true</td>
+        <td>Snapshot on a schedule.</td></tr>
+      <tr><td class="opt">backup.interval</td><td class="opt">SQT_SERIES_BACKUP__INTERVAL</td>
+        <td class="def">24h</td>
+        <td>Seconds between snapshots. An interval string.</td></tr>
+      <tr><td class="opt">backup.path</td><td class="opt">SQT_SERIES_BACKUP__PATH</td>
+        <td class="def">~/.sqtseries/backups/</td>
+        <td>Directory for snapshots. Created if absent. Each file is
+        <code>sqtseries-YYYYmmdd-HHMMSS.db</code>; a name that already exists is
+        kept, not overwritten.</td></tr>
+      <tr><td class="opt">logging.level</td><td class="opt">SQT_SERIES_LOGGING__LEVEL</td>
+        <td class="def">INFO</td>
+        <td>One of <code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>,
+        <code>ERROR</code>, <code>CRITICAL</code>.</td></tr>
+      <tr><td class="opt">logging.format</td><td class="opt">SQT_SERIES_LOGGING__FORMAT</td>
+        <td class="def">console</td>
+        <td><code>console</code> for humans, <code>json</code> for a log
+        collector.</td></tr>
+      <tr><td class="opt">logging.file</td><td class="opt">SQT_SERIES_LOGGING__FILE</td>
+        <td class="def">none</td>
+        <td>Also write logs to this path. Unset means stderr only.</td></tr>
+      <tr><td class="opt">config_file</td><td class="opt">SQT_SERIES_CONFIG_FILE</td>
+        <td class="def">none</td>
+        <td>Which settings file to load, when <code>--config</code> is not
+        given. The only single-underscore variable: it is not a nested setting,
+        so it has no <code>__</code>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box">
+    <span class="lbl">Turning a task off changes behaviour, not just timing</span>
+    <p><code>rollup.enabled = false</code> is the one to think about. Queries stay
+    correct — the rollup is an accelerator, not a source of truth — but a wide query
+    then scans raw rows instead of summary rows, and that is a large, growing cost.
+    The other three only change how often something tidies up.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What is refused at start-up</h2>
+  <p>Every rule below is checked before the database is opened. A violation is an
+  error naming the key, not a service that starts and then misbehaves.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Rule</th><th>Message shape</th></tr></thead>
+    <tbody>
+      <tr><td>Every port in 1–65535</td>
+        <td><code>ingestion.port must be 1-65535, got 0</code></td></tr>
+      <tr><td>The six ports must all differ</td>
+        <td><code>ports must be unique, got [12501, 12501, …]</code></td></tr>
+      <tr><td><code>ingestion.hwm</code> ≥ 1</td>
+        <td><code>ingestion.hwm must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>ingestion.pending_max</code> ≥ 1</td>
+        <td><code>ingestion.pending_max must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>query.max_rows</code> ≥ 0</td>
+        <td><code>query.max_rows must be &gt;= 0 (0 = unbounded)</code></td></tr>
+      <tr><td><code>query.max_inflight</code> ≥ 1</td>
+        <td><code>query.max_inflight must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>database.batch_size</code> in 1–8191</td>
+        <td><code>database.batch_size 9000 exceeds SQLITE_MAX_VARIABLE_NUMBER safe
+        limit of 8191</code></td></tr>
+      <tr><td><code>http.rate_limit_per_minute</code> ≥ 1</td>
+        <td><code>http.rate_limit_per_minute must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>http.max_websocket_connections</code> ≥ 1</td>
+        <td><code>http.max_websocket_connections must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>rollup.interval</code> parses</td>
+        <td><code>rollup.interval invalid: unsupported interval: 5x</code></td></tr>
+      <tr><td><code>maintenance.analyze_interval</code> parses</td>
+        <td><code>maintenance.analyze_interval invalid: …</code></td></tr>
+      <tr><td><code>retention.default_ttl</code> and
+        <code>retention.check_interval</code> parse</td>
+        <td><code>retention invalid: invalid TTL: '30y' (use e.g. 30d, 12h, 4w)</code></td></tr>
+      <tr><td><code>backup.interval</code> parses</td>
+        <td><code>backup.interval invalid: …</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Every violation is collected, not just the first, so one run tells you
+  everything that is wrong.</p>
+</section>
+
+<section>
+  <h2>The CLI flags</h2>
+  <p>Two global flags apply to every command, and two subcommands take one flag of
+  their own.</p>
+
+  <div class="tablewrap"><table class="opts">
+    <thead><tr><th>Option</th><th>Argument</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">--config</td><td>PATH</td><td class="def">none</td>
+        <td>Settings file to load. <code>.toml</code>, <code>.yaml</code>,
+        <code>.yml</code> or <code>.json</code>, chosen by suffix. A missing
+        file is an error, not a silent fallback to defaults. The same value can
+        come from <code>SQT_SERIES_CONFIG_FILE</code>.</td></tr>
+      <tr><td class="opt">--db</td><td>PATH</td><td class="def">none</td>
+        <td>Database file to use, overriding both the config file and
+        <code>SQT_SERIES_DATABASE__PATH</code>. The value is the
+        <em>last</em> override applied, so it wins over everything.</td></tr>
+      <tr><td class="opt">--version</td><td class="muted">none</td>
+        <td class="def">off</td>
+        <td>Print the version and exit.</td></tr>
+      <tr><td class="opt">--help</td><td class="muted">none</td>
+        <td class="def">off</td>
+        <td>Print the options for the group or the subcommand and exit.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">Two of the subcommands take one flag of their own:
+  <code>install --system</code> and <code>uninstall --system</code> install to
+  <code>/etc/systemd/system/</code> instead of the per-user
+  <code>~/.config/systemd/user/</code>.</p>
+
+  <div class="tablewrap"><table class="opts">
+    <thead><tr><th>Command</th><th>What it does</th><th>Needs the service?</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">run</td>
+        <td>Start the service in the foreground: opens the database, binds all
+        six ports, starts the background tasks, prints where the dashboard,
+        docs and health check live, then waits for SIGINT or SIGTERM.</td>
+        <td class="muted">no — it <em>is</em> the service</td></tr>
+      <tr><td class="opt">stop</td>
+        <td>Send SIGTERM to the pid in <code>runtime.json</code>, then wait up
+        to 10 s for it to actually exit. Refuses to stop an instance whose
+        database is not the one this invocation resolves.</td>
+        <td>yes</td></tr>
+      <tr><td class="opt">status</td>
+        <td>Print running/not-running, the pid, version, database path, the
+        <strong>real</strong> bound ports, and the links.</td>
+        <td>no</td></tr>
+      <tr><td class="opt">ports</td>
+        <td>Print the active ports. With no service running, prints the
+        <em>configured</em> ports and says so.</td>
+        <td>no</td></tr>
+      <tr><td class="opt">health</td>
+        <td>Run <code>PRAGMA quick_check</code> against the database. Prints
+        <code>ok</code> and exits 0, or <code>degraded: …</code> and exits 1.</td>
+        <td>no</td></tr>
+      <tr><td class="opt">stats</td>
+        <td>Print the number of metrics and the number of series. Migrates the
+        file first, so it works on a brand-new database.</td>
+        <td>no</td></tr>
+      <tr><td class="opt">backup</td>
+        <td>Write a consistent snapshot with <code>VACUUM INTO</code> into
+        <code>backup.path</code>, named <code>sqtseries-YYYYmmdd-HHMMSS.db</code>.</td>
+        <td>no — safe to run against a live service</td></tr>
+      <tr><td class="opt">optimize</td>
+        <td>Run <code>PRAGMA optimize</code> to refresh query-planner
+        statistics.</td>
+        <td>no</td></tr>
+      <tr><td class="opt">vacuum</td>
+        <td>Run a full <code>VACUUM</code> to shrink the file and rebuild the
+        free pages. Cannot run inside a transaction, so stop the service first
+        for anything large.</td>
+        <td>recommended off</td></tr>
+      <tr><td class="opt">install</td>
+        <td>Generate and install the systemd unit.</td>
+        <td>no</td></tr>
+      <tr><td class="opt">uninstall</td>
+        <td>Remove the systemd unit.</td>
+        <td>no</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">Global options belong <strong>before</strong> the
+  subcommand: <code class="nb">sqtseries --config c.toml run</code>, never
+  <code class="nb">sqtseries run --config c.toml</code>.</p>
+
+  <p class="small muted">Commands that touch the database all accept
+  <code>--db</code>, so a one-off maintenance task against a different file needs no
+  config file at all: <code class="nb">sqtseries --db /path/to/other.sqlite
+  health</code>.</p>
+</section>
+
+<section>
+  <h2 id="complete-example">A complete config, every key once</h2>
+  <p>Copy this as a starting point. Every key the loader reads is present, in file
+  order, with its shipped default — so anything you change is a deliberate departure
+  from what you just read.</p>
+
+<pre><span class="c"># config.toml — every key, at its shipped default.</span>
+<span class="c"># Pass with: sqtseries --config config.toml run</span>
+
+<span class="c">[database]</span>
+path              = <span class="v">"~/.sqtseries/data/db.sqlite"</span>
+page_size         = <span class="v">8192</span>          <span class="c"># only applies when the file is created</span>
+cache_size        = <span class="v">-64000</span>         <span class="c"># KiB; the code path uses 8000 per connection</span>
+mmap_size         = <span class="v">268435456</span>     <span class="c"># 256 MiB</span>
+busy_timeout      = <span class="v">5000</span>
+journal_size_limit = <span class="v">67108864</span>     <span class="c"># 64 MiB</span>
+threads           = <span class="v">4</span>
+batch_size        = <span class="v">2000</span>          <span class="c"># 1..8191; one transaction per batch</span>
+flush_interval    = <span class="v">1.0</span>
+
+<span class="c">[ingestion]</span>
+port                        = <span class="v">12501</span>   <span class="c"># used only when auto_detect = false</span>
+hwm                         = <span class="v">101000</span>
+pending_max                 = <span class="v">100</span>
+max_message_size            = <span class="v">52428800</span>
+reject_client_timestamp_skew_s = <span class="v">300.0</span>  <span class="c"># 0 disables the guard</span>
+
+<span class="c">[query]</span>
+port         = <span class="v">12502</span>
+timeout_s    = <span class="v">30.0</span>          <span class="c"># 504 over HTTP, QUERY_TIMEOUT over ZMQ</span>
+max_rows     = <span class="v">10000</span>          <span class="c"># 0 = unbounded</span>
+max_inflight = <span class="v">64</span>
+
+<span class="c">[streaming]</span>
+port            = <span class="v">12503</span>
+linger_seconds  = <span class="v">30.0</span>
+
+<span class="c">[admin]</span>
+port = <span class="v">12504</span>
+
+<span class="c">[stats]</span>
+enabled = <span class="v">true</span>
+port    = <span class="v">12506</span>
+
+<span class="c">[http]</span>
+host                      = <span class="v">"0.0.0.0"</span>  <span class="c"># every interface; set 127.0.0.1 to be local-only</span>
+cors_origins              = [<span class="v">"*"</span>]
+rate_limit_per_minute     = <span class="v">600</span>
+max_websocket_connections = <span class="v">1000</span>
+
+<span class="c">[rollup]</span>
+enabled  = <span class="v">true</span>
+interval = <span class="v">"5m"</span>            <span class="c"># interval string: s/m/h/d</span>
+
+<span class="c">[retention]</span>
+enabled           = <span class="v">true</span>
+default_ttl       = <span class="v">"30d"</span>        <span class="c"># TTL string: s/m/h/d/w</span>
+check_interval    = <span class="v">"1h"</span>         <span class="c"># TTL string</span>
+partition_interval = <span class="v">"month"</span>      <span class="c"># only "month" is supported</span>
+
+<span class="c">[maintenance]</span>
+enabled          = <span class="v">true</span>
+analyze_interval = <span class="v">"1h"</span>          <span class="c"># interval string</span>
+
+<span class="c">[backup]</span>
+enabled  = <span class="v">true</span>
+interval = <span class="v">"24h"</span>           <span class="c"># interval string</span>
+path     = <span class="v">"~/.sqtseries/backups/"</span>
+
+<span class="c">[logging]</span>
+level  = <span class="v">"INFO"</span>            <span class="c"># DEBUG|INFO|WARNING|ERROR|CRITICAL</span>
+format = <span class="v">"console"</span>         <span class="c"># console|json</span>
+file   = <span class="v">""</span>                  <span class="c"># unset = stderr only</span>
+
+<span class="c">[ports]</span>
+port_range_start = <span class="v">12500</span>
+port_range_end   = <span class="v">12700</span>
+auto_detect      = <span class="v">true</span>        <span class="c"># false = bind ingestion.port exactly</span>
+port_offset      = <span class="v">0</span></pre>
+
+  <div class="box ok">
+    <span class="lbl">Check it before you rely on it</span>
+    <p>Point the service at the file and ask. <code>ports</code> prints the values
+    that will actually be used, which is the fastest way to catch a typo in a key
+    name — an unrecognised key is ignored rather than reported, so a misspelling
+    fails silently by design.</p>
+<pre><span class="p">$</span> sqtseries <span class="o">--config</span> config.toml <span class="o">ports</span></pre>
+  </div>
+</section>
+
+<section>
+  <h2>Security</h2>
+  <p>Two facts decide how exposed the service is, and both are defaults rather than
+  choices you made.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Surface</th><th>Binds</th><th>Authentication</th></tr></thead>
+    <tbody>
+      <tr><td>Five ZMQ ports</td><td><code>127.0.0.1</code> only</td>
+        <td>none — the loopback binding <em>is</em> the control</td></tr>
+      <tr><td>HTTP gateway</td><td><code>http.host</code>, default
+        <code>0.0.0.0</code></td>
+        <td><strong>none</strong> — any request that reaches the port can read and
+        write</td></tr>
+      <tr><td>WebSockets</td><td>same as HTTP</td><td>none</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>So on an untrusted network, both of these before you start:</p>
+
+<pre><span class="c">[http]</span>
+host         = <span class="v">"127.0.0.1"</span>
+cors_origins = [<span class="v">"http://localhost:3000"</span>]</pre>
+
+  <p>That closes the service to the local machine. To serve other machines safely,
+  leave it bound and put a reverse proxy in front that terminates TLS and
+  authenticates. The response headers the gateway sets —
+  <code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>,
+  a strict Content-Security-Policy and a <code>Permissions-Policy</code> that denies
+  camera, microphone, geolocation and payment — are all set on every HTTP response
+  already.</p>
+
+  <p>The rate limiter keys on the socket peer address and deliberately does
+  <strong>not</strong> trust <code>X-Forwarded-For</code>, because that header is
+  set by the client and would let anyone rotate it to escape the limit. Behind a
+  proxy, have the proxy do its own limiting.</p>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>Two different duration syntaxes</h5>
+      <p>
+            This is the single most common configuration mistake. <strong>Interval
+            strings</strong> (<code>rollup.interval</code>,
+            <code>backup.interval</code>,
+            <code>maintenance.analyze_interval</code>) take
+            <code>Ns/Nm/Nh/Nd</code> and nothing else. <strong>TTL strings</strong>
+            (<code>retention.default_ttl</code>,
+            <code>retention.check_interval</code>) take
+            <code>Ns/Nm/Nh/Nd/Nw</code> and <em>also</em> accept <code>w</code>.
+            In both, <code>m</code> means <strong>minutes</strong> — there is no
+            month syntax anywhere. Retention additionally drops whole monthly
+            partitions, so a TTL is applied at partition granularity.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Override order, lowest first</h5>
+      <p>
+            1. The default in the code. 2. The config file, from
+            <code>--config</code> or <code>SQT_SERIES_CONFIG_FILE</code>.
+            3. Environment variables. 4. <code>--db</code>, which is applied last
+            of all. The loader only lets the file supply a leaf the environment
+            did not set, so a variable always beats a file.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Ports are resolved twice</h5>
+      <p>
+            The five fixed ports are read straight from settings. The ingest port
+            may be reallocated by the detector. Always read the real values from
+            <code>sqtseries status</code> rather than assuming.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Validation refuses to start</h5>
+      <p>
+            Every rule in <code>validate_settings</code> is checked before the
+            database is opened. A bad value is an error message naming the key,
+            not a service that starts and then misbehaves.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Security settings to review before exposing it</h5>
+      <p>
+            <code>http.host</code> defaults to <code>0.0.0.0</code> and
+            <code>http.cors_origins</code> to <code>["*"]</code>, with no
+            authentication on the HTTP side. On an untrusted network set both to
+            loopback and put a proxy in front. The ZMQ ports are already
+            loopback-only.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>A full example, every section</h5>
+      <p>
+            The <a href="#complete-example">complete example</a> further down this
+            page sets every key once, with a comment on each, so you can copy a
+            known-good starting point.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — every setting, every file, every variable.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

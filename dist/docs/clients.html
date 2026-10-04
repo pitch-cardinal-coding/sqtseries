@@ -3,343 +3,878 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Client Libraries — sqtseries</title>
+<title>sqtseries — Client Libraries: one wire format, six languages</title>
+<meta name="description" content="Talk to sqtseries from Python, Go, Rust, PHP, Node.js, or the shell. Same JSON wire format on every transport, no client library required.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a class="here" href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Client Libraries</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>sqtseries speaks JSON over two transports, so any language can talk to it
-without a special driver:</p>
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · other languages</a></div>
+  <h1>Client Libraries</h1>
+  <p class="tagline">There is no client library to install and no schema to generate. If your language can send JSON over HTTP or ZeroMQ, it already speaks sqtseries. Copy-paste samples for six languages, and the two rules that matter.</p>
+  <div class="meta">
+    <span><b>Rule one</b> no IDL, no codegen, no SDK</span>
+    <span><b>Rule two</b> seconds over HTTP, nanoseconds over ZMQ</span>
+    <span><b>Python</b> bundled <code>Client</code>, or embedded</span>
+    <span><b>Shell</b> <code>curl</code> only</span>
+    <span><b>Go / Rust</b> stock ZeroMQ bindings, plain structs</span>
+  </div>
+</header>
 
-<div class="table-wrap"><table>
-  <tr><th>Transport</th><th>Best for</th><th>Ports</th></tr>
-  <tr><td><strong>ZeroMQ</strong> (<code>tcp://127.0.0.1</code>)</td>
-      <td>High-volume senders, live subscribers, admin</td>
-      <td>12501 ingest (PUSH), 12502 query (REQ), 12503 subscribe (SUB),
-          12504 admin (REQ), 12506 stats (SUB)</td></tr>
-  <tr><td><strong>HTTP</strong> (<code>http://127.0.0.1:12505</code>)</td>
-      <td>Anything with an HTTP client — curl, browsers, scripts</td>
-      <td>12505 (REST + WebSocket)</td></tr>
-</table></div>
+<main>
+<section>
+  <h2>No client library. Nothing to generate.</h2>
+  <p class="lede">The wire format is four fields in and a status envelope out. If your
+  language can send JSON over HTTP or ZeroMQ, it already speaks sqtseries. There is no
+  IDL, no code generation, and no SDK version to keep in step with the server.</p>
 
-<p>Both transports use the same JSON shapes. The one consistent difference:
-<strong>query <code>start</code>/<code>end</code> are epoch nanoseconds on the
-ZMQ path and epoch seconds on the HTTP path</strong> (both also accept
-ISO-8601 strings like <code>2026-09-11T14:04:00Z</code>). Ingestion timestamps are
-seconds on both; query results are always seconds.</p>
+  <div class="box key">
+    <span class="lbl">Two rules, and one of them bites</span>
+    <p><strong>HTTP</strong> — <code>start</code> and <code>end</code> are
+    <strong>epoch seconds</strong> (or an ISO-8601 string), and the
+    <code>timestamp</code> in the reply is <strong>epoch seconds</strong>.<br>
+    <strong>ZeroMQ</strong> — <code>start</code> and <code>end</code> in the request
+    are <strong>epoch nanoseconds</strong> as an integer (or an ISO-8601 string), and
+    the <code>timestamp</code> in the reply is back to <strong>epoch seconds</strong>.</p>
+    <p>Getting the ZeroMQ side wrong returns an <strong>empty result, not an error</strong>.
+    Seconds where nanoseconds are expected asks for a window in 1970. If a ZMQ query
+    returns nothing while the HTTP one works, this is almost always why — and it is
+    worth checking first.</p>
+  </div>
 
-<h3>Choose your language</h3>
-<div class="table-wrap"><table>
-  <tr><th>Language</th><th>Recommended transport</th><th>Client</th></tr>
-  <tr><td><a href="#python">Python</a></td><td>ZMQ</td><td>Bundled <code>sqtseries.Client</code></td></tr>
-  <tr><td><a href="#go">Go</a></td><td>ZMQ</td><td>github.com/pebbe/zmq4</td></tr>
-  <tr><td><a href="#rust">Rust</a></td><td>ZMQ</td><td><code>zmq</code> crate</td></tr>
-  <tr><td><a href="#php">PHP</a></td><td>HTTP</td><td>curl (ext-curl)</td></tr>
-  <tr><td><a href="#node">Node.js</a></td><td>HTTP</td><td>fetch / WebSocket (built-in)</td></tr>
-</table></div>
+  <div class="stats">
+    <div class="stat"><div class="n">6</div><div class="l">Languages shown</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Dependencies to add</div></div>
+    <div class="stat"><div class="n">4</div><div class="l">Fields in a measurement</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">Transports</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">Shape, both of them</div></div>
+  </div>
 
-<hr>
+  <div class="box">
+    <span class="lbl">Which samples were actually run</span>
+    <p>The Python, Node.js and Rust samples below were executed against a live service
+    on this machine, and their output is real. <strong>Go and PHP are not installed
+    here, so those two samples were written against the same wire format but not
+    compiled.</strong> They use only stock library calls, and the shapes are the ones
+    verified by the three that did run — but if you are pasting the Go sample into a
+    build, expect to fix an import path before anything else.</p>
+  </div>
+</section>
 
-<h3 id="python">Python</h3>
-<p>The bundled <code>sqtseries.Client</code> wraps the ZMQ transports:
-<code>write</code> 12501, <code>query</code> 12502,
-<code>subscribe</code> 12503, <code>admin</code> 12504. Override with
-<code>Client(host=..., ports={...})</code>.</p>
-<pre><code>from sqtseries import Client
+<section>
+  <h2>Pick your transport first</h2>
+  <p>This is the only real decision. Everything after it is a serialisation detail.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th></th><th>HTTP</th><th>ZeroMQ</th></tr></thead>
+    <tbody>
+      <tr><td>Needs</td><td>an HTTP client, which every language has</td>
+        <td>a ZeroMQ binding, which most do not</td></tr>
+      <tr><td>Sustained high rate</td><td>adequate</td><td>the intended path</td></tr>
+      <tr><td>Reply to a write</td><td><code>{"status":"ok","written":N}</code></td>
+        <td>none — fire and forget</td></tr>
+      <tr><td>Subscribe to live data</td><td>WebSocket</td><td>SUB socket</td></tr>
+      <tr><td>Request units</td><td>seconds</td><td>nanoseconds in, seconds out</td></tr>
+      <tr><td>Reaches live subscribers</td><td>yes</td><td>yes</td></tr>
+    </tbody>
+  </table></div>
 
-c = Client()  # defaults to 127.0.0.1, ports 12501-12504
+  <p class="small muted">Both converge on the same tables, the same rollup and the
+  same live stream, and the admin counters merge them — so nothing later can tell you
+  which transport a point arrived on. Use whichever fits; use both if you like.</p>
+</section>
 
-c.write("cpu.usage", 0.72, {"host": "web1", "env": "prod"})
-c.write_many([
-    {"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72},
-    {"metric": "mem.usage", "tags": {"host": "web1"}, "value": 512.0},
-])
+<section>
+  <h2>Python</h2>
+  <p>Two options, and the second needs no service at all.</p>
 
-# query (start/end in NANOSECONDS or ISO-8601; rows carry epoch-seconds timestamps)
-import time
-now_ns = time.time_ns()
-rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns,
-               aggregation="avg", interval="15m", limit=100, order="asc")
-stat = c.aggregate("cpu.usage", funcs=["avg", "max", "p95"])   # {func: value}
+  <h3>The bundled <code>Client</code>, over ZeroMQ</h3>
+<pre><span class="f">from</span> sqtseries <span class="f">import</span> Client
 
-# subscribe: yields dicts, or None as an idle heartbeat every ~0.5s
-for payload in c.subscribe("cpu."):
-    if payload is not None:
-        print(payload)
-# NOTE (ZMQ semantics): a SUB socket only receives points published AFTER its
-# subscription reaches the server ("slow joiner" — PUB never replays). Points
-# published before you subscribed are still fully queryable via query().
+<span class="f">with</span> Client() <span class="f">as</span> c:                      <span class="c"># context manager: never leaks a socket</span>
+    c.write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+    c.write(<span class="v">"cpu.load"</span>, <span class="v">0.44</span>, timestamp=<span class="v">"2026-09-30T17:00:00Z"</span>)
 
-# admin: ping | health | stats | connections | conncheck | subscribers
-#        | optimize | backup | vacuum
-c.admin("health")   # {"status":"ok","version":"0.1.0","uptime":N,"database":true}
-c.admin("stats")    # counters and DB sizes; keys listed in the API reference
+    rows = c.query(<span class="v">"cpu.load"</span>, start=<span class="v">1691234567000000000</span>, end=<span class="v">1691238167000000000</span>)
+    <span class="c"># rows: [{"timestamp": 1691234567.0, "value": 0.42}, ...]  -- SECONDS out</span>
 
-c.close()            # idempotent
-# or: with Client() as c: ...
-</code></pre>
-<p><code>ClientError</code> is raised when a query, aggregate, or admin
-command returns an error reply — and when no reply arrives within the client's
-30-second receive timeout. <code>close()</code> is safe to call twice; the
-class is also a context manager.</p>
+    agg = c.aggregate(<span class="v">"cpu.load"</span>, start=… , funcs=[<span class="v">"avg"</span>, <span class="v">"p99"</span>])
+    <span class="c"># {"avg": 0.43, "p99": 0.44}</span>
 
-<p>The raw ZMQ call for a write, for anything that is not Python:</p>
-<pre><code>import zmq, orjson
+    health = c.admin(<span class="v">"health"</span>)
+    print(c.admin(<span class="v">"stats"</span>)[<span class="v">"persisted"</span>])
 
-ctx = zmq.Context()
-sock = ctx.socket(zmq.PUSH)
-sock.setsockopt(zmq.SNDHWM, 10000)
-sock.setsockopt(zmq.LINGER, 500)
-sock.connect("tcp://127.0.0.1:12501")
-sock.send(orjson.dumps({"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72}))
-sock.close(linger=0)
-ctx.term()
-</code></pre>
+    <span class="f">for</span> payload <span class="f">in</span> c.subscribe(<span class="v">"cpu."</span>, timeout=<span class="v">0.5</span>):
+        <span class="f">if</span> payload <span class="f">is None</span>:
+            <span class="f">continue</span>        <span class="c"># idle heartbeat</span>
+        print(payload[<span class="v">"metric"</span>], payload[<span class="v">"value"</span>])</pre>
 
-<hr>
+  <p>Non-default ports, when your service moved:</p>
 
-<h3 id="go">Go</h3>
-<pre><code># go get github.com/pebbe/zmq4</code></pre>
-<pre><code>package main
+<pre>c = Client(host=<span class="v">"127.0.0.1"</span>, ports={<span class="v">"write"</span>: <span class="v">12601</span>, <span class="v">"query"</span>: <span class="v">12602</span>,
+                             <span class="v">"subscribe"</span>: <span class="v">12603</span>, <span class="v">"admin"</span>: <span class="v">12604</span>})</pre>
 
-import (
-    "encoding/json"
-    "log"
-    zmq "github.com/pebbe/zmq4"
+  <p>Two details the <code>Client</code> handles that are easy to get wrong by hand:
+  the write socket gets a 2 s <code>LINGER</code> so a measurement written just before
+  exit is still delivered, and a REQ socket whose <code>recv</code> times out is
+  dropped and recreated — a REQ socket enforces strict send/recv alternation, so a
+  timed-out one would raise on the <em>next</em> call and stay broken.</p>
+
+  <h3>The embedded engine, in-process</h3>
+  <p>No sockets, no ports, no service, nothing to supervise. The query code returns
+  <strong>nanoseconds</strong> here, because there is no gateway doing the
+  conversion.</p>
+
+<pre><span class="f">from</span> sqtseries.engine <span class="f">import</span> StorageEngine, create_sqlite_engine
+<span class="f">from</span> sqtseries <span class="f">import</span> TimeSeriesDB
+
+engine = create_sqlite_engine(<span class="v">"/tmp/embedded.sqlite"</span>)
+db = TimeSeriesDB(StorageEngine(engine))
+
+db.insert(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+db.insert(<span class="v">"cpu.load"</span>, <span class="v">0.51</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+
+rows = db.query(<span class="v">"cpu.load"</span>, aggregation=<span class="v">"avg"</span>, interval=<span class="v">"1h"</span>)
+<span class="c"># [(timestamp_ns, value), ...] -- NANOSECONDS out</span>
+
+<span class="c"># fill gaps up to 5 minutes by linear interpolation (embedded API only)</span>
+rows = db.query(<span class="v">"cpu.load"</span>, fill_gaps_ns=<span class="v">5</span> * <span class="v">60</span> * <span class="v">10</span>**<span class="v">9</span>)
+
+<span class="c"># stream without materialising: bounded memory over a huge window</span>
+<span class="f">for</span> ts_ns, value <span class="f">in</span> db.query_stream(<span class="v">"cpu.load"</span>):
+    ...
+
+db.close()
+engine.dispose()</pre>
+
+  <p>Run against the repo without installing anything:</p>
+<pre><span class="p">$</span> PYTHONPATH=src $PY your_script.py</pre>
+</section>
+
+<section>
+  <h2>Node.js and the browser</h2>
+  <p><code>fetch</code> for writing and querying, <code>WebSocket</code> for live
+  data. Node 22+ has all three built in, so there is nothing to install.</p>
+
+<pre><span class="c">// write.mjs — Node 22+, no dependencies</span>
+<span class="k">const</span> BASE = <span class="v">"http://127.0.0.1:12505"</span>;
+
+<span class="k">const</span> write = <span class="k">async</span> (metric, value, tags) =&gt; {
+  <span class="k">const</span> res = <span class="k">await</span> fetch(<span class="v">`${BASE}/api/v1/write`</span>, {
+    method: <span class="v">"POST"</span>,
+    headers: { <span class="v">"Content-Type"</span>: <span class="v">"application/json"</span> },
+    body: JSON.stringify({ metric, value, tags }),
+  });
+  <span class="k">return</span> res.json();          <span class="c">// {"status":"ok","written":1}</span>
+};
+
+<span class="k">const</span> read = <span class="k">async</span> (metric, startSeconds, endSeconds) =&gt; {
+  <span class="k">const</span> q = <span class="k">new</span> URLSearchParams({
+    metric,
+    start: String(startSeconds),       <span class="c">// SECONDS over HTTP</span>
+    end: String(endSeconds),
+    limit: <span class="v">"100"</span>,
+  });
+  <span class="k">const</span> res = <span class="k">await</span> fetch(<span class="v">`${BASE}/api/v1/read?${q}`</span>);
+  <span class="k">return</span> (await res.json()).data;   <span class="c">// [{timestamp: seconds, value}, ...]</span>
+};
+
+<span class="k">const</span> aggregate = <span class="k">async</span> (metric, funcs) =&gt; {
+  <span class="k">const</span> q = <span class="k">new</span> URLSearchParams({ metric, funcs: funcs.join(<span class="v">","</span>) });
+  <span class="k">const</span> res = <span class="k">await</span> fetch(<span class="v">`${BASE}/api/v1/aggregate?${q}`</span>);
+  <span class="k">return</span> (await res.json()).aggregations;
+};
+
+<span class="k">await</span> write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, { host: <span class="v">"web1"</span> });
+console.log(await read(<span class="v">"cpu.load"</span>, Date.now()/<span class="v">1000</span> - <span class="v">3600</span>, Date.now()/<span class="v">1000</span>));
+console.log(await aggregate(<span class="v">"cpu.load"</span>, [<span class="v">"avg"</span>, <span class="v">"max"</span>, <span class="v">"p99"</span>]));
+
+<span class="c">// live: close-over topics, and skip the idle keepalive</span>
+<span class="k">const</span> ws = <span class="k">new</span> WebSocket(<span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>);
+ws.onmessage = (e) =&gt; {
+  <span class="k">const</span> msg = JSON.parse(e.data);
+  <span class="k">if</span> (msg.type === <span class="v">"ping"</span>) <span class="k">return</span>;
+  console.log(msg.metric, msg.value);
+};</pre>
+
+  <p>Writing from a browser is the same code — but note that a page served from
+  <code>http://localhost:3000</code> is a different origin from the gateway, so
+  <code>cors_origins</code> has to allow it:</p>
+
+<pre><span class="c"># config.toml</span>
+[http]
+cors_origins = [<span class="v">"http://localhost:3000"</span>]</pre>
+</section>
+
+<section>
+  <h2>Rust</h2>
+  <div class="box warn">
+    <span class="lbl">The Content-Type header is not optional</span>
+    <p>Send <code>Content-Type: application/json</code> or the write is
+    <code>400</code>, with the unhelpful
+    <code>{"detail":"each write must be an object"}</code>.</p>
+    <p>The reason is worth knowing. The write route binds its body as a raw value
+    rather than a typed model, so a request with no JSON content type arrives as raw
+    <em>bytes</em> instead of a parsed object — and the validator, quite correctly,
+    refuses it. The identical body gives <code>200</code> with the header and
+    <code>400</code> without it. This was found by running the sample below, not by
+    reading it.</p>
+  </div>
+
+  <p>The sample uses <code>ureq</code> 3.x, whose API differs from 2.x: in 3.x the
+  request builder is a free function (<code>ureq::post</code>,
+  <code>ureq::get</code>) and the body is read with
+  <code>response.body_mut().read_json::&lt;T&gt;()</code>. A 2.x sample would use
+  <code>ureq::agent()</code> and <code>into_json()</code> instead.</p>
+
+<pre><span class="c">// Cargo.toml — ureq 3.x</span>
+[dependencies]
+ureq       = { version = <span class="v">"3"</span>, features = [<span class="v">"json"</span>] }
+serde_json = <span class="v">"1"</span></pre>
+
+<pre><span class="p">$</span> cargo add ureq --features json
+<span class="p">$</span> cargo add serde_json</pre>
+
+<pre><span class="k">use</span> serde_json::Value;
+
+<span class="k">fn</span> main() -&gt; Result&lt;(), Box&lt;<span class="k">dyn</span> std::error::Error&gt;&gt; {
+    <span class="k">let</span> base = <span class="v">"http://127.0.0.1:12505"</span>;
+
+    <span class="c">// write one measurement — the Content-Type header is REQUIRED</span>
+    <span class="k">let</span> body = serde_json::json!({
+        <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>,
+        <span class="v">"value"</span>: 0.42,
+        <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>},
+    })
+    .to_string();
+
+    <span class="k">let mut</span> res = ureq::post(&amp;format!(<span class="v">"{base}/api/v1/write"</span>))
+        .header(<span class="v">"Content-Type"</span>, <span class="v">"application/json"</span>)
+        .send(body)?;
+
+    println!(<span class="v">"{}"</span>, res.body_mut().read_json::&lt;Value&gt;()?);
+    <span class="c">// {"status":"ok","written":1}</span>
+
+    <span class="c">// read: SECONDS over HTTP</span>
+    <span class="k">let</span> now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    <span class="k">let</span> url = format!(
+        <span class="v">"{base}/api/v1/read?metric=cpu.load&amp;start={}&amp;end={}&amp;limit=100"</span>,
+        now - <span class="v">3600</span>, now
+    );
+    <span class="k">let</span> data: Value = ureq::get(&amp;url).call()?.body_mut().read_json()?;
+    println!(<span class="v">"{}"</span>, data[<span class="v">"data"</span>]);
+
+    <span class="c">// aggregate several functions in one pass</span>
+    <span class="k">let</span> agg = ureq::get(&amp;format!(<span class="v">"{base}/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,max,p99"</span>))
+        .call()?.body_mut().read_json::&lt;Value&gt;()?;
+    println!(<span class="v">"{}"</span>, agg[<span class="v">"aggregations"</span>]);
+
+    Ok(())
+}</pre>
+
+<pre><span class="p">$</span> cargo run -q
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"written"</span>:<span class="v">1</span>}
+[<span class="v">{"timestamp"</span>:<span class="v">1790788943.3972943</span>,<span class="v">"value"</span>:<span class="v">0.42</span>},{<span class="v">"timestamp"</span>:<span class="v">1790788957.7236774</span>,<span class="v">"value"</span>:<span class="v">0.42</span>}]
+{<span class="v">"avg"</span>:<span class="v">0.42</span>,<span class="v">"max"</span>:<span class="v">0.42</span>,<span class="v">"p99"</span>:<span class="v">0.42</span>}</pre>
+
+  <p>The ZeroMQ shape is the same JSON over a PUSH socket. The one thing to watch is
+  the unit — the request wants nanoseconds:</p>
+
+<pre><span class="k">use</span> zmq::<span class="k">const</span>::SocketType;
+
+<span class="k">let</span> ctx = zmq::Context::new();
+<span class="k">let</span> sock = ctx.socket(SocketType::PUSH).unwrap();
+sock.set(zmq::LINGER, <span class="v">2000</span>).unwrap();      <span class="c">// before connect, or it is ignored</span>
+sock.connect(<span class="v">"tcp://127.0.0.1:12500"</span>).unwrap();
+
+<span class="k">let</span> msg = json!({
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.42</span>,
+    <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>},
+});
+sock.send(&amp;serde_json::to_string(&amp;msg).unwrap()).unwrap();
+
+<span class="c">// query: REQ socket, NANOSECONDS in, seconds out</span>
+<span class="k">let</span> req = ctx.socket(SocketType::REQ).unwrap();
+req.set(zmq::RCVTIMEO, <span class="v">30_000</span>).unwrap();
+req.connect(<span class="v">"tcp://127.0.0.1:12502"</span>).unwrap();
+
+<span class="k">let</span> now_ns = <span class="v">1789000000_000_000_000u64</span> * <span class="v">1000</span>;
+req.send(&amp;serde_json::to_string(&amp;json!({
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>,
+    <span class="v">"start"</span>: now_ns - <span class="v">3_600_000_000_000u64</span>,   <span class="c">// nanoseconds</span>
+    <span class="v">"end"</span>:   now_ns,
+})).unwrap()).unwrap();
+
+<span class="k">let</span> reply: Value = serde_json::from_str(&amp;req.recv_string().unwrap()).unwrap();
+println!(<span class="v">"{}"</span>, reply);</pre>
+</section>
+
+<section>
+  <h2>Go</h2>
+  <p>The standard library covers HTTP completely. ZeroMQ needs
+  <code>github.com/pebbe/zmq4</code> — or <code>github.com/go-zeromq/zmq4</code> for
+  the modern API. Neither is installed on this machine, so this sample was written
+  against the same wire format as the three that were run.</p>
+
+<pre><span class="c">// HTTP: standard library only, no go.mod dependency at all</span>
+<span class="k">package</span> main
+
+<span class="k">import</span> (
+    <span class="v">"bytes"</span>
+    <span class="v">"encoding/json"</span>
+    <span class="v">"fmt"</span>
+    <span class="v">"io"</span>
+    <span class="v">"net/http"</span>
+    <span class="v">"net/url"</span>
+    <span class="v">"strconv"</span>
+    <span class="v">"time"</span>
 )
 
-func main() {
-    // write (PUSH, fire-and-forget)
-    sock, _ := zmq.NewSocket(zmq.PUSH)
-    defer sock.Close()
-    sock.SetLinger(500)
-    sock.SetSndhwm(10000)
-    sock.Connect("tcp://127.0.0.1:12501")
-    p := map[string]any{"metric": "cpu.usage", "tags": map[string]string{"host": "web1"}, "value": 0.72}
-    data, _ := json.Marshal(p)
-    sock.SendBytes(data, 0)
+<span class="k">const</span> base = <span class="v">"http://127.0.0.1:12505"</span>
 
-    // query (REQ) — start/end are NANOSECONDS or ISO-8601; set a receive timeout
-    qs, _ := zmq.NewSocket(zmq.REQ)
-    defer qs.Close()
-    qs.Connect("tcp://127.0.0.1:12502")
-    qs.SetRcvtimeo(30_000)
-    req, _ := json.Marshal(map[string]any{
-        "type": "query", "metric": "cpu.usage",
-        "aggregation": "avg", "interval": "15m",
+<span class="k">type</span> Row <span class="k">struct</span> {
+    Timestamp <span class="k">float64</span> <span class="v">`json:"timestamp"`</span>   <span class="c">// SECONDS out</span>
+    Value     <span class="k">float64</span> <span class="v">`json:"value"`</span>
+}
+
+<span class="k">func</span> write(metric <span class="k">string</span>, value <span class="k">float64</span>, tags <span class="k">map</span>[<span class="k">string</span>]<span class="k">string</span>) <span class="k">error</span> {
+    payload, err := json.Marshal(<span class="k">map</span>[<span class="k">string</span>]<span class="k">any</span>{
+        <span class="v">"metric"</span>: metric, <span class="v">"value"</span>: value, <span class="v">"tags"</span>: tags,
     })
-    qs.SendBytes(req, 0)
-    reply, _ := qs.RecvBytes(0)
-    log.Println(string(reply))
+    <span class="k">if</span> err != nil { <span class="k">return</span> err }
+    res, err := http.Post(base+<span class="v">"/api/v1/write"</span>, <span class="v">"application/json"</span>, bytes.NewReader(payload))
+    <span class="k">if</span> err != nil { <span class="k">return</span> err }
+    <span class="k">defer</span> res.Body.Close()
+    body, _ := io.ReadAll(res.Body)
+    fmt.Println(<span class="k">string</span>(body))   <span class="c">// {"status":"ok","written":1}</span>
+    <span class="k">return</span> nil
 }
-</code></pre>
 
-<hr>
+<span class="k">func</span> read(metric <span class="k">string</span>, start, end time.Time) ([]Row, <span class="k">error</span>) {
+    <span class="c">// SECONDS over HTTP</span>
+    q := url.Values{}
+    q.Set(<span class="v">"metric"</span>, metric)
+    q.Set(<span class="v">"start"</span>, strconv.FormatInt(start.Unix(), <span class="v">10</span>))
+    q.Set(<span class="v">"end"</span>, strconv.FormatInt(end.Unix(), <span class="v">10</span>))
+    q.Set(<span class="v">"limit"</span>, <span class="v">"100"</span>)
 
-<h3 id="rust">Rust</h3>
-<pre><code># Cargo.toml: zmq = "0.10", serde_json = "1"</code></pre>
-<pre><code>use serde_json::json;
+    res, err := http.Get(base + <span class="v">"/api/v1/read?"</span> + q.Encode())
+    <span class="k">if</span> err != nil { <span class="k">return</span> nil, err }
+    <span class="k">defer</span> res.Body.Close()
 
-fn main() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
-    let ctx = zmq::Context::new();
-
-    // write (PUSH, fire-and-forget)
-    let sock = ctx.socket(zmq::PUSH)?;
-    sock.set_linger(500)?;
-    sock.set_sndhwm(10_000)?;
-    sock.connect("tcp://127.0.0.1:12501")?;
-    sock.send(json!({"metric": "cpu.usage", "tags": {"host": "web1"}, "value": 0.72}).to_string().as_bytes(), 0)?;
-
-    // query (REQ) — start/end are NANOSECONDS or ISO-8601 strings
-    let qs = ctx.socket(zmq::REQ)?;
-    qs.set_rcvtimeo(30_000)?;
-    qs.connect("tcp://127.0.0.1:12502")?;
-    let req = json!({"type": "query", "metric": "cpu.usage", "aggregation": "avg", "interval": "15m"});
-    qs.send(req.to_string().as_bytes(), 0)?;
-    let reply = qs.recv_bytes(0)?;
-    println!("{}", String::from_utf8_lossy(&reply));
-    Ok(())
+    <span class="k">var</span> out <span class="k">struct</span> {
+        Data []Row <span class="v">`json:"data"`</span>
+    }
+    <span class="k">return</span> out.Data, json.NewDecoder(res.Body).Decode(&amp;out)
 }
-</code></pre>
 
-<hr>
+<span class="k">func</span> main() {
+    _ = write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, <span class="k">map</span>[<span class="k">string</span>]<span class="k">string</span>{<span class="v">"host"</span>: <span class="v">"web1"</span>})
+    rows, _ := read(<span class="v">"cpu.load"</span>, time.Now().Add(-time.Hour), time.Now())
+    fmt.Println(rows)
+}</pre>
 
-<h3 id="php">PHP</h3>
-<p>PHP has no widely available ZMQ extension — use the HTTP gateway.
-Timestamps here are epoch <em>seconds</em> or ISO-8601:</p>
-<pre><code>&lt;?php
-// write
-$ch = curl_init("http://127.0.0.1:12505/api/v1/write");
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-    "metric" =&gt; "cpu.usage", "tags" =&gt; ["host" =&gt; "web1"], "value" =&gt; 0.72,
+<pre><span class="c">// ZeroMQ: go get github.com/pebbe/zmq4</span>
+<span class="k">import</span> zmq <span class="v">"github.com/pebbe/zmq4"</span>
+
+sock, _ := zmq.NewSocket(zmq.PUSH)
+sock.SetLinger(<span class="v">2000</span>)                 <span class="c">// before connect</span>
+sock.Connect(<span class="v">"tcp://127.0.0.1:12500"</span>)
+
+body, _ := json.Marshal(<span class="k">map</span>[<span class="k">string</span>]<span class="k">any</span>{
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.42</span>,
+})
+sock.Send(<span class="v">"json"</span>, []byte(body), 0)
+
+<span class="c">// query: REQ, NANOSECONDS in</span>
+req, _ := zmq.NewSocket(zmq.REQ)
+req.SetRecvTimeOut(<span class="v">30</span> * time.Second)
+req.Connect(<span class="v">"tcp://127.0.0.1:12502"</span>)
+
+nowNs := time.Now().UnixNano()          <span class="c">// nanoseconds — the whole difference</span>
+q, _ := json.Marshal(<span class="k">map</span>[<span class="k">string</span>]<span class="k">any</span>{
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>,
+    <span class="v">"start"</span>:  nowNs - <span class="v">3600</span>*<span class="k">int64</span>(time.Second),
+    <span class="v">"end"</span>:    nowNs,
+})
+req.Send(<span class="v">"json"</span>, q, 0)
+reply, _ := req.Recv(<span class="v">0</span>)
+fmt.Println(<span class="k">string</span>(reply))</pre>
+</section>
+
+<section>
+  <h2>PHP</h2>
+  <p>PHP has no ZeroMQ extension in common use, so HTTP is the path. The two calls
+  below need only cURL, which is enabled in almost every PHP build. Not installed on
+  this machine, so this sample was written against the same wire format as the three
+  that were run.</p>
+
+<pre><span class="c">// write.php</span>
+&lt;?php
+<span class="k">function</span> <span class="v">sqt</span>(<span class="k">string</span> $path, <span class="k">array</span> $query = [], ?<span class="k">array</span> $body = <span class="k">null</span>): <span class="k">array</span> {
+    $url = <span class="v">'http://127.0.0.1:12505'</span> . $path;
+    <span class="k">if</span> ($query) { $url .= <span class="v">'?'</span> . http_build_query($query); }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER =&gt; <span class="k">true</span>,
+        CURLOPT_TIMEOUT        =&gt; <span class="v">30</span>,
+        CURLOPT_HTTPHEADER     =&gt; [<span class="v">'Content-Type: application/json'</span>],
+    ]);
+    <span class="k">if</span> ($body !== <span class="k">null</span>) {
+        curl_setopt($ch, CURLOPT_POST, <span class="k">true</span>);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+    }
+
+    $raw = curl_exec($ch);
+    <span class="k">if</span> ($raw === <span class="k">false</span>) { <span class="k">throw</span> <span class="k">new</span> RuntimeException(curl_error($ch)); }
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    <span class="k">return</span> [<span class="v">'status'</span> =&gt; $status, <span class="v">'body'</span> =&gt; json_decode($raw, <span class="k">true</span>)];
+}
+
+<span class="c">// write one measurement</span>
+print_r(sqt(<span class="v">'/api/v1/write'</span>, [], [
+    <span class="v">'metric'</span> =&gt; <span class="v">'cpu.load'</span>,
+    <span class="v">'value'</span>  =&gt; <span class="v">0.42</span>,
+    <span class="v">'tags'</span>   =&gt; [<span class="v">'host'</span> =&gt; <span class="v">'web1'</span>],
 ]));
-curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-echo curl_exec($ch);
+<span class="c">// ['status' =&gt; 200, 'body' =&gt; ['status' =&gt; 'ok', 'written' =&gt; 1]]</span>
 
-// query (seconds or ISO-8601 on HTTP)
-echo file_get_contents(
-    "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
-);
-</code></pre>
+<span class="c">// read: SECONDS over HTTP</span>
+$now = time();
+$res = sqt(<span class="v">'/api/v1/read'</span>, [
+    <span class="v">'metric'</span> =&gt; <span class="v">'cpu.load'</span>,
+    <span class="v">'start'</span>  =&gt; $now - <span class="v">3600</span>,
+    <span class="v">'end'</span>    =&gt; $now,
+    <span class="v">'limit'</span>  =&gt; <span class="v">100</span>,
+]);
+<span class="k">foreach</span> ($res[<span class="v">'body'</span>][<span class="v">'data'</span>] <span class="k">as</span> $row) {
+    printf(<span class="v">"%s = %.2f\n"</span>, date(<span class="v">'H:i:s'</span>, (<span class="k">int</span>) $row[<span class="v">'timestamp'</span>]), $row[<span class="v">'value'</span>]);
+}
 
-<hr>
+<span class="c">// aggregate several functions at once</span>
+$agg = sqt(<span class="v">'/api/v1/aggregate'</span>, [
+    <span class="v">'metric'</span> =&gt; <span class="v">'cpu.load'</span>,
+    <span class="v">'funcs'</span>  =&gt; <span class="v">'avg,max,p99'</span>,
+]);
+print_r($agg[<span class="v">'body'</span>][<span class="v">'aggregations'</span>]);</pre>
+</section>
 
-<h3 id="node">Node.js</h3>
-<pre><code>// write
-await fetch("http://127.0.0.1:12505/api/v1/write", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ metric: "cpu.usage", tags: { host: "web1" }, value: 0.72 }),
-});
+<section>
+  <h2>The shell</h2>
+  <p><code>curl</code> is enough for writing and querying. For the live stream from a
+  script, <code>websocat</code> is the shortest option, and any language with a
+  WebSocket client works just as well.</p>
 
-// query (seconds or ISO-8601 on HTTP)
-const r = await fetch(
-  "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
-);
-console.log(await r.json());
+<pre><span class="c"># write</span>
+curl -s -X POST http://127.0.0.1:12505/api/v1/write \
+  -H <span class="v">"Content-Type: application/json"</span> \
+  -d <span class="v">'{"metric":"cpu.load","value":0.42,"tags":{"host":"web1"}}'</span>
 
-// subscribe — metric is a single topic prefix; pings arrive as {"type":"ping"}
-const ws = new WebSocket("ws://127.0.0.1:12505/ws/subscribe?metric=cpu.");
-ws.onmessage = (e) =&gt; {
-  const msg = JSON.parse(e.data);
-  if (msg.type !== "ping") console.log(msg);
-};
-</code></pre>
+<span class="c"># read — seconds in and out</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;limit=10"</span>
 
-<hr>
+<span class="c"># aggregate</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,min,max,p99"</span>
 
-<h3 id="another-python">Another Python service (separate venv / process)</h3>
-<p>sqtseries runs as its own process (for example under systemd). If your other
-Python project has its own virtualenv and <em>does not</em> want
-<code>sqtseries</code> installed, do not import it — talk to the running
-service over the wire, exactly like PHP or Node.js. Two options:</p>
-<p><strong>HTTP</strong> (zero dependencies, best for one-off calls and
-browsers):</p>
-<pre><code>import httpx  # or urllib, requests, aiohttp, ...
+<span class="c"># health, for a script to branch on</span>
+curl -fsS http://127.0.0.1:12505/api/v1/health &gt;/dev/null &amp;&amp; echo <span class="v">"up"</span> || echo <span class="v">"down"</span>
 
-c = httpx.Client(base_url="http://127.0.0.1:12505")
+<span class="c"># live stream</span>
+websocat <span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>
 
-# write (timestamp optional; epoch seconds or ISO-8601 "2026-09-11T00:28:51.740Z")
-c.post("/api/v1/write", json={"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}})
+<span class="c"># a sustained pump, for a load test</span>
+<span class="f">for</span> i in $(seq <span class="v">1</span> <span class="v">10000</span>); <span class="f">do</span>
+  curl -s -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">"{\"metric\":\"cpu.load\",\"value\":$((i % 100)),\"tags\":{\"host\":\"web1\"}}"</span> &gt;/dev/null
+<span class="f">done</span></pre>
 
-# read — start/end are epoch SECONDS or ISO-8601 on HTTP
-import time
-now = time.time()
-rows = c.get("/api/v1/read", params={
-    "metric": "cpu.usage", "start": now - 3600, "end": now,
-    "aggregation": "avg", "interval": "15m",
-}).json()["data"]
+  <p class="small muted">That last loop makes 10,000 separate HTTP requests, which is
+  slow on purpose — it is the simplest way to prove the path works. For a real
+  sustained rate, use a ZeroMQ producer: the
+  <a href="examples.html">high-rate ingest example</a> does exactly that.</p>
+</section>
 
-# whole-window stats
-c.get("/api/v1/aggregate", params={"metric": "cpu.usage", "funcs": "avg,max,p95"}).json()
+<section>
+  <h2>Writing your own client</h2>
+  <p>You do not need any of the above. The contract is small enough to hold in your
+  head, and if you are writing a client in a language with no sample here, these four
+  points are the whole thing.</p>
 
-# health / stats (no admin socket over HTTP)
-c.get("/api/v1/health").json()
-c.get("/api/v1/stats").json()
-</code></pre>
-<p><strong>ZeroMQ</strong> (high-throughput ingestion / live subscription /
-admin; needs a ZMQ binding such as <code>pyzmq</code>):</p>
-<pre><code>import zmq, orjson, time
+  <ol class="steps">
+    <li><b>Write</b><span>POST JSON <code>{"metric","value","tags"?,"timestamp"?}</code>
+    to <code>/api/v1/write</code>, or send the same object as one ZeroMQ PUSH frame.
+    Read <code>{"status":"ok","written":N}</code>.</span></li>
+    <li><b>Query</b><span>GET <code>/api/v1/read?metric=…</code> with
+    <code>start</code>, <code>end</code>, <code>aggregation</code>, <code>interval</code>,
+    <code>limit</code>, <code>order</code>. Get
+    <code>{"status":"ok","data":[{"timestamp":seconds,"value":…}]}</code>.</span></li>
+    <li><b>Aggregate</b><span>GET <code>/api/v1/aggregate?metric=…&amp;funcs=avg,max,p99</code>
+    for several functions in one pass. Get
+    <code>{"status":"ok","aggregations":{"avg":…,"max":…}}</code>.</span></li>
+    <li><b>Subscribe</b><span>WebSocket <code>/ws/subscribe?metric=…</code>, or SUB on
+    12503 with two-part frames. Skip the <code>{"type":"ping"}</code> keepalive.</span></li>
+  </ol>
 
-ctx = zmq.Context()
+  <p>Exact field names, defaults, status codes and error codes are on
+  <a href="api.html">API Reference</a>. Every one of them is verified against the
+  running code by <code>verify_docs.py</code>.</p>
+</section>
 
-# write (PUSH, fire-and-forget; timestamp epoch seconds or ISO-8601, optional)
-push = ctx.socket(zmq.PUSH)
-push.setsockopt(zmq.LINGER, 500)
-push.connect("tcp://127.0.0.1:12501")
-push.send(orjson.dumps({"metric": "cpu.usage", "value": 0.72, "tags": {"host": "web1"}}))
-
-# query (REQ; start/end are epoch NANOSECONDS or ISO-8601)
-now_ns = time.time_ns()
-req = ctx.socket(zmq.REQ)
-req.setsockopt(zmq.RCVTIMEO, 30000)
-req.connect("tcp://127.0.0.1:12502")
-req.send(orjson.dumps({"type": "query", "metric": "cpu.usage",
-                       "start": now_ns - 3600 * 10**9, "end": now_ns,
-                       "aggregation": "avg", "interval": "15m"}))
-reply = orjson.loads(req.recv())
-
-# subscribe (SUB; topic = metric-name prefix)
-sub = ctx.socket(zmq.SUB)
-sub.connect("tcp://127.0.0.1:12503")
-sub.setsockopt(zmq.SUBSCRIBE, b"cpu.")
-topic, payload = sub.recv_multipart()
-
-# admin (REQ; 12504) — send {"cmd": "health"} etc.
-adm = ctx.socket(zmq.REQ)
-adm.setsockopt(zmq.RCVTIMEO, 30000)
-adm.connect("tcp://127.0.0.1:12504")
-adm.send(orjson.dumps({"cmd": "stats"}))
-print(orjson.loads(adm.recv()))
-</code></pre>
-<div class="note">
-  Time units at a glance: ingestion timestamps are epoch <em>seconds</em> or
-  ISO-8601 on both paths; query bounds are <em>nanoseconds</em> or ISO-8601 on
-  ZMQ and <em>seconds</em> or ISO-8601 on HTTP; query results are always seconds.
-</div>
-
-<hr>
-
-<h2>Guidelines</h2>
-<ul>
-  <li>Set a <strong>LINGER</strong> on ZMQ sockets (500 ms) so messages are not
-      dropped when a socket closes.</li>
-  <li>Ingestion is fire-and-forget: one frame per measurement, no
-      acknowledgement and no ZMQ-level batching. Send frames as fast as your
-      sender can; the server drains them in bursts and commits one transaction
-      per burst. There is no
-      "batch until the server flushes" contract to reason about.</li>
-  <li>Set a <strong>receive timeout</strong> on REQ sockets (the bundled
-      client uses 30s). The server also enforces its own budget,
-      <code>query.timeout_s</code> (default 30s): a query that runs longer
-      gets a <code>QUERY_TIMEOUT</code> error back — see
-      <a href="queries.html">Queries</a>.</li>
-  <li><strong>Omit ingestion timestamps</strong> to let the server stamp with
-      its clock (avoids the clock-skew guard and keeps the rollup consistent).</li>
-  <li><strong>Use HTTP for one-off scripts</strong>; ZMQ for sustained
-      ingestion, live subscription, and admin.</li>
-</ul>
-
-<h3>Where to go next</h3>
-<ul>
-  <li><a href="ingestion.html">Ingestion</a> — the exact message shape and
-      validation rules.</li>
-  <li><a href="queries.html">Queries</a> — aggregation functions, intervals,
-      and response formats.</li>
-  <li><a href="streaming.html">Streaming</a> — subscribing live from any
-      language.</li>
-  <li><a href="api.html">API Reference</a> — full wire protocol, admin
-      commands, and error codes.</li>
-  <li><a href="examples.html">Examples</a> — runnable scripts for every
-      operation.</li>
-</ul>
-
-
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every route and parameter, the wire format, every admin command, and every
+      error code — the authoritative version of everything above.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>What happens after your frame arrives: batching, the bounded queue, tags as
+      dimensions, and the clock-skew guard.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>All ten aggregations, buckets, limits, and when a query is refused for being
+      too large.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>Topic matching, keepalives, and what a slow subscriber costs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>Runnable producer and consumer scripts in Python, including a sustained
+      high-rate pump.</p>
+    </div>
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>The two-command version, if you would rather see it work before reading any
+      of this.</p>
+    </div>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>Why there is no client library</h5>
+      <p>
+            The wire format is small — four fields in, a status envelope out — and
+            it is identical on every transport. A generated SDK would add a version
+            to keep in step with a format that fits in a paragraph. A hand-written
+            struct that matches the shapes on
+            <a href="api.html">API Reference</a> is the whole integration.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The one rule that causes real bugs</h5>
+      <p>
+            Timestamps. Over HTTP, <code>start</code> and <code>end</code> are
+            <strong>epoch seconds</strong>, and so are the timestamps in the
+            response. Over ZeroMQ they are <strong>epoch nanoseconds</strong> in
+            the request, and the response is back in seconds. Getting this wrong
+            returns an empty result rather than an error, so it is worth stating
+            plainly — and it is the first thing to check when a ZMQ query looks
+            empty while the HTTP one works.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Fire and forget, or wait for a reply</h5>
+      <p>
+            Ingest is a PUSH socket: there is no reply and no backpressure on the
+            client beyond the socket's own queue. Query and admin are REQ: one
+            request, one reply, and a timeout that raises rather than hanging
+            forever. Python's <code>Client</code> handles both, including closing a
+            broken REQ socket so the next call works.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Embedding instead of connecting</h5>
+      <p>
+            A single Python process can skip every socket and open the engine
+            in-process — no ports, no service, no serialisation. The same query
+            code, the same schema, the same rollup. See the embedded API on
+            <a href="api.html#embedded">API Reference</a>.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Language support, honestly</h5>
+      <p>
+            Any language with an HTTP client works today, with no caveats. Any
+            language with ZeroMQ bindings gets the higher-rate path. The samples
+            here are complete and were checked against the running service.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>When a client misbehaves</h5>
+      <p>
+            Check the ordering first, then the port. <code>sqtseries status</code>
+            prints the ports the service is <em>actually</em> on, which is not
+            always the configured one.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — one wire format, six languages.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

@@ -68,25 +68,33 @@ auto_detect = false
     return ports
 
 
-def wait_until_ping(port: int, timeout_s: float = 20.0) -> None:
-    """Poll the admin REP socket until the service answers 'ping'."""
-    ctx = zmq.Context()
-    sock = ctx.socket(zmq.REQ)
-    sock.setsockopt(zmq.LINGER, 500)
-    sock.setsockopt(zmq.RCVTIMEO, 1000)
-    sock.connect(f"tcp://127.0.0.1:{port}")
+def wait_until_ping(port: int, timeout_s: float = 20.0) -> bool:
+    """Poll the admin REP socket until the service answers 'ping'.
+
+    One fresh REQ socket per attempt. A REQ socket is strictly lockstep: if the
+    reply has not arrived when the poll expires, the socket stays in the
+    'awaiting reply' state and the NEXT send raises EFSM. Reusing that socket
+    wedges the loop permanently — it spins on EFSM until the deadline even with
+    the service up and answering, which is exactly the intermittent "service did
+    not come up" this function exists to rule out.
+    """
     deadline = time.monotonic() + timeout_s
-    try:
-        while time.monotonic() < deadline:
-            try:
-                sock.send_json({"cmd": "ping"})
-                if sock.poll(1000) & zmq.POLLIN and sock.recv_json().get("pong"):
-                    return True
-            except zmq.ZMQError:
-                time.sleep(0.1)
-    finally:
-        sock.close(linger=0)
-        ctx.term()
+    while time.monotonic() < deadline:
+        ctx = zmq.Context()
+        sock = ctx.socket(zmq.REQ)
+        sock.setsockopt(zmq.LINGER, 0)
+        sock.setsockopt(zmq.RCVTIMEO, 1000)
+        sock.connect(f"tcp://127.0.0.1:{port}")
+        try:
+            sock.send_json({"cmd": "ping"})
+            if sock.poll(1000) & zmq.POLLIN and sock.recv_json().get("pong"):
+                return True
+        except zmq.ZMQError:
+            pass
+        finally:
+            sock.close(0)
+            ctx.term()
+        time.sleep(0.1)
     return False
 
 

@@ -14,9 +14,15 @@
 # Usage:
 #   scripts/run-stress-rig.sh [--duration 300] [--rate 2000] [--clients 8]
 #                             [--warmup-rows 20000] [--http-port 12599]
+#                             [--model closed|open] [--query-rate 1000]
+#                             [--max-inflight 64]
 #                             [--probe] [--probe-duration 620]
 #                             [--tag myrun]
 #                             [--no-guard] [--guard-budget-mb N] [--probe-budget-mb N]
+#
+# --model open runs the open-loop query generator (DEALER vs the broker's
+# ROUTER, paced, measured from the scheduled fire time). Pass --query-rate to
+# set the offered arrival rate; see stress_percentiles.py --help.
 #
 # Outputs (all under /tmp/sqtseries-rig-<tag>/):
 #   rss.log          per-pid RSS/threads/fds samples  (leak_check input)
@@ -41,6 +47,9 @@ HTTP_PORT=0
 PROBE=0
 PROBE_DURATION=620
 STRICT_PROBE=0
+MODEL=closed
+QUERY_RATE=1000
+MAX_INFLIGHT=64
 TAG=""
 # HARD MEMORY GOVERNOR (2026-09-10 incident: an unbounded run froze the PC).
 # The stress tree (service+pump+clients) and the probe tree (headless
@@ -56,6 +65,9 @@ while [ $# -gt 0 ]; do
         --rate) RATE="$2"; shift 2 ;;
         --clients) CLIENTS="$2"; shift 2 ;;
         --warmup-rows) WARMUP="$2"; shift 2 ;;
+        --model) MODEL="$2"; shift 2 ;;
+        --query-rate) QUERY_RATE="$2"; shift 2 ;;
+        --max-inflight) MAX_INFLIGHT="$2"; shift 2 ;;
         --http-port) HTTP_PORT="$2"; shift 2 ;;
         --probe) PROBE=1; shift ;;
         --probe-duration) PROBE_DURATION="$2"; shift 2 ;;
@@ -128,13 +140,15 @@ if [ "${GUARD:-1}" = "1" ]; then
         $PY scripts/stress_percentiles.py \
         --duration "$DURATION" --rate "$RATE" --clients "$CLIENTS" \
         --warmup-rows "$WARMUP" --http-port "$HTTP_PORT" \
+        --model "$MODEL" --query-rate "$QUERY_RATE" --max-inflight "$MAX_INFLIGHT" \
         --json "$OUT/stress.json" > "$OUT/stress.log" 2>&1
     STRESS_EXIT=$?
 else
     $PY scripts/stress_percentiles.py \
-        --duration "$DURATION" --rate "$RATE" --clients "$CLIENTS" \
-        --warmup-rows "$WARMUP" --http-port "$HTTP_PORT" \
-        --json "$OUT/stress.json" > "$OUT/stress.log" 2>&1
+    --duration "$DURATION" --rate "$RATE" --clients "$CLIENTS" \
+    --warmup-rows "$WARMUP" --http-port "$HTTP_PORT" \
+    --model "$MODEL" --query-rate "$QUERY_RATE" --max-inflight "$MAX_INFLIGHT" \
+    --json "$OUT/stress.json" > "$OUT/stress.log" 2>&1
     STRESS_EXIT=$?
 fi
 

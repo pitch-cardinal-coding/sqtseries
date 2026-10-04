@@ -1,0 +1,352 @@
+<section>
+  <h2>Install it as a service</h2>
+  <p class="lede">The service is meant to run for years unattended. One command writes
+  a hardened systemd unit, and this page explains every line of it.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Unit</strong> — the systemd service file, <code>sqtseries.service</code>.<br>
+    <strong>User unit</strong> — under <code>~/.config/systemd/user/</code>, no root,
+    stops when you log out unless lingering is on.<br>
+    <strong>System unit</strong> — under <code>/etc/systemd/system/</code>, runs at
+    boot for good.<br>
+    <strong>Hardening</strong> — systemd directives that restrict what the process may
+    touch.<br>
+    <strong>Restart policy</strong> — what systemd does when the process exits.<br>
+    <strong>Journal</strong> — the log, read with <code>journalctl</code>.<br>
+    <strong>Lingering</strong> — <code>loginctl enable-linger</code>, which keeps a
+    user unit alive with nobody logged in.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">1</div><div class="l">Command to install</div></div>
+    <div class="stat"><div class="n">strict</div><div class="l">Filesystem protection</div></div>
+    <div class="stat"><div class="n">5 s</div><div class="l">Restart backoff</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Retries per minute</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">Writable paths, no more</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>The command</h2>
+  <p>Install it with the same configuration you actually want. The unit embeds the
+  flags it was installed with, so a service that serves custom ports does not come
+  back on the defaults after a reboot.</p>
+
+<pre><span class="c"># a user unit — no root needed</span>
+<span class="p">$</span> sqtseries <span class="o">--config</span> ~/sqtseries.toml <span class="o">install</span>
+systemd unit installed
+
+<span class="c"># a system unit — runs at boot, needs root</span>
+<span class="p">$</span> sudo sqtseries <span class="o">--config</span> /etc/sqtseries/config.toml <span class="o">install</span> <span class="o">--system</span>
+systemd unit installed</pre>
+
+  <p><code>install</code> writes the file, runs <code>daemon-reload</code>, and
+  enables and starts the unit. There is no separate enable step.</p>
+
+  <div class="box warn">
+    <span class="lbl">Install with your config, every time</span>
+    <p>The unit's <code>ExecStart</code> is built from the arguments you pass to
+    <code>install</code>. Install without <code>--config</code> and the service will
+    boot with whatever <code>~/.sqtseries/</code> happens to say at that moment, which
+    is not the same thing as the ports you tested.</p>
+    <p>It also embeds the resolved database path as
+    <code>SQT_SERIES_DATABASE__PATH</code>. Installing a system unit as root against a
+    default path would put the database under <code>/root</code>, so the installer
+    detects the human who ran <code>sudo</code> and re-anchors the path into their
+    home — including the case where <code>~</code> had already expanded to
+    <code>/root</code> before the installer ever saw it.</p>
+  </div>
+
+  <h3>User unit or system unit</h3>
+  <table>
+    <thead><tr><th></th><th>User unit</th><th>System unit (<code>--system</code>)</th></tr></thead>
+    <tbody>
+      <tr><td>File</td><td><code>~/.config/systemd/user/sqtseries.service</code></td>
+        <td><code>/etc/systemd/system/sqtseries.service</code></td></tr>
+      <tr><td>Needs root</td><td class="muted">no</td><td>yes</td></tr>
+      <tr><td>Target</td><td><code>default.target</code></td>
+        <td><code>multi-user.target</code></td></tr>
+      <tr><td>Survives logout</td><td>only with
+        <code>loginctl enable-linger $USER</code></td><td><strong>yes</strong></td></tr>
+      <tr><td>Runs as</td><td>you</td>
+        <td>you if the installer found you under <code>sudo</code>, otherwise
+        root</td></tr>
+      <tr><td>Best for</td><td>a desktop or a laptop you sit at</td>
+        <td>a machine that is always on</td></tr>
+    </tbody>
+  </table>
+
+  <p>The most common surprise with a user unit is that it stops when you log out.
+  Enable lingering once:</p>
+
+<pre><span class="p">$</span> loginctl enable-linger <span class="v">$USER</span></pre>
+</section>
+
+<section>
+  <h2>The generated unit</h2>
+  <p>This is the real output, with a real config. Yours will differ in the paths and
+  the Python interpreter.</p>
+
+<pre><span class="c">[Unit]</span>
+Description=sqtseries time-series database
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+<span class="c">[Service]</span>
+Type=simple
+ExecStart=/home/iam/devcode/.env/sqtseries/bin/python3 -m sqtseries --config /home/iam/sqtseries.toml <span class="f">run</span>
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sqtseries
+<span class="c"># Security hardening</span>
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/iam/.sqtseries/data /home/iam/.sqtseries/backups
+
+<span class="c"># Environment</span>
+Environment=LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+Environment=SQT_SERIES_DATABASE__PATH=/home/iam/.sqtseries/data/db.sqlite
+Environment=SQT_SERIES_LOGGING__LEVEL=INFO
+
+<span class="c">[Install]</span>
+WantedBy=default.target</pre>
+
+  <h3>Every line, and why it is there</h3>
+  <table>
+    <thead><tr><th>Directive</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">After=network.target</td>
+        <td>Waits for networking. The ZMQ and HTTP ports are loopback and HTTP, so
+        this is about ordering, not about a remote peer.</td></tr>
+      <tr><td class="opt">StartLimitIntervalSec=60</td>
+        <td>With the next line: at most three starts in any 60-second window.</td></tr>
+      <tr><td class="opt">StartLimitBurst=3</td>
+        <td>A service that crashes on boot four times in a minute is then left
+        <em>stopped</em> rather than restarted forever. Without this a bad config
+        produces an infinite loop that fills the journal.</td></tr>
+      <tr><td class="opt">Type=simple</td>
+        <td>The process is the service; systemd does not fork or track a pid
+        file.</td></tr>
+      <tr><td class="opt">ExecStart=…</td>
+        <td>Built from your <code>install</code> arguments, with the paths
+        shell-quoted.</td></tr>
+      <tr><td class="opt">Restart=on-failure</td>
+        <td>Restart on a non-zero exit or a signal, but <strong>not</strong> on a
+        clean exit. A deliberate <code>sqtseries stop</code> stays stopped.</td></tr>
+      <tr><td class="opt">RestartSec=5</td>
+        <td>Five seconds between attempts, so a crash does not spin.</td></tr>
+      <tr><td class="opt">StandardOutput/Error=journal</td>
+        <td>Logs go to the journal, where <code>journalctl</code> can find them.
+        <code>SyslogIdentifier</code> is what you grep on.</td></tr>
+      <tr><td class="opt">User=…</td>
+        <td>System units only, and only when the installer resolved a non-root
+        installing user. Without it a system unit runs as root.</td></tr>
+      <tr><td class="opt">NoNewPrivileges=true</td>
+        <td>Nothing the process does can gain privilege — no setuid binary, no
+        child process escalating. A large part of why a parser bug in a dependency
+        is survivable.</td></tr>
+      <tr><td class="opt">ProtectSystem=strict</td>
+        <td>The entire filesystem is read-only to the process, <em>including</em>
+        <code>/usr</code> and <code>/etc</code>. It cannot rewrite its own
+        dependencies or a system config file.</td></tr>
+      <tr><td class="opt">ProtectHome=read-only</td>
+        <td>Everything under every home directory is read-only — so the process can
+        read the database but cannot damage anything else in your home. System units
+        instead set this to <code>false</code>, because the data directory lives
+        there and has to be writable.</td></tr>
+      <tr><td class="opt">ReadWritePaths=…</td>
+        <td>The only exceptions, and there are exactly two: the data directory and
+        the backup directory. Every other path stays read-only.</td></tr>
+      <tr><td class="opt">Environment=LD_PRELOAD=…</td>
+        <td>jemalloc, but <strong>only if it is present</strong>. The service is
+        correct without it; preloading just trims memory retained under sustained
+        load. A missing library is not an error.</td></tr>
+      <tr><td class="opt">Environment=SQT_SERIES_DATABASE__PATH</td>
+        <td>The resolved path, so the unit and the command line agree even if the
+        config file moves.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box key">
+    <span class="lbl">ReadWritePaths is the whole point</span>
+    <p><code>ProtectSystem=strict</code> plus <code>ProtectHome=read-only</code> would
+    leave the service unable to write its database at all, because the default path is
+    under <code>~</code>. <code>ReadWritePaths</code> re-opens exactly the two
+    directories it needs and nothing else. The process can read the whole system and
+    write almost none of it.</p>
+  </div>
+
+  <h3>Checking the hardening yourself</h3>
+<pre><span class="p">$</span> systemd-analyze security <span class="v">sqtseries.service</span>
+<span class="c">→ Overall exposure level for sqtseries.service: 2.4 OK ✓</span></pre>
+</section>
+
+<section>
+  <h2>Running it</h2>
+
+<pre><span class="c"># user unit</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> status sqtseries
+<span class="c"># system unit</span>
+<span class="p">$</span> sudo systemctl status sqtseries
+
+<span class="c"># the log</span>
+<span class="p">$</span> journalctl <span class="o">--user</span> <span class="o">-u</span> sqtseries <span class="o">-f</span>
+<span class="c">#   follow it live</span>
+<span class="p">$</span> journalctl <span class="o">-u</span> sqtseries <span class="o">-n</span> <span class="v">100</span> <span class="o">--no-pager</span>
+<span class="c">#   since the last boot</span>
+<span class="p">$</span> journalctl <span class="o">-u</span> sqtseries <span class="o">-b</span> <span class="o">--no-pager</span>
+
+<span class="c"># restart, and stop</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> restart sqtseries
+<span class="p">$</span> systemctl <span class="o">--user</span> stop sqtseries</pre>
+
+  <p>Note that <code>systemctl stop</code> and <code>sqtseries stop</code> are not
+  the same thing. The first asks systemd to stop the unit, which sends SIGTERM and
+  gives the process its normal shutdown. The second sends SIGTERM and waits for the
+  port to actually be free. Either is fine; the second is what you want inside a
+  script that is about to rebind the ports.</p>
+</section>
+
+<section>
+  <h2>Proving the restart policy works</h2>
+  <p>An untested restart policy is a hope, not a plan. This takes thirty seconds.</p>
+
+<pre><span class="c"># 1. find the pid</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> show sqtseries <span class="o">--property</span> MainPID
+MainPID=<span class="v">1234</span>
+
+<span class="c"># 2. kill it uncleanly — no chance to flush anything</span>
+<span class="p">$</span> kill <span class="o">-9</span> <span class="v">1234</span>
+
+<span class="c"># 3. wait, and watch it come back with a different pid</span>
+<span class="p">$</span> sleep <span class="v">8</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> show sqtseries <span class="o">--property</span> MainPID
+MainPID=<span class="v">1290</span>
+
+<span class="c"># 4. and the data survived</span>
+<span class="p">$</span> sqtseries <span class="o">health</span>
+<span class="ok">ok</span>
+<span class="p">$</span> sqtseries <span class="o">stats</span>
+metrics: <span class="v">3</span>
+series:  <span class="v">12</span></pre>
+
+  <div class="box ok">
+    <span class="lbl">Why a <code>SIGKILL</code> does not lose data</span>
+    <p>Because every commit goes through SQLite's write-ahead log first. A commit is
+    durable when it is written to the WAL, not when it reaches the main file — so
+    <code>kill -9</code> can lose at most a commit that had not been written, and the
+    next start replays the WAL.</p>
+    <p>What a hard kill <em>can</em> cost is a frame that was accepted into the socket
+    queue but not yet persisted, since the shutdown drain that would have flushed it
+    never ran. That is inherent to a hard kill; the graceful path is what avoids it,
+    and the difference is why <code>sqtseries stop</code> exists.</p>
+  </div>
+
+  <h3>If it will not start</h3>
+  <table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>status=203/EXEC</code></td><td>the interpreter in
+        <code>ExecStart</code> no longer exists</td>
+        <td>reinstall with the full path to the current interpreter</td></tr>
+      <tr><td><code>Permission denied</code> on the database</td>
+        <td><code>ReadWritePaths</code> does not cover the data directory</td>
+        <td>reinstall with <code>--db</code> pointing inside a writable path</td></tr>
+      <tr><td>Starts, exits immediately</td><td>a configuration error</td>
+        <td>read the journal; the message names the setting</td></tr>
+      <tr><td>Port already in use</td><td>a previous instance is still holding
+        it</td><td><code>sqtseries stop</code>, or wait for
+        <code>RestartSec</code></td></tr>
+      <tr><td>Stops after three restarts</td><td><code>StartLimitBurst</code> reached
+        — a real crash loop</td><td>read the journal before restarting it</td></tr>
+      <tr><td>Stops when you log out</td><td>user unit without lingering</td>
+        <td><code>loginctl enable-linger $USER</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Shutting down cleanly</h2>
+  <p>SIGTERM starts an ordered shutdown, and the order is the point.</p>
+
+  <ol class="steps">
+    <li><b>Stop the background tasks</b><span>Rollup, retention, maintenance and
+    backup are cancelled so none of them starts new work.</span></li>
+    <li><b>Drain the ingest socket</b><span>Frames already accepted are swept and
+    queued. This happens <em>before</em> the socket closes, because closing discards
+    whatever libzmq still holds.</span></li>
+    <li><b>Flush the persister</b><span>Every queued batch is committed, behind a
+    bounded 60-second budget so a wedged disk cannot hang the stop forever.</span></li>
+    <li><b>Stop the brokers and the gateway</b><span>In-flight query replies are
+    allowed to drain, then the HTTP server is given five seconds to finish its
+    connections.</span></li>
+    <li><b>Checkpoint the WAL</b><span><code>PRAGMA optimize</code> and a
+    <code>TRUNCATE</code> checkpoint, so the next start is fast and the file is
+    compact.</span></li>
+    <li><b>Remove the runtime file</b><span>The last step. <code>sqtseries status</code>
+    uses its absence, so a restart script that waits for it knows the process is
+    really gone — not merely answering to signal 0 as a not-yet-reaped zombie
+    does.</span></li>
+  </ol>
+
+  <p>Under systemd, SIGTERM arrives the same way, so a restart never discards a frame
+  that was already accepted. A hard kill skips all of it, which is the difference the
+  test above demonstrates.</p>
+</section>
+
+<section>
+  <h2>Uninstalling</h2>
+
+<pre><span class="c"># user unit</span>
+<span class="p">$</span> sqtseries <span class="o">uninstall</span>
+systemd unit removed
+
+<span class="c"># system unit</span>
+<span class="p">$</span> sudo sqtseries <span class="o">uninstall</span> <span class="o">--system</span>
+systemd unit removed</pre>
+
+  <p>This stops the unit and removes the file. It does <strong>not</strong> touch your
+  database or your backups — they are yours, and deleting a database because someone
+  removed a service file would be a nasty surprise. Delete
+  <code>~/.sqtseries/</code> yourself when you mean it.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting the unit embeds, and the security settings to review before
+      exposing the service.</p>
+    </div>
+    <div class="card">
+      <h4><a href="backup.html">Backup and restore</a></h4>
+      <p>Snapshots on a timer, the restore procedure, and what a hard kill can and
+      cannot cost you.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>What the page shows about the running service, including whether the last
+      snapshot succeeded.</p>
+    </div>
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>Running two instances side by side, with their own database and ports.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The <code>health</code>, <code>stats</code> and <code>backup</code> admin
+      commands, for scripting health checks.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>What runs in the background while the service is up, and what stops it
+      first.</p>
+    </div>
+  </div>
+</section>

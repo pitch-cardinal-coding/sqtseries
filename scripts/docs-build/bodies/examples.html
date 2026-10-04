@@ -1,0 +1,428 @@
+<section>
+  <h2>Runnable, and run</h2>
+  <p class="lede">Eighteen runnable example scripts in the repository, each one executed
+  against a live service by the test suite. A sample that stops working fails a test,
+  so nothing here can quietly rot.</p>
+
+  <div class="box key">
+    <span class="lbl">Before you run the question examples</span>
+    <p>The two question catalogues seed <strong>6 hours to 8 days of history</strong>.
+    The default <code>reject_client_timestamp_skew_s</code> is 300, so a service with
+    default settings <strong>refuses every one of those writes</strong>.</p>
+    <p>They now fail loudly rather than printing "no data" and exiting 0, so if you see
+    this you know exactly what happened:</p>
+<pre>seed did not land for cpu.load, temp.celsius, latency.web, visitors.web (counts={…: 0.0}).
+This service rejects historical writes: set ingestion.reject_client_timestamp_skew_s = 0
+to seed demo history.</pre>
+    <p>To run them, either start the service with that setting, or use
+    <code>run_all_examples.py</code>, which does it for you. The guard is
+    <em>correct</em> behaviour — it stops a client's clock drift from writing into an
+    hour that has already been summarised. The examples simply need to write history
+    on purpose.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">18</div><div class="l">Scripts</div></div>
+    <div class="stat"><div class="n">14</div><div class="l">Checks in the runner</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Stale samples</div></div>
+    <div class="stat"><div class="n">13</div><div class="l">Questions answered</div></div>
+    <div class="stat"><div class="n">17</div><div class="l">On the camera page</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Run everything at once</h2>
+  <p>The runner starts a service on scratch ports, runs every example, and tears it
+  down. It is the fastest way to see what any of them does.</p>
+
+<pre><span class="p">$</span> $PY examples/run_all_examples.py
+Starting sqtseries on ports: {'ingest': 54365, 'query': 33667, 'streaming': 39015, 'admin': 56247, 'http': 48661, 'stats': 45427}
+Service started OK
+
+  PASS: ingest_http.py
+  PASS: producer.py
+  PASS: consumer.py
+  PASS: consumer.py (http)
+  PASS: run_custom.py
+  PASS: scale_check.py
+  PASS: tags_examples.py
+  PASS: question_examples.py
+  PASS: admin_examples.py
+  PASS: maintenance_examples.py
+  PASS: stream_examples.py
+  PASS: stats_monitor.py
+  PASS: query_examples.py
+  PASS: camera_feed.py (--ask)
+
+==================================================
+Results: 14 passed, 0 failed out of 14</pre>
+
+  <p>Two flags narrow it:</p>
+  <table>
+    <thead><tr><th>Option</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">--skip-camera</td><td class="muted">off</td>
+        <td>skip the camera examples. They need the <code>websockets</code>
+        package.</td></tr>
+      <tr><td class="opt">--skip-advanced</td><td class="muted">off</td>
+        <td>skip the advanced question catalogue.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box">
+    <span class="lbl">What PASS means, and what it does not</span>
+    <p>The runner checks the <strong>exit code</strong> of each script. A script that
+    printed nonsense and exited 0 would pass — which is exactly how the question
+    examples managed to report a pass while answering "no data" to everything, until
+    they were given the seed check above.</p>
+    <p>So when you read an example's output, read the output. The exit code only tells
+    you the script did not crash.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The scripts</h2>
+
+  <h3>Writing data</h3>
+  <table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">ingest_http.py</td>
+        <td>Writing over HTTP with nothing but the standard library. The path to take
+        when you have no ZMQ binding.</td>
+        <td><code>--host</code> <code>--port</code> <code>--rate</code>
+        <code>--batch</code> <code>--count</code></td></tr>
+      <tr><td class="opt">producer.py</td>
+        <td>Writing over ZeroMQ with raw <code>zmq</code> and <code>orjson</code>. Does
+        not import the <code>Client</code>, so it doubles as the reference for another
+        language.</td>
+        <td><code>--host</code> <code>--port</code> <code>--rate</code>
+        <code>--count</code> <code>--batch</code></td></tr>
+      <tr><td class="opt">iso_timestamps.py</td>
+        <td>ISO-8601 beside epoch, for both writes and queries. Uses an embedded
+        database in a temp directory, so it needs <strong>no running service</strong>.</td>
+        <td class="muted">none</td></tr>
+      <tr><td class="opt">tags_examples.py</td>
+        <td>Tags as dimensions: the same metric for several hosts, and reading them
+        back apart.</td>
+        <td><code>--host</code> <code>--write-port</code> <code>--query-port</code>
+        <code>--http-port</code> <code>--db</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Reading data</h3>
+  <table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">query_examples.py</td>
+        <td>Every query shape: raw reads, all ten aggregations, downsampling with
+        intervals, and a whole-window multi-aggregation — over ZeroMQ and over
+        HTTP.</td>
+        <td><code>--host</code> <code>--write-port</code> <code>--query-port</code>
+        <code>--http-port</code></td></tr>
+      <tr><td class="opt">consumer.py</td>
+        <td>Querying from a <em>separate process</em>, over both transports, with raw
+        ZeroMQ calls.</td>
+        <td><code>--host</code> <code>--port</code> <code>--http</code></td></tr>
+      <tr><td class="opt">question_examples.py</td>
+        <td><strong>The question catalogue.</strong> Thirteen questions phrased the way
+        a human asks them, each with working code. Seeds its own deterministic
+        data.</td>
+        <td><code>--host</code> <code>--write-port</code> <code>--query-port</code>
+        <code>--http-port</code></td></tr>
+      <tr><td class="opt">question_examples_advanced.py</td>
+        <td>The questions past the basics: per-series breakdowns, two windows at once,
+        rates, and data-quality checks.</td>
+        <td>the above plus <code>--admin-port</code> <code>--db</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Watching and operating</h3>
+  <table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">stream_examples.py</td>
+        <td>Subscribing to live data, two ways: a raw SUB socket and the
+        <code>Client</code>.</td>
+        <td><code>--host</code> <code>--port</code> <code>--http-port</code>
+        <code>--ws</code> <code>--client</code></td></tr>
+      <tr><td class="opt">stats_monitor.py</td>
+        <td>Live connect, disconnect and subscription events from the stats socket.
+        A template for an alerting pipeline.</td>
+        <td><code>--host</code> <code>--port</code></td></tr>
+      <tr><td class="opt">admin_examples.py</td>
+        <td>All nine admin commands with their real replies. The quickest way to see
+        what the admin surface returns.</td>
+        <td><code>--host</code> <code>--port</code></td></tr>
+      <tr><td class="opt">maintenance_examples.py</td>
+        <td>Backup, vacuum, optimize and health checks — the periodic operations.</td>
+        <td><code>--host</code> <code>--admin-port</code> <code>--http-port</code>
+        <code>--backup-only</code> <code>--health-loop</code></td></tr>
+      <tr><td class="opt">scale_check.py</td>
+        <td>Churning many subscribers and verifying the registry tracks every join and
+        leave exactly, returning to baseline.</td>
+        <td><code>--host</code> <code>--port</code> <code>--admin-port</code>
+        <code>--topics</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Running your own instance</h3>
+  <table>
+    <thead><tr><th>Script</th><th>What it shows</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">run_custom.py</td>
+        <td><strong>Start here.</strong> A service of your own, on your own ports, with
+        your own database file — the one command every other example depends
+        on.</td>
+        <td><code>--workdir</code></td></tr>
+      <tr><td class="opt">run_all_examples.py</td>
+        <td>All of the above, against a throwaway service.</td>
+        <td><code>--skip-camera</code> <code>--skip-advanced</code></td></tr>
+      <tr><td class="opt">camera_feed.py</td>
+        <td>A camera feed pumped in, and seventeen questions answered from it. See
+        <a href="camera.html">Camera analytics</a>.</td>
+        <td><code>--ws</code> <code>--host</code> <code>--http-port</code>
+        <code>--ask</code> <code>--hours</code> <code>--once</code></td></tr>
+      <tr><td class="opt">overlay_server.py</td>
+        <td>The detector side: an annotated MJPEG feed. Uses only
+        <code>Pillow</code>, which sqtseries already depends on. See
+        <a href="camera.html">Camera analytics</a>.</td>
+        <td><code>--port</code></td></tr>
+      <tr><td class="opt">conn_validate.py</td>
+        <td>Checks the connection-tracking feed end to end — read, aggregate and
+        subscribe. See <a href="camera.html">Camera analytics</a>.</td>
+        <td><code>--host</code> <code>--port</code> <code>--admin-port</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Start with your own instance</h2>
+  <p>Every example needs a running service. This script gives you one, on ports that
+  will not collide with anything, and prints them.</p>
+
+<pre><span class="p">$</span> $PY examples/run_custom.py
+workdir: sqt-custom-work
+config:  sqt-custom-work/config.toml
+  <span class="c"># the ports it chose, and the links</span>
+
+<span class="c"># then, in another terminal, point an example at them:</span>
+<span class="p">$</span> $PY examples/question_examples.py \
+    <span class="o">--write-port</span> <span class="v">54365</span> <span class="o">--query-port</span> <span class="v">33667</span> <span class="o">--http-port</span> <span class="v">48661</span></pre>
+</section>
+
+<section>
+  <h2>The question catalogue</h2>
+  <p>Thirteen questions, phrased the way a person asks them, each answered with working
+  code. The seed data is deterministic, so the answers are reproducible.</p>
+
+<pre><span class="p">$</span> $PY examples/question_examples.py <span class="o">--write-port</span> 54365 <span class="o">--query-port</span> 33667 <span class="o">--http-port</span> 48661
+=== Seeding sample data (deterministic) ===
+  cpu.load     : every 5 min for 6 hours (72 points)
+  temp.celsius : every 60 min for 1 day (24 points)
+  latency.web  : every 30 min for 8 days (384 points)
+  visitors.web : every 30 min for 8 days (384 points)
+  seeded OK: cpu.load=72, temp.celsius=24, latency.web=384, visitors.web=384
+
+=== 1. What was the average CPU load over the last hour? ===
+  ANSWER: avg_cpu_last_hour = 62.27
+
+=== 2. What was the peak temperature yesterday? ===
+  ANSWER: peak_temp_yesterday = 24.49
+
+=== 3. Show me the 99th percentile response time for the past week ===
+  ANSWER: p99_latency_week = 108.00
+
+=== 4. How many measurements did I record today? ===
+  ANSWER: count_today = 37
+
+=== 5. Is the load rising? (last hour vs the hour before) ===
+  ANSWER: trend = rising
+  this hour: 62.27 , previous hour: 57.25
+
+=== 6. Per-minute average of the last hour (a curve, not one number) ===
+    bucket t=1790789940 avg=42.00
+    bucket t=1790790240 avg=49.00
+    bucket t=1790790540 avg=56.00
+    bucket t=1790790840 avg=63.00
+    bucket t=1790791140 avg=70.00
+    ... 11 one-minute buckets total</pre>
+
+  <p class="small muted">That <code>seeded OK</code> line is the check described at the
+  top of this page. If your service refuses the seed, the script stops there instead of
+  printing "no data" thirteen times.</p>
+
+  <h3>The first four, and the call behind each</h3>
+  <table>
+    <thead><tr><th>#</th><th>Question</th><th>The call</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">1</td><td>Average CPU load over the last hour</td>
+        <td><code>aggregate("cpu.load", start=hour_ago_ns(), funcs=["avg"])</code></td></tr>
+      <tr><td class="opt">2</td><td>Peak temperature yesterday</td>
+        <td><code>aggregate("temp.celsius", start=…, end=…, funcs=["max"])</code></td></tr>
+      <tr><td class="opt">3</td><td>p99 response time over the past week</td>
+        <td><code>aggregate("latency.web", start=…, funcs=["p99"])</code></td></tr>
+      <tr><td class="opt">4</td><td>Measurements recorded today</td>
+        <td><code>aggregate("cpu.load", start=day_start, funcs=["count"])</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>Note question 1 uses <strong>nanoseconds</strong>
+  (<code>time.time_ns()</code>) because it goes over ZeroMQ. Over HTTP the same query
+  takes seconds. See <a href="clients.html">Client Libraries</a>.</p>
+
+  <h3>The rest of the catalogue</h3>
+  <table>
+    <thead><tr><th>#</th><th>Question</th><th>Shape</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">5</td><td>Is the load rising?</td>
+        <td>two windows compared</td></tr>
+      <tr><td class="opt">6</td><td>A curve, not a number</td>
+        <td><code>interval=1m</code></td></tr>
+      <tr><td class="opt">7</td><td>Min, average and max per hour</td>
+        <td>three <code>interval=1h</code> calls</td></tr>
+      <tr><td class="opt">8</td><td>Min, average and max per day</td>
+        <td>three <code>interval=1d</code> calls</td></tr>
+      <tr><td class="opt">9</td><td>Busiest hour and busiest day</td>
+        <td>bucket, then take the extreme</td></tr>
+      <tr><td class="opt">10</td><td>Visitors in the last 24 hours</td>
+        <td><code>funcs=["sum"]</code></td></tr>
+      <tr><td class="opt">11</td><td>When did the last reading arrive?</td>
+        <td><code>limit=1, order=desc</code>, then subtract from now</td></tr>
+      <tr><td class="opt">12</td><td>All-time numbers</td>
+        <td>no window, plus the median and percentiles</td></tr>
+      <tr><td class="opt">13</td><td>The same questions over HTTP</td>
+        <td>the <code>curl</code> equivalents, printed</td></tr>
+    </tbody>
+  </table>
+
+  <p>Question 11 is the one worth copying for a staleness check: read the newest point
+  and compare its timestamp against now. A gap means the producer stopped, which is
+  usually the alert you actually want.</p>
+
+  <h3>The advanced catalogue</h3>
+  <p><code>question_examples_advanced.py</code> covers what you need once the basics are
+  done: per-series breakdowns when one metric has many tag sets, rates between two
+  timestamps, pattern detection over bucketed data, and data-quality checks such as
+  gaps and duplicates. Its seed data is independent of the first script's, so the two
+  can be run in either order.</p>
+</section>
+
+<section>
+  <h2>Writing data at rate</h2>
+  <p>The producer is the one to reach for when you want to see what the service does
+  under load, and the one to copy when writing a producer in another language — it uses
+  raw <code>zmq</code> and <code>orjson</code>, with no sqtseries import at all.</p>
+
+<pre><span class="p">$</span> $PY examples/producer.py <span class="o">--port</span> <span class="v">12500</span> <span class="o">--rate</span> <span class="v">1000</span> <span class="o">--count</span> <span class="v">100000</span>
+<span class="c"># 100,000 points at 1,000/s over the ZeroMQ PUSH socket</span>
+
+<span class="c"># and a burst, to exercise the batch commit</span>
+<span class="p">$</span> $PY examples/producer.py <span class="o">--rate</span> <span class="v">0</span> <span class="o">--count</span> <span class="v">100000</span> <span class="o">--batch</span> <span class="v">5000</span></pre>
+
+  <p>Then check the accounting. Every accepted point lands in exactly one of
+  <em>persisted</em>, <em>dropped</em> or <em>invalid</em>, so this always
+  balances:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"stats"</span>)[<span class="v">"persisted"</span>] - c.admin(<span class="v">"stats"</span>)[<span class="v">"dropped"</span>]</pre>
+
+  <p>For a properly instrumented run — sustained rate, concurrent query load, memory
+  trend, and a leak verdict at the end — use the rig rather than a single producer:</p>
+
+<pre><span class="p">$</span> bash scripts/run-stress-rig.sh <span class="o">--duration</span> <span class="v">300</span> <span class="o">--rate</span> <span class="v">2000</span> <span class="o">--clients</span> <span class="v">8</span> <span class="o">--tag</span> <span class="v">baseline</span></pre>
+</section>
+
+<section>
+  <h2>Operations</h2>
+
+  <h3>Every admin command, with its real reply</h3>
+<pre><span class="p">$</span> $PY examples/admin_examples.py <span class="o">--port</span> <span class="v">12504</span>
+<span class="c"># runs ping, health, stats, connections, conncheck, subscribers,</span>
+<span class="c"># optimize and backup, and prints what each one returned</span></pre>
+
+  <h3>Periodic maintenance</h3>
+<pre><span class="p">$</span> $PY examples/maintenance_examples.py <span class="o">--admin-port</span> <span class="v">12504</span>
+<span class="c"># backup, vacuum, optimize, and a health check</span>
+
+<span class="p">$</span> $PY examples/maintenance_examples.py <span class="o">--backup-only</span>
+<span class="c"># just the snapshot</span></pre>
+
+  <h3>Connection tracking under churn</h3>
+<pre><span class="p">$</span> $PY examples/scale_check.py <span class="o">--topics</span> <span class="v">200</span> <span class="c">--port</span> <span class="v">12503</span> <span class="c">--admin-port</span> <span class="v">12504</span>
+<span class="c"># joins and leaves many subscribers, then verifies the registry</span>
+<span class="c"># returns to baseline — no drift, no leak</span></pre>
+
+  <div class="box ok">
+    <span class="lbl">Why scale_check matters</span>
+    <p>Subscriber counts come from XPUB events on the wire rather than from polling,
+    so they should be exact. This script is the proof: it churns hundreds of joins and
+    leaves and then asserts the totals match what it created. If a future change
+    broke the accounting, this fails rather than leaving a quietly wrong number on the
+    dashboard.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Timestamps, the practical version</h2>
+  <p><code>iso_timestamps.py</code> needs no service at all — it opens an embedded
+  database in a temp directory — so it is the fastest thing to run when you only want
+  to settle a timestamp question.</p>
+
+<pre><span class="p">$</span> $PY examples/iso_timestamps.py
+<span class="c"># epoch seconds, ISO with Z, ISO with an offset, naive ISO,</span>
+<span class="c"># and nanosecond precision — each written and read back</span></pre>
+
+  <p>It also demonstrates the one that catches people: a naive string is read as
+  <strong>UTC</strong>, not as local time. And a value whose absolute size exceeds
+  <code>1e12</code> is read as nanoseconds, which is what lets an ISO timestamp keep
+  its precision through JSON.</p>
+</section>
+
+<section>
+  <h2>Adapting an example to your problem</h2>
+  <ol class="steps">
+    <li><b>Start from the closest one</b><span>Monitoring, alerting, retention and
+    high-rate ingest each have a script. Read that one rather than starting from the
+    API reference.</span></li>
+    <li><b>Change the metric names and tags</b><span>That is usually the whole change.
+    Keep the tag set small and stable — see
+    <a href="ingestion.html">Ingestion</a>.</span></li>
+    <li><b>Keep the timestamps right</b><span>Nanoseconds over ZeroMQ, seconds over
+    HTTP. Copy from a script that already gets it right for your transport.</span></li>
+    <li><b>Set LINGER before you connect</b><span>On a PUSH socket, or the last
+    measurement is silently lost. Every producer here does.</span></li>
+  </ol>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>What every call in these scripts does, and the rules behind the row cap and
+      the rollup.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>Timestamps, tags, the clock-skew guard, and the backfill behaviour the question
+      examples rely on.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>The same patterns in five other languages.</p>
+    </div>
+    <div class="card">
+      <h4><a href="camera.html">Camera analytics</a></h4>
+      <p>The other worked example — a live feed, a live page, and seventeen
+      questions.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The authoritative version of every call these scripts make.</p>
+    </div>
+    <div class="card">
+      <h4><a href="benchmarks.md">Benchmarks</a></h4>
+      <p>What the service actually does at rate, measured.</p>
+    </div>
+  </div>
+</section>

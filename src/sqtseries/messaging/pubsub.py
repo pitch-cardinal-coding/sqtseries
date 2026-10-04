@@ -7,6 +7,7 @@ and updates the registry, making ZMQ SUB subscriber counts exact at all times.
 import asyncio
 import contextlib
 import time
+from collections import OrderedDict
 
 import structlog
 import zmq
@@ -64,12 +65,14 @@ class PubSub:
         *,
         linger_seconds: float = 30.0,
         hwm: int = 10000,
+        topic_totals_max: int = 10_000,
         context: zmq.asyncio.Context | None = None,
         registry: object | None = None,
     ):
         self.endpoint = endpoint
         self.linger_seconds = linger_seconds
         self.hwm = hwm
+        self.topic_totals_max = max(1, topic_totals_max)
         self._ctx = context
         self.socket: zmq.asyncio.Socket | None = None
         self.tracker = SubscriptionTracker(linger_seconds)
@@ -80,8 +83,10 @@ class PubSub:
         self.published = 0
         # Per-topic publish attempts (same counting as ``published``: every
         # publish() call, even when a slow subscriber's frame is dropped).
-        # One int per distinct metric ever published.
-        self._topic_totals: dict[str, int] = {}
+        # One int per distinct metric ever published, newest-last so the
+        # oldest can be evicted at the cap.
+        self._topic_totals: OrderedDict[str, int] = OrderedDict()
+        self.topic_totals_evicted = 0
         self._registry = registry
         self._reader_task: asyncio.Task | None = None
         # Bounded fan-out: publish() hands frames to the hub
@@ -140,7 +145,15 @@ class PubSub:
         payload_bytes = dumps(payload)
         await self.socket.send_multipart([topic, payload_bytes])
         self.published += 1
-        self._topic_totals[topic_str] = self._topic_totals.get(topic_str, 0) + 1
+        totals = self._topic_totals
+        totals[topic_str] = totals.get(topic_str, 0) + 1
+        totals.move_to_end(topic_str)
+        # Evict oldest-first at the cap so this counter cannot grow with
+        # metric cardinality (bounded-queue doctrine: explicit bound, never
+        # unbounded growth on the ingest path).
+        while len(totals) > self.topic_totals_max:
+            totals.popitem(last=False)
+            self.topic_totals_evicted += 1
         # Bounded fan-out to WS subscribers (drop-new + loud counting).
         self.fanout.deliver(topic_str, payload_bytes)
 

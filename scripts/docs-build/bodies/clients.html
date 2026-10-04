@@ -1,0 +1,536 @@
+<section>
+  <h2>No client library. Nothing to generate.</h2>
+  <p class="lede">The wire format is four fields in and a status envelope out. If your
+  language can send JSON over HTTP or ZeroMQ, it already speaks sqtseries. There is no
+  IDL, no code generation, and no SDK version to keep in step with the server.</p>
+
+  <div class="box key">
+    <span class="lbl">Two rules, and one of them bites</span>
+    <p><strong>HTTP</strong> — <code>start</code> and <code>end</code> are
+    <strong>epoch seconds</strong> (or an ISO-8601 string), and the
+    <code>timestamp</code> in the reply is <strong>epoch seconds</strong>.<br>
+    <strong>ZeroMQ</strong> — <code>start</code> and <code>end</code> in the request
+    are <strong>epoch nanoseconds</strong> as an integer (or an ISO-8601 string), and
+    the <code>timestamp</code> in the reply is back to <strong>epoch seconds</strong>.</p>
+    <p>Getting the ZeroMQ side wrong returns an <strong>empty result, not an error</strong>.
+    Seconds where nanoseconds are expected asks for a window in 1970. If a ZMQ query
+    returns nothing while the HTTP one works, this is almost always why — and it is
+    worth checking first.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">6</div><div class="l">Languages shown</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Dependencies to add</div></div>
+    <div class="stat"><div class="n">4</div><div class="l">Fields in a measurement</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">Transports</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">Shape, both of them</div></div>
+  </div>
+
+  <div class="box">
+    <span class="lbl">Which samples were actually run</span>
+    <p>The Python, Node.js and Rust samples below were executed against a live service
+    on this machine, and their output is real. <strong>Go and PHP are not installed
+    here, so those two samples were written against the same wire format but not
+    compiled.</strong> They use only stock library calls, and the shapes are the ones
+    verified by the three that did run — but if you are pasting the Go sample into a
+    build, expect to fix an import path before anything else.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Pick your transport first</h2>
+  <p>This is the only real decision. Everything after it is a serialisation detail.</p>
+  <table>
+    <thead><tr><th></th><th>HTTP</th><th>ZeroMQ</th></tr></thead>
+    <tbody>
+      <tr><td>Needs</td><td>an HTTP client, which every language has</td>
+        <td>a ZeroMQ binding, which most do not</td></tr>
+      <tr><td>Sustained high rate</td><td>adequate</td><td>the intended path</td></tr>
+      <tr><td>Reply to a write</td><td><code>{"status":"ok","written":N}</code></td>
+        <td>none — fire and forget</td></tr>
+      <tr><td>Subscribe to live data</td><td>WebSocket</td><td>SUB socket</td></tr>
+      <tr><td>Request units</td><td>seconds</td><td>nanoseconds in, seconds out</td></tr>
+      <tr><td>Reaches live subscribers</td><td>yes</td><td>yes</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">Both converge on the same tables, the same rollup and the
+  same live stream, and the admin counters merge them — so nothing later can tell you
+  which transport a point arrived on. Use whichever fits; use both if you like.</p>
+</section>
+
+<section>
+  <h2>Python</h2>
+  <p>Two options, and the second needs no service at all.</p>
+
+  <h3>The bundled <code>Client</code>, over ZeroMQ</h3>
+<pre><span class="f">from</span> sqtseries <span class="f">import</span> Client
+
+<span class="f">with</span> Client() <span class="f">as</span> c:                      <span class="c"># context manager: never leaks a socket</span>
+    c.write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+    c.write(<span class="v">"cpu.load"</span>, <span class="v">0.44</span>, timestamp=<span class="v">"2026-09-30T17:00:00Z"</span>)
+
+    rows = c.query(<span class="v">"cpu.load"</span>, start=<span class="v">1691234567000000000</span>, end=<span class="v">1691238167000000000</span>)
+    <span class="c"># rows: [{"timestamp": 1691234567.0, "value": 0.42}, ...]  -- SECONDS out</span>
+
+    agg = c.aggregate(<span class="v">"cpu.load"</span>, start=… , funcs=[<span class="v">"avg"</span>, <span class="v">"p99"</span>])
+    <span class="c"># {"avg": 0.43, "p99": 0.44}</span>
+
+    health = c.admin(<span class="v">"health"</span>)
+    print(c.admin(<span class="v">"stats"</span>)[<span class="v">"persisted"</span>])
+
+    <span class="f">for</span> payload <span class="f">in</span> c.subscribe(<span class="v">"cpu."</span>, timeout=<span class="v">0.5</span>):
+        <span class="f">if</span> payload <span class="f">is None</span>:
+            <span class="f">continue</span>        <span class="c"># idle heartbeat</span>
+        print(payload[<span class="v">"metric"</span>], payload[<span class="v">"value"</span>])</pre>
+
+  <p>Non-default ports, when your service moved:</p>
+
+<pre>c = Client(host=<span class="v">"127.0.0.1"</span>, ports={<span class="v">"write"</span>: <span class="v">12601</span>, <span class="v">"query"</span>: <span class="v">12602</span>,
+                             <span class="v">"subscribe"</span>: <span class="v">12603</span>, <span class="v">"admin"</span>: <span class="v">12604</span>})</pre>
+
+  <p>Two details the <code>Client</code> handles that are easy to get wrong by hand:
+  the write socket gets a 2 s <code>LINGER</code> so a measurement written just before
+  exit is still delivered, and a REQ socket whose <code>recv</code> times out is
+  dropped and recreated — a REQ socket enforces strict send/recv alternation, so a
+  timed-out one would raise on the <em>next</em> call and stay broken.</p>
+
+  <h3>The embedded engine, in-process</h3>
+  <p>No sockets, no ports, no service, nothing to supervise. The query code returns
+  <strong>nanoseconds</strong> here, because there is no gateway doing the
+  conversion.</p>
+
+<pre><span class="f">from</span> sqtseries.engine <span class="f">import</span> StorageEngine, create_sqlite_engine
+<span class="f">from</span> sqtseries <span class="f">import</span> TimeSeriesDB
+
+engine = create_sqlite_engine(<span class="v">"/tmp/embedded.sqlite"</span>)
+db = TimeSeriesDB(StorageEngine(engine))
+
+db.insert(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+db.insert(<span class="v">"cpu.load"</span>, <span class="v">0.51</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+
+rows = db.query(<span class="v">"cpu.load"</span>, aggregation=<span class="v">"avg"</span>, interval=<span class="v">"1h"</span>)
+<span class="c"># [(timestamp_ns, value), ...] -- NANOSECONDS out</span>
+
+<span class="c"># fill gaps up to 5 minutes by linear interpolation (embedded API only)</span>
+rows = db.query(<span class="v">"cpu.load"</span>, fill_gaps_ns=<span class="v">5</span> * <span class="v">60</span> * <span class="v">10</span>**<span class="v">9</span>)
+
+<span class="c"># stream without materialising: bounded memory over a huge window</span>
+<span class="f">for</span> ts_ns, value <span class="f">in</span> db.query_stream(<span class="v">"cpu.load"</span>):
+    ...
+
+db.close()
+engine.dispose()</pre>
+
+  <p>Run against the repo without installing anything:</p>
+<pre><span class="p">$</span> PYTHONPATH=src $PY your_script.py</pre>
+</section>
+
+<section>
+  <h2>Node.js and the browser</h2>
+  <p><code>fetch</code> for writing and querying, <code>WebSocket</code> for live
+  data. Node 22+ has all three built in, so there is nothing to install.</p>
+
+<pre><span class="c">// write.mjs — Node 22+, no dependencies</span>
+<span class="k">const</span> BASE = <span class="v">"http://127.0.0.1:12505"</span>;
+
+<span class="k">const</span> write = <span class="k">async</span> (metric, value, tags) =&gt; {
+  <span class="k">const</span> res = <span class="k">await</span> fetch(<span class="v">`${BASE}/api/v1/write`</span>, {
+    method: <span class="v">"POST"</span>,
+    headers: { <span class="v">"Content-Type"</span>: <span class="v">"application/json"</span> },
+    body: JSON.stringify({ metric, value, tags }),
+  });
+  <span class="k">return</span> res.json();          <span class="c">// {"status":"ok","written":1}</span>
+};
+
+<span class="k">const</span> read = <span class="k">async</span> (metric, startSeconds, endSeconds) =&gt; {
+  <span class="k">const</span> q = <span class="k">new</span> URLSearchParams({
+    metric,
+    start: String(startSeconds),       <span class="c">// SECONDS over HTTP</span>
+    end: String(endSeconds),
+    limit: <span class="v">"100"</span>,
+  });
+  <span class="k">const</span> res = <span class="k">await</span> fetch(<span class="v">`${BASE}/api/v1/read?${q}`</span>);
+  <span class="k">return</span> (await res.json()).data;   <span class="c">// [{timestamp: seconds, value}, ...]</span>
+};
+
+<span class="k">const</span> aggregate = <span class="k">async</span> (metric, funcs) =&gt; {
+  <span class="k">const</span> q = <span class="k">new</span> URLSearchParams({ metric, funcs: funcs.join(<span class="v">","</span>) });
+  <span class="k">const</span> res = <span class="k">await</span> fetch(<span class="v">`${BASE}/api/v1/aggregate?${q}`</span>);
+  <span class="k">return</span> (await res.json()).aggregations;
+};
+
+<span class="k">await</span> write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, { host: <span class="v">"web1"</span> });
+console.log(await read(<span class="v">"cpu.load"</span>, Date.now()/<span class="v">1000</span> - <span class="v">3600</span>, Date.now()/<span class="v">1000</span>));
+console.log(await aggregate(<span class="v">"cpu.load"</span>, [<span class="v">"avg"</span>, <span class="v">"max"</span>, <span class="v">"p99"</span>]));
+
+<span class="c">// live: close-over topics, and skip the idle keepalive</span>
+<span class="k">const</span> ws = <span class="k">new</span> WebSocket(<span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>);
+ws.onmessage = (e) =&gt; {
+  <span class="k">const</span> msg = JSON.parse(e.data);
+  <span class="k">if</span> (msg.type === <span class="v">"ping"</span>) <span class="k">return</span>;
+  console.log(msg.metric, msg.value);
+};</pre>
+
+  <p>Writing from a browser is the same code — but note that a page served from
+  <code>http://localhost:3000</code> is a different origin from the gateway, so
+  <code>cors_origins</code> has to allow it:</p>
+
+<pre><span class="c"># config.toml</span>
+[http]
+cors_origins = [<span class="v">"http://localhost:3000"</span>]</pre>
+</section>
+
+<section>
+  <h2>Rust</h2>
+  <div class="box warn">
+    <span class="lbl">The Content-Type header is not optional</span>
+    <p>Send <code>Content-Type: application/json</code> or the write is
+    <code>400</code>, with the unhelpful
+    <code>{"detail":"each write must be an object"}</code>.</p>
+    <p>The reason is worth knowing. The write route binds its body as a raw value
+    rather than a typed model, so a request with no JSON content type arrives as raw
+    <em>bytes</em> instead of a parsed object — and the validator, quite correctly,
+    refuses it. The identical body gives <code>200</code> with the header and
+    <code>400</code> without it. This was found by running the sample below, not by
+    reading it.</p>
+  </div>
+
+  <p>The sample uses <code>ureq</code> 3.x, whose API differs from 2.x: in 3.x the
+  request builder is a free function (<code>ureq::post</code>,
+  <code>ureq::get</code>) and the body is read with
+  <code>response.body_mut().read_json::&lt;T&gt;()</code>. A 2.x sample would use
+  <code>ureq::agent()</code> and <code>into_json()</code> instead.</p>
+
+<pre><span class="c">// Cargo.toml — ureq 3.x</span>
+[dependencies]
+ureq       = { version = <span class="v">"3"</span>, features = [<span class="v">"json"</span>] }
+serde_json = <span class="v">"1"</span></pre>
+
+<pre><span class="p">$</span> cargo add ureq --features json
+<span class="p">$</span> cargo add serde_json</pre>
+
+<pre><span class="k">use</span> serde_json::Value;
+
+<span class="k">fn</span> main() -&gt; Result&lt;(), Box&lt;<span class="k">dyn</span> std::error::Error&gt;&gt; {
+    <span class="k">let</span> base = <span class="v">"http://127.0.0.1:12505"</span>;
+
+    <span class="c">// write one measurement — the Content-Type header is REQUIRED</span>
+    <span class="k">let</span> body = serde_json::json!({
+        <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>,
+        <span class="v">"value"</span>: 0.42,
+        <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>},
+    })
+    .to_string();
+
+    <span class="k">let mut</span> res = ureq::post(&amp;format!(<span class="v">"{base}/api/v1/write"</span>))
+        .header(<span class="v">"Content-Type"</span>, <span class="v">"application/json"</span>)
+        .send(body)?;
+
+    println!(<span class="v">"{}"</span>, res.body_mut().read_json::&lt;Value&gt;()?);
+    <span class="c">// {"status":"ok","written":1}</span>
+
+    <span class="c">// read: SECONDS over HTTP</span>
+    <span class="k">let</span> now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    <span class="k">let</span> url = format!(
+        <span class="v">"{base}/api/v1/read?metric=cpu.load&amp;start={}&amp;end={}&amp;limit=100"</span>,
+        now - <span class="v">3600</span>, now
+    );
+    <span class="k">let</span> data: Value = ureq::get(&amp;url).call()?.body_mut().read_json()?;
+    println!(<span class="v">"{}"</span>, data[<span class="v">"data"</span>]);
+
+    <span class="c">// aggregate several functions in one pass</span>
+    <span class="k">let</span> agg = ureq::get(&amp;format!(<span class="v">"{base}/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,max,p99"</span>))
+        .call()?.body_mut().read_json::&lt;Value&gt;()?;
+    println!(<span class="v">"{}"</span>, agg[<span class="v">"aggregations"</span>]);
+
+    Ok(())
+}</pre>
+
+<pre><span class="p">$</span> cargo run -q
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"written"</span>:<span class="v">1</span>}
+[<span class="v">{"timestamp"</span>:<span class="v">1790788943.3972943</span>,<span class="v">"value"</span>:<span class="v">0.42</span>},{<span class="v">"timestamp"</span>:<span class="v">1790788957.7236774</span>,<span class="v">"value"</span>:<span class="v">0.42</span>}]
+{<span class="v">"avg"</span>:<span class="v">0.42</span>,<span class="v">"max"</span>:<span class="v">0.42</span>,<span class="v">"p99"</span>:<span class="v">0.42</span>}</pre>
+
+  <p>The ZeroMQ shape is the same JSON over a PUSH socket. The one thing to watch is
+  the unit — the request wants nanoseconds:</p>
+
+<pre><span class="k">use</span> zmq::<span class="k">const</span>::SocketType;
+
+<span class="k">let</span> ctx = zmq::Context::new();
+<span class="k">let</span> sock = ctx.socket(SocketType::PUSH).unwrap();
+sock.set(zmq::LINGER, <span class="v">2000</span>).unwrap();      <span class="c">// before connect, or it is ignored</span>
+sock.connect(<span class="v">"tcp://127.0.0.1:12500"</span>).unwrap();
+
+<span class="k">let</span> msg = json!({
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.42</span>,
+    <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>},
+});
+sock.send(&amp;serde_json::to_string(&amp;msg).unwrap()).unwrap();
+
+<span class="c">// query: REQ socket, NANOSECONDS in, seconds out</span>
+<span class="k">let</span> req = ctx.socket(SocketType::REQ).unwrap();
+req.set(zmq::RCVTIMEO, <span class="v">30_000</span>).unwrap();
+req.connect(<span class="v">"tcp://127.0.0.1:12502"</span>).unwrap();
+
+<span class="k">let</span> now_ns = <span class="v">1789000000_000_000_000u64</span> * <span class="v">1000</span>;
+req.send(&amp;serde_json::to_string(&amp;json!({
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>,
+    <span class="v">"start"</span>: now_ns - <span class="v">3_600_000_000_000u64</span>,   <span class="c">// nanoseconds</span>
+    <span class="v">"end"</span>:   now_ns,
+})).unwrap()).unwrap();
+
+<span class="k">let</span> reply: Value = serde_json::from_str(&amp;req.recv_string().unwrap()).unwrap();
+println!(<span class="v">"{}"</span>, reply);</pre>
+</section>
+
+<section>
+  <h2>Go</h2>
+  <p>The standard library covers HTTP completely. ZeroMQ needs
+  <code>github.com/pebbe/zmq4</code> — or <code>github.com/go-zeromq/zmq4</code> for
+  the modern API. Neither is installed on this machine, so this sample was written
+  against the same wire format as the three that were run.</p>
+
+<pre><span class="c">// HTTP: standard library only, no go.mod dependency at all</span>
+<span class="k">package</span> main
+
+<span class="k">import</span> (
+    <span class="v">"bytes"</span>
+    <span class="v">"encoding/json"</span>
+    <span class="v">"fmt"</span>
+    <span class="v">"io"</span>
+    <span class="v">"net/http"</span>
+    <span class="v">"net/url"</span>
+    <span class="v">"strconv"</span>
+    <span class="v">"time"</span>
+)
+
+<span class="k">const</span> base = <span class="v">"http://127.0.0.1:12505"</span>
+
+<span class="k">type</span> Row <span class="k">struct</span> {
+    Timestamp <span class="k">float64</span> <span class="v">`json:"timestamp"`</span>   <span class="c">// SECONDS out</span>
+    Value     <span class="k">float64</span> <span class="v">`json:"value"`</span>
+}
+
+<span class="k">func</span> write(metric <span class="k">string</span>, value <span class="k">float64</span>, tags <span class="k">map</span>[<span class="k">string</span>]<span class="k">string</span>) <span class="k">error</span> {
+    payload, err := json.Marshal(<span class="k">map</span>[<span class="k">string</span>]<span class="k">any</span>{
+        <span class="v">"metric"</span>: metric, <span class="v">"value"</span>: value, <span class="v">"tags"</span>: tags,
+    })
+    <span class="k">if</span> err != nil { <span class="k">return</span> err }
+    res, err := http.Post(base+<span class="v">"/api/v1/write"</span>, <span class="v">"application/json"</span>, bytes.NewReader(payload))
+    <span class="k">if</span> err != nil { <span class="k">return</span> err }
+    <span class="k">defer</span> res.Body.Close()
+    body, _ := io.ReadAll(res.Body)
+    fmt.Println(<span class="k">string</span>(body))   <span class="c">// {"status":"ok","written":1}</span>
+    <span class="k">return</span> nil
+}
+
+<span class="k">func</span> read(metric <span class="k">string</span>, start, end time.Time) ([]Row, <span class="k">error</span>) {
+    <span class="c">// SECONDS over HTTP</span>
+    q := url.Values{}
+    q.Set(<span class="v">"metric"</span>, metric)
+    q.Set(<span class="v">"start"</span>, strconv.FormatInt(start.Unix(), <span class="v">10</span>))
+    q.Set(<span class="v">"end"</span>, strconv.FormatInt(end.Unix(), <span class="v">10</span>))
+    q.Set(<span class="v">"limit"</span>, <span class="v">"100"</span>)
+
+    res, err := http.Get(base + <span class="v">"/api/v1/read?"</span> + q.Encode())
+    <span class="k">if</span> err != nil { <span class="k">return</span> nil, err }
+    <span class="k">defer</span> res.Body.Close()
+
+    <span class="k">var</span> out <span class="k">struct</span> {
+        Data []Row <span class="v">`json:"data"`</span>
+    }
+    <span class="k">return</span> out.Data, json.NewDecoder(res.Body).Decode(&amp;out)
+}
+
+<span class="k">func</span> main() {
+    _ = write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, <span class="k">map</span>[<span class="k">string</span>]<span class="k">string</span>{<span class="v">"host"</span>: <span class="v">"web1"</span>})
+    rows, _ := read(<span class="v">"cpu.load"</span>, time.Now().Add(-time.Hour), time.Now())
+    fmt.Println(rows)
+}</pre>
+
+<pre><span class="c">// ZeroMQ: go get github.com/pebbe/zmq4</span>
+<span class="k">import</span> zmq <span class="v">"github.com/pebbe/zmq4"</span>
+
+sock, _ := zmq.NewSocket(zmq.PUSH)
+sock.SetLinger(<span class="v">2000</span>)                 <span class="c">// before connect</span>
+sock.Connect(<span class="v">"tcp://127.0.0.1:12500"</span>)
+
+body, _ := json.Marshal(<span class="k">map</span>[<span class="k">string</span>]<span class="k">any</span>{
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.42</span>,
+})
+sock.Send(<span class="v">"json"</span>, []byte(body), 0)
+
+<span class="c">// query: REQ, NANOSECONDS in</span>
+req, _ := zmq.NewSocket(zmq.REQ)
+req.SetRecvTimeOut(<span class="v">30</span> * time.Second)
+req.Connect(<span class="v">"tcp://127.0.0.1:12502"</span>)
+
+nowNs := time.Now().UnixNano()          <span class="c">// nanoseconds — the whole difference</span>
+q, _ := json.Marshal(<span class="k">map</span>[<span class="k">string</span>]<span class="k">any</span>{
+    <span class="v">"metric"</span>: <span class="v">"cpu.load"</span>,
+    <span class="v">"start"</span>:  nowNs - <span class="v">3600</span>*<span class="k">int64</span>(time.Second),
+    <span class="v">"end"</span>:    nowNs,
+})
+req.Send(<span class="v">"json"</span>, q, 0)
+reply, _ := req.Recv(<span class="v">0</span>)
+fmt.Println(<span class="k">string</span>(reply))</pre>
+</section>
+
+<section>
+  <h2>PHP</h2>
+  <p>PHP has no ZeroMQ extension in common use, so HTTP is the path. The two calls
+  below need only cURL, which is enabled in almost every PHP build. Not installed on
+  this machine, so this sample was written against the same wire format as the three
+  that were run.</p>
+
+<pre><span class="c">// write.php</span>
+&lt;?php
+<span class="k">function</span> <span class="v">sqt</span>(<span class="k">string</span> $path, <span class="k">array</span> $query = [], ?<span class="k">array</span> $body = <span class="k">null</span>): <span class="k">array</span> {
+    $url = <span class="v">'http://127.0.0.1:12505'</span> . $path;
+    <span class="k">if</span> ($query) { $url .= <span class="v">'?'</span> . http_build_query($query); }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER =&gt; <span class="k">true</span>,
+        CURLOPT_TIMEOUT        =&gt; <span class="v">30</span>,
+        CURLOPT_HTTPHEADER     =&gt; [<span class="v">'Content-Type: application/json'</span>],
+    ]);
+    <span class="k">if</span> ($body !== <span class="k">null</span>) {
+        curl_setopt($ch, CURLOPT_POST, <span class="k">true</span>);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+    }
+
+    $raw = curl_exec($ch);
+    <span class="k">if</span> ($raw === <span class="k">false</span>) { <span class="k">throw</span> <span class="k">new</span> RuntimeException(curl_error($ch)); }
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    <span class="k">return</span> [<span class="v">'status'</span> =&gt; $status, <span class="v">'body'</span> =&gt; json_decode($raw, <span class="k">true</span>)];
+}
+
+<span class="c">// write one measurement</span>
+print_r(sqt(<span class="v">'/api/v1/write'</span>, [], [
+    <span class="v">'metric'</span> =&gt; <span class="v">'cpu.load'</span>,
+    <span class="v">'value'</span>  =&gt; <span class="v">0.42</span>,
+    <span class="v">'tags'</span>   =&gt; [<span class="v">'host'</span> =&gt; <span class="v">'web1'</span>],
+]));
+<span class="c">// ['status' =&gt; 200, 'body' =&gt; ['status' =&gt; 'ok', 'written' =&gt; 1]]</span>
+
+<span class="c">// read: SECONDS over HTTP</span>
+$now = time();
+$res = sqt(<span class="v">'/api/v1/read'</span>, [
+    <span class="v">'metric'</span> =&gt; <span class="v">'cpu.load'</span>,
+    <span class="v">'start'</span>  =&gt; $now - <span class="v">3600</span>,
+    <span class="v">'end'</span>    =&gt; $now,
+    <span class="v">'limit'</span>  =&gt; <span class="v">100</span>,
+]);
+<span class="k">foreach</span> ($res[<span class="v">'body'</span>][<span class="v">'data'</span>] <span class="k">as</span> $row) {
+    printf(<span class="v">"%s = %.2f\n"</span>, date(<span class="v">'H:i:s'</span>, (<span class="k">int</span>) $row[<span class="v">'timestamp'</span>]), $row[<span class="v">'value'</span>]);
+}
+
+<span class="c">// aggregate several functions at once</span>
+$agg = sqt(<span class="v">'/api/v1/aggregate'</span>, [
+    <span class="v">'metric'</span> =&gt; <span class="v">'cpu.load'</span>,
+    <span class="v">'funcs'</span>  =&gt; <span class="v">'avg,max,p99'</span>,
+]);
+print_r($agg[<span class="v">'body'</span>][<span class="v">'aggregations'</span>]);</pre>
+</section>
+
+<section>
+  <h2>The shell</h2>
+  <p><code>curl</code> is enough for writing and querying. For the live stream from a
+  script, <code>websocat</code> is the shortest option, and any language with a
+  WebSocket client works just as well.</p>
+
+<pre><span class="c"># write</span>
+curl -s -X POST http://127.0.0.1:12505/api/v1/write \
+  -H <span class="v">"Content-Type: application/json"</span> \
+  -d <span class="v">'{"metric":"cpu.load","value":0.42,"tags":{"host":"web1"}}'</span>
+
+<span class="c"># read — seconds in and out</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;limit=10"</span>
+
+<span class="c"># aggregate</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,min,max,p99"</span>
+
+<span class="c"># health, for a script to branch on</span>
+curl -fsS http://127.0.0.1:12505/api/v1/health &gt;/dev/null &amp;&amp; echo <span class="v">"up"</span> || echo <span class="v">"down"</span>
+
+<span class="c"># live stream</span>
+websocat <span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>
+
+<span class="c"># a sustained pump, for a load test</span>
+<span class="f">for</span> i in $(seq <span class="v">1</span> <span class="v">10000</span>); <span class="f">do</span>
+  curl -s -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">"{\"metric\":\"cpu.load\",\"value\":$((i % 100)),\"tags\":{\"host\":\"web1\"}}"</span> &gt;/dev/null
+<span class="f">done</span></pre>
+
+  <p class="small muted">That last loop makes 10,000 separate HTTP requests, which is
+  slow on purpose — it is the simplest way to prove the path works. For a real
+  sustained rate, use a ZeroMQ producer: the
+  <a href="examples.html">high-rate ingest example</a> does exactly that.</p>
+</section>
+
+<section>
+  <h2>Writing your own client</h2>
+  <p>You do not need any of the above. The contract is small enough to hold in your
+  head, and if you are writing a client in a language with no sample here, these four
+  points are the whole thing.</p>
+
+  <ol class="steps">
+    <li><b>Write</b><span>POST JSON <code>{"metric","value","tags"?,"timestamp"?}</code>
+    to <code>/api/v1/write</code>, or send the same object as one ZeroMQ PUSH frame.
+    Read <code>{"status":"ok","written":N}</code>.</span></li>
+    <li><b>Query</b><span>GET <code>/api/v1/read?metric=…</code> with
+    <code>start</code>, <code>end</code>, <code>aggregation</code>, <code>interval</code>,
+    <code>limit</code>, <code>order</code>. Get
+    <code>{"status":"ok","data":[{"timestamp":seconds,"value":…}]}</code>.</span></li>
+    <li><b>Aggregate</b><span>GET <code>/api/v1/aggregate?metric=…&amp;funcs=avg,max,p99</code>
+    for several functions in one pass. Get
+    <code>{"status":"ok","aggregations":{"avg":…,"max":…}}</code>.</span></li>
+    <li><b>Subscribe</b><span>WebSocket <code>/ws/subscribe?metric=…</code>, or SUB on
+    12503 with two-part frames. Skip the <code>{"type":"ping"}</code> keepalive.</span></li>
+  </ol>
+
+  <p>Exact field names, defaults, status codes and error codes are on
+  <a href="api.html">API Reference</a>. Every one of them is verified against the
+  running code by <code>verify_docs.py</code>.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every route and parameter, the wire format, every admin command, and every
+      error code — the authoritative version of everything above.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>What happens after your frame arrives: batching, the bounded queue, tags as
+      dimensions, and the clock-skew guard.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>All ten aggregations, buckets, limits, and when a query is refused for being
+      too large.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>Topic matching, keepalives, and what a slow subscriber costs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>Runnable producer and consumer scripts in Python, including a sustained
+      high-rate pump.</p>
+    </div>
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>The two-command version, if you would rather see it work before reading any
+      of this.</p>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,390 @@
+<section>
+  <h2>How a setting gets its value</h2>
+  <p class="lede">Four sources can set a value. They are applied in a fixed order, so
+  you always know which one wins. A setting the environment touches ignores the file
+  entirely — that is deliberate, and it is why a container variable reliably beats a
+  baked-in config.</p>
+
+  <ol class="steps">
+    <li><b>The default in the code</b><span>Every setting has one, and it is what you
+    get with no configuration at all. Every default on this page was read out of
+    <code>src/sqtseries/config.py</code>.</span></li>
+    <li><b>The config file</b><span>Named by <code>--config</code>, or by
+    <code>SQT_SERIES_CONFIG_FILE</code>. TOML, YAML or JSON, chosen by suffix.</span></li>
+    <li><b>Environment variables</b><span>Anything prefixed
+    <code>SQT_SERIES_</code>. A variable beats the file for the same leaf, always.</span></li>
+    <li><b><code>--db</code></b><span>Applied after everything else, so it wins over
+    the file and the environment for the database path.</span></li>
+  </ol>
+
+  <div class="box key">
+    <span class="lbl">The file does not simply override the environment</span>
+    <p>Settings loaders usually let an init argument beat an environment variable.
+    Here that would be wrong: a file could shadow a variable that an operator set on
+    purpose. So the loader reads the file, works out which leaves the environment
+    actually set, and then re-applies <strong>only the file keys the environment did
+    not touch</strong>. A variable therefore always wins, and the file still fills in
+    everything else.</p>
+  </div>
+
+  <h3>Writing a config file</h3>
+  <p>Format is chosen by suffix: <code>.toml</code>, <code>.yaml</code>,
+  <code>.yml</code> or <code>.json</code>. A missing file is an error, not a silent
+  fall back to defaults.</p>
+
+<pre><span class="c"># config.toml</span>
+[database]
+path        = <span class="v">"~/.sqtseries/data/db.sqlite"</span>
+batch_size  = <span class="v">2000</span>
+
+[ingestion]
+port        = <span class="v">12501</span>
+hwm         = <span class="v">101000</span>
+
+[query]
+port        = <span class="v">12502</span>
+timeout_s   = <span class="v">30.0</span>
+max_rows    = <span class="v">10000</span>
+
+[http]
+host        = <span class="v">"127.0.0.1"</span>   <span class="c"># local-only; the default is 0.0.0.0</span>
+cors_origins = [<span class="v">"http://localhost:3000"</span>]
+
+[retention]
+default_ttl = <span class="v">"90d"</span></pre>
+
+<pre><span class="c"># equivalent JSON</span>
+{
+  <span class="v">"database"</span>: {<span class="v">"path"</span>: <span class="v">"~/.sqtseries/data/db.sqlite"</span>, <span class="v">"batch_size"</span>: 2000},
+  <span class="v">"http"</span>:     {<span class="v">"host"</span>: <span class="v">"127.0.0.1"</span>}
+}</pre>
+
+  <p class="small muted">YAML needs <code>pyyaml</code>, which is not a declared
+  dependency. TOML is built in and JSON goes through <code>orjson</code>; if you
+  want YAML, install <code>pyyaml</code> or use TOML.</p>
+
+  <h3>Environment variables</h3>
+  <p>The prefix is <code>SQT_SERIES_</code>. Nest one level with a double
+  underscore, so <code>http.rate_limit_per_minute</code> becomes:</p>
+
+<pre><span class="p">$</span> <span class="f">export</span> SQT_SERIES_HTTP__RATE_LIMIT_PER_MINUTE=<span class="v">42</span>
+<span class="p">$</span> <span class="f">export</span> SQT_SERIES_DATABASE__BATCH_SIZE=<span class="v">500</span>
+<span class="p">$</span> <span class="f">export</span> SQT_SERIES_CONFIG_FILE=<span class="v">/etc/sqtseries/config.toml</span></pre>
+
+  <p>Names are case-insensitive, and an empty value counts as unset. So
+  <code>SQT_SERIES_DATABASE__PATH=</code> with nothing after the equals means
+  "use the default", not "use an empty path".</p>
+</section>
+
+<section>
+  <h2>Ports, and why ingest is not the one you set</h2>
+  <p>Six ports, five fixed and one chosen at start-up. This surprises almost
+  everyone, so it is worth reading before you point a client at a number.</p>
+
+{{ports_table}}
+
+  <p>The detector probes each candidate by binding <code>127.0.0.1</code> on it,
+  then closing the socket and moving on. It is race-tolerant: if something takes the
+  port in the gap between the probe and the real bind, the bind fails and you get a
+  clean error rather than silent misdirection. The five fixed ports are reserved in
+  the allocator <em>before</em> the detector runs, so it can never hand out one of
+  them.</p>
+
+  <h3>Running beside something else</h3>
+  <p>Use <code>port_offset</code> to shift the whole detection window, or set
+  <code>auto_detect = false</code> and pin <code>ingestion.port</code> yourself:</p>
+
+<pre><span class="c"># a second instance: detection window 12600-12800</span>
+[ports]
+auto_detect = true
+port_offset = <span class="v">100</span>
+
+<span class="c"># or pin everything, and fail loudly if it is taken</span>
+[ports]
+auto_detect = false
+
+[ingestion]
+port = <span class="v">12601</span></pre>
+</section>
+
+<section>
+  <h2>Duration values — two syntaxes</h2>
+  <p>This is the single most common configuration mistake, and it is a mistake
+  because there are two similar parsers with different rules.</p>
+
+  <table>
+    <thead><tr><th></th><th>Interval strings</th><th>TTL strings</th></tr></thead>
+    <tbody>
+      <tr><td>Used by</td>
+        <td><code>rollup.interval</code>, <code>backup.interval</code>,
+        <code>maintenance.analyze_interval</code></td>
+        <td><code>retention.default_ttl</code>,
+        <code>retention.check_interval</code></td></tr>
+      <tr><td>Units accepted</td>
+        <td><code>s</code> <code>m</code> <code>h</code> <code>d</code></td>
+        <td><code>s</code> <code>m</code> <code>h</code> <code>d</code>
+        <strong><code>w</code></strong></td></tr>
+      <tr><td><code>1m</code> means</td><td>one minute</td><td>one minute</td></tr>
+      <tr><td><code>1w</code></td>
+        <td class="muted">rejected</td><td>one week</td></tr>
+      <tr><td>Granularity of the effect</td>
+        <td>how often the task runs</td>
+        <td>retention drops whole <strong>monthly</strong> partitions, so a TTL is
+        applied at month granularity whatever it says</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <span class="lbl">There is no month syntax anywhere</span>
+    <p>Both parsers treat <code>m</code> as <strong>minutes</strong>. If you want
+    "keep a year of data", write <code>365d</code> or <code>52w</code> — not
+    <code>12m</code>, which keeps twelve minutes and then drops whole monthly
+    partitions, deleting far more than you intended.</p>
+<pre>[retention]
+default_ttl     = <span class="v">"365d"</span>   <span class="c"># a year — this is what you want</span>
+default_ttl     = <span class="v">"12m"</span>    <span class="c"># twelve MINUTES — almost certainly a mistake</span></pre>
+  </div>
+</section>
+
+<section>
+  <h2>The database settings</h2>
+  <p>These map onto SQLite's own file-level and per-connection settings. The defaults
+  are what the shipped code uses; the notes explain the ones that look unusual.</p>
+
+{{settings_database}}
+
+  <div class="box">
+    <span class="lbl">Why the page cache default is 8 MB, not 64 MB</span>
+    <p>The setting says <code>-64000</code> (64 MB in KiB-negative form), but the code
+    path applies <code>cache_size = -8000</code> per connection instead, and that is
+    deliberate. A 64 MB cache on a handle shared across executor threads makes glibc
+    arena allocations balloon: pages cached on thread A's arena stay in A even when
+    thread B later runs the same handle, because <code>free()</code> returns memory to
+    its <em>allocating</em> thread's arena. Total resident memory then climbs roughly
+    with threads times working set. Measured on 2026-09-09 at 10k pts/s: 60–100 MB
+    anonymous arena mappings per handle in <code>smaps</code>, and anonymous memory
+    growing about 25 MB per snapshot.</p>
+    <p>8 MB keeps the hot working set of a steady-state run resident per handle
+    without the cross-thread duplication, and a miss falls through to the OS page
+    cache, which <em>is</em> shared. A transient connection — one opened because every
+    pooled reader is checked out — gets the same 8 MB rather than the full figure.</p>
+  </div>
+
+  <div class="box warn">
+    <span class="lbl">batch_size has a hard ceiling of 8191</span>
+    <p>A batch becomes one <code>INSERT</code> with a bound parameter per column per
+    row, so it can run into <code>SQLITE_MAX_VARIABLE_NUMBER</code>. Above 8191 the
+    service refuses to start and says so, rather than failing every burst at 3 a.m.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Ports, ingest, query and HTTP settings</h2>
+  <p>Every setting that decides where traffic goes, how much of it is accepted, and
+  what happens when a client asks for too much.</p>
+
+{{settings_ports}}
+</section>
+
+<section>
+  <h2>Background tasks and logging</h2>
+  <p>The rollup, retention, maintenance and backup tasks, and how the service logs.
+  Each task runs on boot and then on its interval, in a worker thread so a long pass
+  never stalls the event loop.</p>
+
+{{settings_tasks}}
+
+  <div class="box">
+    <span class="lbl">Turning a task off changes behaviour, not just timing</span>
+    <p><code>rollup.enabled = false</code> is the one to think about. Queries stay
+    correct — the rollup is an accelerator, not a source of truth — but a wide query
+    then scans raw rows instead of summary rows, and that is a large, growing cost.
+    The other three only change how often something tidies up.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What is refused at start-up</h2>
+  <p>Every rule below is checked before the database is opened. A violation is an
+  error naming the key, not a service that starts and then misbehaves.</p>
+
+  <table>
+    <thead><tr><th>Rule</th><th>Message shape</th></tr></thead>
+    <tbody>
+      <tr><td>Every port in 1–65535</td>
+        <td><code>ingestion.port must be 1-65535, got 0</code></td></tr>
+      <tr><td>The six ports must all differ</td>
+        <td><code>ports must be unique, got [12501, 12501, …]</code></td></tr>
+      <tr><td><code>ingestion.hwm</code> ≥ 1</td>
+        <td><code>ingestion.hwm must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>ingestion.pending_max</code> ≥ 1</td>
+        <td><code>ingestion.pending_max must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>query.max_rows</code> ≥ 0</td>
+        <td><code>query.max_rows must be &gt;= 0 (0 = unbounded)</code></td></tr>
+      <tr><td><code>query.max_inflight</code> ≥ 1</td>
+        <td><code>query.max_inflight must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>database.batch_size</code> in 1–8191</td>
+        <td><code>database.batch_size 9000 exceeds SQLITE_MAX_VARIABLE_NUMBER safe
+        limit of 8191</code></td></tr>
+      <tr><td><code>http.rate_limit_per_minute</code> ≥ 1</td>
+        <td><code>http.rate_limit_per_minute must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>http.max_websocket_connections</code> ≥ 1</td>
+        <td><code>http.max_websocket_connections must be &gt;= 1, got 0</code></td></tr>
+      <tr><td><code>rollup.interval</code> parses</td>
+        <td><code>rollup.interval invalid: unsupported interval: 5x</code></td></tr>
+      <tr><td><code>maintenance.analyze_interval</code> parses</td>
+        <td><code>maintenance.analyze_interval invalid: …</code></td></tr>
+      <tr><td><code>retention.default_ttl</code> and
+        <code>retention.check_interval</code> parse</td>
+        <td><code>retention invalid: invalid TTL: '30y' (use e.g. 30d, 12h, 4w)</code></td></tr>
+      <tr><td><code>backup.interval</code> parses</td>
+        <td><code>backup.interval invalid: …</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>Every violation is collected, not just the first, so one run tells you
+  everything that is wrong.</p>
+</section>
+
+<section>
+  <h2>The CLI flags</h2>
+  <p>Two global flags apply to every command, and two subcommands take one flag of
+  their own.</p>
+
+{{cli_globals}}
+
+{{cli_table}}
+
+  <p class="small muted">Commands that touch the database all accept
+  <code>--db</code>, so a one-off maintenance task against a different file needs no
+  config file at all: <code class="nb">sqtseries --db /path/to/other.sqlite
+  health</code>.</p>
+</section>
+
+<section>
+  <h2 id="complete-example">A complete config, every key once</h2>
+  <p>Copy this as a starting point. Every key the loader reads is present, in file
+  order, with its shipped default — so anything you change is a deliberate departure
+  from what you just read.</p>
+
+<pre><span class="c"># config.toml — every key, at its shipped default.</span>
+<span class="c"># Pass with: sqtseries --config config.toml run</span>
+
+<span class="c">[database]</span>
+path              = <span class="v">"~/.sqtseries/data/db.sqlite"</span>
+page_size         = <span class="v">8192</span>          <span class="c"># only applies when the file is created</span>
+cache_size        = <span class="v">-64000</span>         <span class="c"># KiB; the code path uses 8000 per connection</span>
+mmap_size         = <span class="v">268435456</span>     <span class="c"># 256 MiB</span>
+busy_timeout      = <span class="v">5000</span>
+journal_size_limit = <span class="v">67108864</span>     <span class="c"># 64 MiB</span>
+threads           = <span class="v">4</span>
+batch_size        = <span class="v">2000</span>          <span class="c"># 1..8191; one transaction per batch</span>
+flush_interval    = <span class="v">1.0</span>
+
+<span class="c">[ingestion]</span>
+port                        = <span class="v">12501</span>   <span class="c"># used only when auto_detect = false</span>
+hwm                         = <span class="v">101000</span>
+pending_max                 = <span class="v">100</span>
+max_message_size            = <span class="v">52428800</span>
+reject_client_timestamp_skew_s = <span class="v">300.0</span>  <span class="c"># 0 disables the guard</span>
+
+<span class="c">[query]</span>
+port         = <span class="v">12502</span>
+timeout_s    = <span class="v">30.0</span>          <span class="c"># 504 over HTTP, QUERY_TIMEOUT over ZMQ</span>
+max_rows     = <span class="v">10000</span>          <span class="c"># 0 = unbounded</span>
+max_inflight = <span class="v">64</span>
+
+<span class="c">[streaming]</span>
+port            = <span class="v">12503</span>
+linger_seconds  = <span class="v">30.0</span>
+
+<span class="c">[admin]</span>
+port = <span class="v">12504</span>
+
+<span class="c">[stats]</span>
+enabled = <span class="v">true</span>
+port    = <span class="v">12506</span>
+
+<span class="c">[http]</span>
+host                      = <span class="v">"0.0.0.0"</span>  <span class="c"># every interface; set 127.0.0.1 to be local-only</span>
+cors_origins              = [<span class="v">"*"</span>]
+rate_limit_per_minute     = <span class="v">600</span>
+max_websocket_connections = <span class="v">1000</span>
+
+<span class="c">[rollup]</span>
+enabled  = <span class="v">true</span>
+interval = <span class="v">"5m"</span>            <span class="c"># interval string: s/m/h/d</span>
+
+<span class="c">[retention]</span>
+enabled           = <span class="v">true</span>
+default_ttl       = <span class="v">"30d"</span>        <span class="c"># TTL string: s/m/h/d/w</span>
+check_interval    = <span class="v">"1h"</span>         <span class="c"># TTL string</span>
+partition_interval = <span class="v">"month"</span>      <span class="c"># only "month" is supported</span>
+
+<span class="c">[maintenance]</span>
+enabled          = <span class="v">true</span>
+analyze_interval = <span class="v">"1h"</span>          <span class="c"># interval string</span>
+
+<span class="c">[backup]</span>
+enabled  = <span class="v">true</span>
+interval = <span class="v">"24h"</span>           <span class="c"># interval string</span>
+path     = <span class="v">"~/.sqtseries/backups/"</span>
+
+<span class="c">[logging]</span>
+level  = <span class="v">"INFO"</span>            <span class="c"># DEBUG|INFO|WARNING|ERROR|CRITICAL</span>
+format = <span class="v">"console"</span>         <span class="c"># console|json</span>
+file   = <span class="v">""</span>                  <span class="c"># unset = stderr only</span>
+
+<span class="c">[ports]</span>
+port_range_start = <span class="v">12500</span>
+port_range_end   = <span class="v">12700</span>
+auto_detect      = <span class="v">true</span>        <span class="c"># false = bind ingestion.port exactly</span>
+port_offset      = <span class="v">0</span></pre>
+
+  <div class="box ok">
+    <span class="lbl">Check it before you rely on it</span>
+    <p>Point the service at the file and ask. <code>ports</code> prints the values
+    that will actually be used, which is the fastest way to catch a typo in a key
+    name — an unrecognised key is ignored rather than reported, so a misspelling
+    fails silently by design.</p>
+<pre><span class="p">$</span> sqtseries <span class="o">--config</span> config.toml <span class="o">ports</span></pre>
+  </div>
+</section>
+
+<section>
+  <h2>Security</h2>
+  <p>Two facts decide how exposed the service is, and both are defaults rather than
+  choices you made.</p>
+
+  <table>
+    <thead><tr><th>Surface</th><th>Binds</th><th>Authentication</th></tr></thead>
+    <tbody>
+      <tr><td>Five ZMQ ports</td><td><code>127.0.0.1</code> only</td>
+        <td>none — the loopback binding <em>is</em> the control</td></tr>
+      <tr><td>HTTP gateway</td><td><code>http.host</code>, default
+        <code>0.0.0.0</code></td>
+        <td><strong>none</strong> — any request that reaches the port can read and
+        write</td></tr>
+      <tr><td>WebSockets</td><td>same as HTTP</td><td>none</td></tr>
+    </tbody>
+  </table>
+
+  <p>So on an untrusted network, both of these before you start:</p>
+
+<pre><span class="c">[http]</span>
+host         = <span class="v">"127.0.0.1"</span>
+cors_origins = [<span class="v">"http://localhost:3000"</span>]</pre>
+
+  <p>That closes the service to the local machine. To serve other machines safely,
+  leave it bound and put a reverse proxy in front that terminates TLS and
+  authenticates. The response headers the gateway sets —
+  <code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>,
+  a strict Content-Security-Policy and a <code>Permissions-Policy</code> that denies
+  camera, microphone, geolocation and payment — are all set on every HTTP response
+  already.</p>
+
+  <p>The rate limiter keys on the socket peer address and deliberately does
+  <strong>not</strong> trust <code>X-Forwarded-For</code>, because that header is
+  set by the client and would let anyone rotate it to escape the limit. Behind a
+  proxy, have the proxy do its own limiting.</p>
+</section>

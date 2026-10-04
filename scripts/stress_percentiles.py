@@ -27,6 +27,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import zmq
@@ -94,6 +95,18 @@ class Latencies:
         with self._lock:
             self._errors[path] = self._errors.get(path, 0) + 1
 
+    def timeout(self, path: str, ms: float) -> None:
+        """A request that blew its deadline is the slowest sample there is.
+
+        Dropping it — counting the error and discarding the elapsed time — is
+        exactly the bias that makes a tail look healthy. A client that waits
+        5 s and gives up has still told you something: that path took at least
+        5 s. It is recorded and counted, never thrown away.
+        """
+        with self._lock:
+            self._errors[path] = self._errors.get(path, 0) + 1
+            self._samples.setdefault(path, []).append(ms)
+
     def count(self, path: str) -> int:
         """Successful samples recorded for a path (used for accounting)."""
         with self._lock:
@@ -106,7 +119,10 @@ class Latencies:
             n = len(xs)
 
             def pct(p: float, *, _xs: list[float] = xs, _n: int = n) -> float:
-                return round(_xs[min(int(_n * p), _n - 1)], 3)
+                if _n < 2:
+                    return round(_xs[0], 3)
+                q = statistics.quantiles(_xs, n=100, method="inclusive")
+                return round(q[min(int(p * 100), 100) - 1], 3)
 
             out[path] = {
                 "n": n,
@@ -117,6 +133,7 @@ class Latencies:
                 "p99_ms": pct(0.99),
                 "max_ms": round(xs[-1], 3),
                 "mean_ms": round(statistics.fmean(xs), 3),
+                "pct_method": "inclusive (Hyndman-Fan R7; R/Excel/numpy default)",
             }
         for path, n_err in self._errors.items():
             if path not in out:
@@ -130,6 +147,37 @@ def main() -> int:
     ap.add_argument("--rate", type=int, default=2000, help="pump points/sec total")
     ap.add_argument("--clients", type=int, default=8, help="concurrent query clients")
     ap.add_argument("--warmup-rows", type=int, default=20000)
+    ap.add_argument(
+        "--model",
+        choices=("closed", "open"),
+        default="closed",
+        help=(
+            "query load model. 'closed' (default) keeps the historical "
+            "behaviour: each client waits for its reply, so a stall throttles "
+            "the offered load and the tail is optimistically biased. 'open' "
+            "paces requests on a fixed schedule over a pipelining DEALER socket "
+            "and measures from the SCHEDULED fire time, which removes that bias."
+        ),
+    )
+    ap.add_argument(
+        "--query-rate",
+        type=int,
+        default=1000,
+        help="open-loop only: target aggregate query ops/sec across clients",
+    )
+    ap.add_argument(
+        "--max-inflight",
+        type=int,
+        default=64,
+        help=(
+            "open-loop only: cap on unanswered requests ACROSS ALL CLIENTS, "
+            "matching the broker's single global max_inflight. Each client "
+            "caps at max(1, this // clients), because the broker's cap is one "
+            "global pool, not per-connection: a per-client reading of this "
+            "same number lets N times the broker's budget pile up, and the "
+            "broker then sheds by construction."
+        ),
+    )
     ap.add_argument("--json", type=str, default="", help="also write raw report JSON")
     ap.add_argument(
         "--http-port",
@@ -186,6 +234,7 @@ auto_detect = false
     )
     lat = Latencies()
     stop = threading.Event()
+    openloop_stats: dict[int, dict] = {}
     results: dict[str, object] = {"ports": ports}
 
     try:
@@ -371,7 +420,7 @@ print(json.dumps({{"pumped": n, "counted": counted}}))
                         # Timed out mid REQ: the state machine is stuck in
                         # 'sending' until the reply arrives — reset it with a
                         # fresh socket or every later send raises EFSM.
-                        lat.error("zmq_query")
+                        lat.timeout("zmq_query", (time.perf_counter() - t) * 1e3)
                         sock.close(0)
                         sock = ctx.socket(zmq.REQ)
                         sock.setsockopt(zmq.LINGER, 0)
@@ -384,6 +433,127 @@ print(json.dumps({{"pumped": n, "counted": counted}}))
                     sock.setsockopt(zmq.LINGER, 0)
                     sock.setsockopt(zmq.RCVTIMEO, 5000)
                     sock.connect(f"tcp://127.0.0.1:{ports['query']}")
+
+        def open_loop_query_worker(worker: int) -> None:
+            """Paced, pipelined query load measured from the SCHEDULED fire time.
+
+            A REQ socket is lockstep, so it cannot offer load while it waits —
+            that is the whole of coordinated omission. This uses DEALER against
+            the broker's ROUTER, which pipelines, and issues on a fixed schedule.
+            A request that goes out late is still sent immediately, and its
+            latency is measured from when it was DUE, so the queueing delay a
+            stalled system causes is counted instead of hidden.
+
+            ZMQ preserves per-connection order, so replies are matched to their
+            scheduled times FIFO off a deque.
+            """
+            sock = ctx.socket(zmq.DEALER)
+            sock.setsockopt(zmq.LINGER, 0)
+            sock.connect(f"tcp://127.0.0.1:{ports['query']}")
+            workers = max(args.clients, 1)
+            interval = workers / max(args.query_rate, 1)
+            # The broker's max_inflight is ONE global pool shared by every
+            # connection (broker.py: len(_router_tasks) >= max_inflight), so the
+            # budget is split here rather than applied per client. Treating it
+            # as per-client lets clients x budget requests pile up against a
+            # broker that only services `budget`, and the broker sheds by
+            # construction — which reads as "the generator was too slow" when
+            # the truth is the cap was misapplied.
+            inflight_cap = max(1, args.max_inflight // workers)
+            # Fixed absolute schedule, advanced only AFTER a request is really
+            # issued. Advancing it before the sleep puts next_due one interval
+            # ahead of `now` on every pass, so the sleep always wins and the
+            # send branch is unreachable: the worker paces perfectly while
+            # sending nothing, and reports a healthy rate for zero requests.
+            next_due = time.perf_counter()
+            sent = 0
+            inflight: deque[tuple[float, float]] = deque()
+            high_water = 0
+            shed = 0
+            late_slots = 0
+            deadline = next_due + args.duration
+
+            def drain() -> int:
+                """Reap every available reply. Returns how many were matched."""
+                nonlocal high_water
+                reaped = 0
+                while True:
+                    try:
+                        # The broker's ROUTER replies [identity, b"", payload].
+                        # A REQ socket strips those two frames for you; a DEALER
+                        # does NOT, so recv_json() would parse the raw identity
+                        # bytes and raise JSONDecodeError. Take the last frame.
+                        sock.recv_multipart(flags=zmq.NOBLOCK)
+                    except zmq.Again:
+                        return reaped
+                    except zmq.ZMQError:
+                        return reaped
+                    # Depth before the pop — after it, a steady-state depth of
+                    # 1 reads as 0 and the pipelining signal is lost.
+                    high_water = max(high_water, len(inflight))
+                    if not inflight:
+                        # A reply with nothing outstanding: counted, never
+                        # paired with an unrelated request's schedule.
+                        lat.error("zmq_query")
+                        continue
+                    intended, issued = inflight.popleft()
+                    now = time.perf_counter()
+                    lat.record("zmq_query", (now - issued) * 1e3)
+                    lat.record("zmq_query_co", (now - intended) * 1e3)
+                    reaped += 1
+
+            while not stop.is_set() and time.perf_counter() < deadline:
+                drain()
+                if len(inflight) >= inflight_cap:
+                    # Holding here keeps the cross-client outstanding total at
+                    # the broker's cap, so the broker never sheds and the run
+                    # measures the server rather than our own over-run. Counted
+                    # and reported rather than silently inflating the samples.
+                    shed += 1
+                    time.sleep(0.001)
+                    continue
+                now = time.perf_counter()
+                if now < next_due:
+                    time.sleep(min(next_due - now, 0.01))
+                    continue
+                if now - next_due > interval:
+                    late_slots += 1
+                inflight.append((next_due, now))
+                try:
+                    sock.send_json(
+                        {
+                            "type": "query",
+                            "metric": f"stress.m{worker % 25}",
+                            "start": 0,
+                            "end": int(time.time() * 1e9),
+                            "aggregation": "avg",
+                            "interval": "1m",
+                        }
+                    )
+                except zmq.ZMQError:
+                    lat.error("zmq_query")
+                    if not inflight:
+                        break
+                    inflight.pop()
+                    continue
+                sent += 1
+                next_due += interval
+            # The measurement window has closed but replies are still owed.
+            # Reap them (bounded) so sent/received accounting closes instead of
+            # reporting a phantom shortfall.
+            reap_until = time.perf_counter() + 5.0
+            while inflight and time.perf_counter() < reap_until:
+                if not drain():
+                    time.sleep(0.002)
+            with contextlib.suppress(zmq.ZMQError):
+                sock.close(0)
+            openloop_stats[worker] = {
+                "sent_ops": sent,
+                "unanswered": len(inflight),
+                "inflight_high_water": high_water,
+                "client_shed": shed,
+                "slots_served_late": late_slots,
+            }
 
         # --- HTTP read + aggregate (concurrent) ---------------------------
         def http_read_worker(worker: int, agg: bool) -> None:
@@ -445,7 +615,7 @@ print(json.dumps({{"pumped": n, "counted": counted}}))
                         sock.recv_json()
                         lat.record("admin", (time.perf_counter() - t) * 1e3)
                     else:
-                        lat.error("admin")
+                        lat.timeout("admin", (time.perf_counter() - t) * 1e3)
                         sock.close(0)
                         sock = ctx.socket(zmq.REQ)
                         sock.setsockopt(zmq.LINGER, 0)
@@ -486,8 +656,11 @@ print(json.dumps({{"pumped": n, "counted": counted}}))
             finally:
                 ws_done.set()
 
+        query_target = (
+            open_loop_query_worker if args.model == "open" else zmq_query_worker
+        )
         threads = [
-            threading.Thread(target=zmq_query_worker, args=(w,))
+            threading.Thread(target=query_target, args=(w,))
             for w in range(args.clients)
         ]
         threads += [
@@ -520,17 +693,26 @@ print(json.dumps({{"pumped": n, "counted": counted}}))
 
         # Collect the pump process's actual delivered count (it self-terminates
         # at its own duration deadline; terminate() is just belt-and-braces).
-        if pump_proc.poll() is None:
-            pump_proc.terminate()
+        # The pump's final print is the only record of what it sent. Killing it
+        # the instant the window closed lost that print on short runs, and an
+        # empty stdout then read as a count of zero. Wait for it to exit first.
         try:
-            out, _ = pump_proc.communicate(timeout=15)
+            out, _ = pump_proc.communicate(timeout=max(args.duration + 30.0, 45.0))
+        except subprocess.TimeoutExpired:
+            pump_proc.terminate()
+            try:
+                out, _ = pump_proc.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                pump_proc.kill()
+                out, _ = pump_proc.communicate()
+        try:
             payload = json.loads(out or b"{}")
-            results["params"]["pumped_actual"] = payload.get(
-                "counted", payload.get("pumped", 0)
-            )
+            counted = payload.get("counted", payload.get("pumped"))
+            # An unread count is UNKNOWN (-1), never 0: defaulting to 0
+            # under-counted pump_sent by the whole run and made "unaccounted"
+            # a confident negative that still read like a measurement.
+            results["params"]["pumped_actual"] = -1 if counted is None else counted
         except Exception:
-            pump_proc.kill()
-            pump_proc.communicate()
             results["params"]["pumped_actual"] = -1
 
         # --- end-to-end accounting: sent vs ingested vs persisted vs rows ---
@@ -577,18 +759,33 @@ print(json.dumps({{"pumped": n, "counted": counted}}))
                 actx2.term()
             except zmq.ZMQError:
                 pass
+            pumped_actual = results["params"]["pumped_actual"]
             accounting = {
-                "pump_sent": results["params"]["pumped_actual"]
-                + args.warmup_rows
-                + lat.count("http_write"),
+                "pump_sent": (
+                    pumped_actual + args.warmup_rows + lat.count("http_write")
+                    if pumped_actual >= 0
+                    else -1
+                ),
                 "server_ingested": stats.get("ingested", -1),
                 "persisted": stats.get("persisted", -1),
                 "dropped": stats.get("dropped", -1),
                 "invalid": stats.get("invalid", -1),
             }
             ing = accounting["server_ingested"]
-            if ing >= 0:
-                accounting["unaccounted"] = accounting["pump_sent"] - ing
+            sent = accounting["pump_sent"]
+            if sent >= 0 and ing >= 0:
+                accounting["unaccounted"] = sent - ing
+                if sent - ing < 0:
+                    accounting["identity"] = (
+                        "UNSOUND: the server counted more points than the pump "
+                        "claims to have sent. The pump count is not trustworthy, "
+                        "so 'unaccounted' here is not a measurement."
+                    )
+            else:
+                accounting["identity"] = (
+                    "UNEVALUABLE: the pump's delivered count was not read back, "
+                    "so sent-vs-ingested cannot be compared on this run."
+                )
             # Sustained ingest rate over the stress window: server counter
             # delta from just-after-warmup to just-after-pump-exit, divided
             # by the pump duration. This is the server's truth (what it
@@ -637,6 +834,63 @@ print(json.dumps({{"pumped": n, "counted": counted}}))
             }
 
         results["paths"] = lat.report()
+        if args.model == "open":
+            sent = sum(v["sent_ops"] for v in openloop_stats.values())
+            unanswered = sum(v["unanswered"] for v in openloop_stats.values())
+            shed = sum(v["client_shed"] for v in openloop_stats.values())
+            late = sum(v["slots_served_late"] for v in openloop_stats.values())
+            high_water = max(
+                (v["inflight_high_water"] for v in openloop_stats.values()), default=0
+            )
+            results["system_model"] = {
+                "type": "open-loop, paced, pipelined (DEALER vs broker ROUTER)",
+                "clients": args.clients,
+                "target_query_ops_per_s": args.query_rate,
+                "sent_ops": sent,
+                "achieved_query_ops_per_s": round(sent / max(args.duration, 1e-9), 1),
+                "unanswered_at_window_close": unanswered,
+                "inflight_cap_total": args.max_inflight,
+                "inflight_high_water": high_water,
+                "client_shed": shed,
+                "slots_served_late": late,
+                "note": (
+                    "Requests are issued on a fixed schedule and measured from "
+                    "the SCHEDULED fire time, so queueing caused by a stall is "
+                    "counted rather than hidden (coordinated omission removed). "
+                    "'zmq_query' is service time from actual send; "
+                    "'zmq_query_co' is the corrected figure from the scheduled "
+                    "time and is the one to quote for arrival-rate behaviour. "
+                    "sent_ops counts frames the broker actually accepted, and "
+                    "'zmq_query'.n should match it — if sent_ops is 0 the "
+                    "generator never fired and the run describes nothing. If "
+                    "client_shed is non-zero the generator itself hit the "
+                    "in-flight cap, so the offered rate was not achieved and "
+                    "this run does not describe that rate."
+                ),
+                "reference": (
+                    "Gil Tene, 'How NOT to Measure Latency'; Friedrich et al., "
+                    "'Coordinated Omission in NoSQL Database Benchmarking', BTW 2017"
+                ),
+            }
+        else:
+            results["system_model"] = {
+                "type": "closed-loop, unthrottled (saturation)",
+                "clients": args.clients,
+                "caveat": (
+                    "Each client sends its next request only after the previous "
+                    "reply arrives, so a service stall throttles the offered load "
+                    "instead of being recorded (coordinated omission). These "
+                    "percentiles answer 'response time at saturation with N "
+                    "clients'. They are NOT an open-loop arrival-rate "
+                    "measurement and understate the tail a real arrival stream "
+                    "would see. Run with --model open for arrival-rate numbers. "
+                    "Deadline-exceeded requests ARE recorded, not discarded."
+                ),
+                "reference": (
+                    "Gil Tene, 'How NOT to Measure Latency'; Friedrich et al., "
+                    "'Coordinated Omission in NoSQL Database Benchmarking', BTW 2017"
+                ),
+            }
 
         print(json.dumps(results, indent=2))
         if args.json:

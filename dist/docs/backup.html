@@ -3,219 +3,738 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Backup, Restore &amp; Vacuum — sqtseries</title>
+<title>sqtseries — Backup, restore and vacuum</title>
+<meta name="description" content="Back up a sqtseries database with VACUUM INTO, restore it, and understand what vacuum does and when to run it.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a class="here" href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Backup, Restore &amp; Vacuum</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>sqtseries keeps everything in one SQLite file. That makes backup simple,
-restore trivial, and — because databases grow — occasional vacuuming
-worth understanding. This page covers all three.</p>
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · keeping the data</a></div>
+  <h1>Backup, restore, vacuum</h1>
+  <p class="tagline">The whole database is one file, so backing it up is a copy — but the right copy is a <code>VACUUM INTO</code> snapshot rather than a file copy of a database that is being written to. Here is the difference, the procedure, and the restore test.</p>
+  <div class="meta">
+    <span><b>Method</b> <code>VACUUM INTO</code>, consistent under writes</span>
+    <span><b>Names</b> <code>sqtseries-YYYYmmdd-HHMMSS.db</code></span>
+    <span><b>Schedule</b> <code>backup.enabled</code>, every <code>24h</code></span>
+    <span><b>Overwrite</b> never — an existing name is kept</span>
+    <span><b>Restore</b> stop, replace, start, verify</span>
+  </div>
+</header>
 
-<h3>1. What to back up</h3>
-<p>Your data lives in exactly one place: the database file configured by
-<code>database.path</code> (default <code>~/.sqtseries/data/db.sqlite</code>).
-Back up that file. Everything — the series table, every monthly
-measurements partition, and the hourly rollup summaries — is inside it.</p>
+<main>
+<section>
+  <h2>What to back up, and how</h2>
+  <p class="lede">The whole database is one file, so backing it up feels trivial. It is
+  nearly trivial — but the obvious way of doing it, copying the file, quietly loses
+  the most recent writes.</p>
 
-<div class="note">
-  <strong>Never copy <code>db.sqlite</code> alone while the service is
-  running.</strong> In WAL mode, recent writes live in the companion
-  <code>db.sqlite-wal</code> file until a checkpoint writes them into the
-  main file. A plain file copy at an arbitrary moment can silently miss
-  committed-but-uncheckpointed data. Always use a proper backup instead
-  (below), which reads through the WAL and is always consistent.</div>
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>WAL</strong> — SQLite's write-ahead log. A second file holding
+    committed pages not yet merged into the main database.<br>
+    <strong>Shared-memory file</strong> — the third file WAL mode creates, coordinating
+    readers against the WAL.<br>
+    <strong>Snapshot</strong> — a <code>VACUUM INTO</code> result: one complete,
+    consistent, self-contained file.<br>
+    <strong>Partition</strong> — one monthly table, <code>measurements_YYYY_MM</code>.<br>
+    <strong>Retention</strong> — the policy that drops whole partitions past their
+    time to live, rollup rows included.<br>
+    <strong>Vacuum</strong> — rewriting the file to reclaim free pages. Not a backup.</p>
+  </div>
 
-<h4>The database folder</h4>
-<p>Alongside <code>db.sqlite</code> you may see:</p>
-<div class="table-wrap"><table>
-  <tr><th>File</th><th>What it is</th><th>Do you back it up?</th></tr>
-  <tr><td><code>db.sqlite</code></td><td>The database itself</td>
-      <td>Via a proper backup, yes. Never a bare copy while running.</td></tr>
-  <tr><td><code>db.sqlite-wal</code></td><td>Write-ahead log holding recent
-      committed writes</td><td>Not separately — a proper backup reads through
-      it. A bare copy would need this file too, and even then only if the
-      service is stopped.</td></tr>
-  <tr><td><code>db.sqlite-shm</code></td><td>Shared-memory index for the
-      WAL</td><td>Never. Recreated automatically.</td></tr>
-  <tr><td><code>runtime.json</code></td><td>PID + ports of the running
-      service</td><td>Never. Recreated on start.</td></tr>
-</table></div>
+  <div class="stats">
+    <div class="stat"><div class="n">1</div><div class="l">File to keep</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Files on disk while running</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Downtime to snapshot</div></div>
+    <div class="stat"><div class="n">24h</div><div class="l">Default snapshot interval</div></div>
+    <div class="stat"><div class="n">30d</div><div class="l">Default retention</div></div>
+  </div>
+</section>
 
-<h3>2. How to back up</h3>
-<p>Backups are consistent point-in-time snapshots taken with SQLite's
-<code>VACUUM INTO</code> — safe even while writes are in flight. Each backup
-is a single standalone <code>.db</code> file you can open with any SQLite
-tool.</p>
+<section>
+  <h2>Why you cannot just copy the file</h2>
+  <p>In WAL mode a live database is <strong>three</strong> files: the main
+  database, the write-ahead log, and the shared-memory file. Only the main file is
+  what most people think of as "the database".</p>
 
-<h4>Automatic (scheduled)</h4>
-<p>By default the service takes a snapshot on startup and then every
-<code>backup.interval</code> (default <code>24h</code>). To change or
-disable it:</p>
-<pre><code># config.toml
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 300" role="img" aria-label="Backup comparison: copying the main SQLite file while the service runs captures only pages already merged from the WAL, so recently committed rows are missing; VACUUM INTO instead walks a consistent snapshot and writes one complete self-contained file including the schema, series table, monthly partitions and rollup rows, without needing the service to stop">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#a4262c"/>
+        </marker>
+        <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#046c4e"/>
+        </marker>
+        <style>
+          .lane{fill:#f1f6f8;stroke:#d5e0e6;stroke-width:1}
+          .laneT{font:600 10px ui-monospace,Menlo,monospace;fill:#8fa4b4;letter-spacing:.14em}
+          .file{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .ok{fill:#e9f7f1;stroke:#046c4e;stroke-width:1.6}
+          .bad{fill:#fdefef;stroke:#a4262c;stroke-width:1.6}
+          .n{font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .g{font:600 10.5px ui-monospace,Menlo,monospace;fill:#046c4e}
+          .r{font:600 10.5px ui-monospace,Menlo,monospace;fill:#a4262c}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .gLn{fill:none;stroke:#046c4e;stroke-width:1.8;marker-end:url(#ah3)}
+          .rLn{fill:none;stroke:#a4262c;stroke-width:1.8;marker-end:url(#ah2)}
+          .lnr{fill:none;stroke:#94a3b8;stroke-width:1.3;stroke-dasharray:4 3;marker-end:url(#ah1)}
+        </style>
+      </defs>
+
+      <rect class="lane" x="8" y="8" width="964" height="132" rx="7"/>
+      <text class="laneT" x="22" y="26">COPY THE FILE  ·  the obvious approach, and what it misses</text>
+
+      <rect class="file" x="26" y="42" width="212" height="82" rx="6"/>
+      <text class="n" x="42" y="66">db.sqlite</text>
+      <text class="a" x="42" y="86">main database</text>
+      <text class="s" x="42" y="104">merged pages only</text>
+
+      <rect class="file" x="26" y="42" width="0" height="0" rx="0"/>
+
+      <rect class="file" x="272" y="42" width="230" height="82" rx="6"/>
+      <text class="n" x="288" y="66">db.sqlite-wal</text>
+      <text class="a" x="288" y="86">committed, not yet merged</text>
+      <text class="s" x="288" y="104">the last ~64 MiB of writes</text>
+
+      <rect class="file" x="536" y="42" width="212" height="82" rx="6"/>
+      <text class="n" x="552" y="66">db.sqlite-shm</text>
+      <text class="a" x="552" y="86">reader coordination</text>
+      <text class="s" x="552" y="104">rebuilt on open</text>
+
+      <rect class="bad" x="784" y="42" width="172" height="82" rx="6"/>
+      <text class="n" x="800" y="66">copy db.sqlite</text>
+      <text class="r" x="800" y="86">rows missing</text>
+      <text class="s" x="800" y="104">silently</text>
+
+      <path class="ln" d="M238,83 L272,83"/>
+      <path class="ln" d="M502,83 L784,83"/>
+      <path class="lnr" d="M748,83 L238,83"/>
+
+      <rect class="lane" x="8" y="152" width="964" height="140" rx="7"/>
+      <text class="laneT" x="22" y="170">VACUUM INTO  ·  the correct approach</text>
+
+      <rect class="ok" x="26" y="186" width="300" height="90" rx="6"/>
+      <text class="n" x="42" y="210">VACUUM INTO 'backup.db'</text>
+      <text class="g" x="42" y="230">reads a consistent snapshot</text>
+      <text class="s" x="42" y="250">one pass, while writes continue;</text>
+      <text class="s" x="42" y="266">the service does not stop</text>
+
+      <rect class="ok" x="390" y="186" width="300" height="90" rx="6"/>
+      <text class="n" x="406" y="210">one self-contained file</text>
+      <text class="s" x="406" y="230">schema, series table,</text>
+      <text class="s" x="406" y="246">monthly partitions,</text>
+      <text class="s" x="406" y="262">rollup rows for all of them</text>
+
+      <rect class="ok" x="726" y="186" width="230" height="90" rx="6"/>
+      <text class="n" x="742" y="210">sqtseries-20260930-172525.db</text>
+      <text class="g" x="742" y="230">restorable as-is</text>
+      <text class="s" x="742" y="250">no WAL, no -shm,</text>
+      <text class="s" x="742" y="266">no catch-up needed</text>
+
+      <path class="gLn" d="M326,231 L390,231"/>
+      <path class="gLn" d="M690,231 L726,231"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — one file, or three.</strong> Copying
+  <code>db.sqlite</code> on its own gives you a database missing every write that is
+  still sitting in the WAL. It opens fine, it passes a quick check, and it is missing
+  recent data — which is the worst combination, because nothing tells you. Copying all
+  three files while writes are in flight is no safer. <code>VACUUM INTO</code> reads a
+  consistent snapshot through SQLite's own machinery and writes one complete file, so
+  there is nothing to reassemble at restore time.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Taking a snapshot</h2>
+
+  <h3>From the command line</h3>
+  <p>One command. It is safe against a running service.</p>
+
+<pre><span class="p">$</span> sqtseries <span class="o">backup</span>
+backup written to /home/iam/.sqtseries/backups/sqtseries-20260930-172525.db
+
+<span class="c"># against a different database, with no config file</span>
+<span class="p">$</span> sqtseries <span class="o">--db</span> /path/to/other.sqlite <span class="o">backup</span></pre>
+
+  <h3>Over the admin socket</h3>
+  <p>Same operation, no client library, usable from any language over ZeroMQ:</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> <span class="f">from</span> sqtseries <span class="f">import</span> Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"backup"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'path'</span>: <span class="v">'/home/iam/.sqtseries/backups/sqtseries-20260930-173012.db'</span>}</pre>
+
+  <div class="box warn">
+    <span class="lbl">The admin command pauses ingest while it runs</span>
+    <p><code>VACUUM INTO</code> needs to read the database, and the admin handler runs
+    on the service's single SQLite writer. The admin socket has no handler timeout —
+    a large snapshot legitimately takes a while — but ingest is paused for the
+    duration.</p>
+    <p>For anything large, stop the service and use the offline
+    <code class="nb">sqtseries backup</code> instead. The command-line path is also the
+    one to put in a <code>cron</code> job.</p>
+  </div>
+
+  <h3>Automatically</h3>
+  <p>On by default. The service takes one snapshot at first start, then one every
+  <code>backup.interval</code> — every 24 hours out of the box.</p>
+
+<pre><span class="c"># config.toml</span>
 [backup]
-enabled = true
-interval = "24h"              # how often a snapshot is taken
-path = "~/.sqtseries/backups/"</code></pre>
-<p>The first pass runs immediately at startup, then once per interval. A
-snapshot younger than the interval is skipped, so restarts do not pile up
-duplicate backups. The newest snapshot is reported in admin
-<code>stats</code> as <code>last_backup</code>; <code>backup_runs</code> and
-<code>backups_created</code> track the scheduler.</p>
+enabled  = <span class="v">true</span>
+interval = <span class="v">"24h"</span>
+path     = <span class="v">"/mnt/backups/sqtseries/"</span>   <span class="c"># any writable path</span></pre>
 
-<h4>On demand</h4>
-<pre><code># CLI — one snapshot, prints the path
-sqtseries backup
+  <p>A pass that finds a snapshot younger than the interval counts the run and writes
+  nothing — so restarting the service repeatedly cannot produce a stack of copies in
+  the same second. Watch <code>backups_created</code> and <code>backup_runs</code> on
+  the admin socket: if runs climb but creations do not, a snapshot is already
+  fresh.</p>
 
-# Admin command (ZMQ REP, port 12504)
-{"cmd": "backup"}      # -> {"status":"ok","path":"..."}
+  <h3>What the files are called</h3>
+  <p><code>sqtseries-YYYYmmdd-HHMMSS.db</code> under <code>backup.path</code>. A name
+  that already exists is <strong>kept, never overwritten</strong> — a same-second
+  retry after a restart is skipped rather than raising. Sorted by name, the newest is
+  last, which is how <code>backup_latest</code> finds it.</p>
+</section>
 
-# Python client
-c.admin("backup")</code></pre>
+<section>
+  <h2>Restoring</h2>
+  <p>Four steps. The fourth is the one people skip, and skipping it is how a backup
+  turns out to have been useless six months later when it was needed.</p>
 
-<h4>Backup file naming</h4>
-<p>Backups are written to <code>backup.path</code> as
-<code>sqtseries-YYYYMMDD-HHMMSS.db</code>, e.g.
-<code>sqtseries-20260808-171500.db</code>. Two backups in the same second
-collide (a <code>BackupExistsError</code>, skipped silently by the
-scheduler). There is no built-in rotation or deletion of old backups —
-prune them yourself with your usual file tools, e.g. keep only the newest
-N files (delete lines N+1 onwards):
-<code>ls -t ~/.sqtseries/backups/*.db | tail -n +$((N+1)) | xargs rm</code>.</p>
+  <ol class="steps">
+    <li><b>Stop the service</b><span>Leave the original database alone — you want it
+    still there if the snapshot turns out to be wrong. Do not delete or move it
+    until the restore has been verified.</span></li>
+    <li><b>Put the snapshot where the config expects it</b><span>Keep the old file
+    under a different name rather than overwriting it, so the two can be compared.
+    Remember the <code>-wal</code> and <code>-shm</code> files belong to the
+    <em>old</em> database and must not be left beside the new one.</span></li>
+    <li><b>Start the service</b><span>It recovers any uncommitted WAL frames, runs the
+    schema migration and the integrity check, and creates the current month's
+    partition if needed.</span></li>
+    <li><b>Verify — do not skip this</b><span>Check the database is sound and that the
+    data is actually there. An unrestored backup is a guess.</span></li>
+  </ol>
 
-<h3>3. How to restore</h3>
-<p>There is no <code>restore</code> command — restoring is pointing sqtseries
-at a backup file. A backup is a complete database, so it starts, migrates,
-and serves exactly like any other:</p>
+<pre><span class="c"># 1. stop</span>
+<span class="p">$</span> sqtseries <span class="o">stop</span>
+Sent SIGTERM to pid 178445
 
-<pre><code># 1. Stop the service that owns the database you are replacing
-sqtseries stop
+<span class="c"># 2. move the old one aside, put the snapshot in place</span>
+<span class="p">$</span> cd ~/.sqtseries/data
+<span class="p">$</span> mv db.sqlite db.sqlite.before-restore
+<span class="p">$</span> rm -f db.sqlite-wal db.sqlite-shm     <span class="c"># belongs to the OLD file</span>
+<span class="p">$</span> cp ~/.sqtseries/backups/sqtseries-20260930-172525.db db.sqlite
 
-# 2. (Optional) keep a copy of the current state
-cp ~/.sqtseries/data/db.sqlite ~/db-before-restore.sqlite
+<span class="c"># 3. start</span>
+<span class="p">$</span> sqtseries <span class="o">run</span>
 
-# 3. Point a config at the backup file and start
-# config.toml
-[database]
-path = "/path/to/sqtseries-20260808-171500.db"
+<span class="c"># 4. verify — from another terminal</span>
+<span class="p">$</span> sqtseries <span class="o">health</span>
+<span class="ok">ok</span>
+<span class="p">$</span> sqtseries <span class="o">stats</span>
+metrics: <span class="v">3</span>
+series:  <span class="v">12</span>
 
-sqtseries --config config.toml run</code></pre>
+<span class="c"># and read something you know was stored before the snapshot</span>
+<span class="p">$</span> curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,min,max,count"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:0.54,<span class="v">"min"</span>:0.42,<span class="v">"max"</span>:0.77,<span class="v">"count"</span>:3.0}}</pre>
 
-<p>On startup the service runs any pending migrations, creates the current
-monthly partition if the backup predates it, checks integrity, and switches
-the file to WAL mode. The backup file itself is not modified; the service
-works on it in place (WAL files appear next to it once running).</p>
+  <div class="box warn">
+    <span class="lbl">Restore into a scratch path first</span>
+    <p>Before you touch the live database, prove the snapshot opens and answers. This
+    needs no service and no risk:</p>
+<pre><span class="p">$</span> sqtseries <span class="o">--db</span> /tmp/restore-test.sqlite <span class="o">health</span>
+<span class="ok">ok</span>
+<span class="p">$</span> sqtseries <span class="o">--db</span> /tmp/restore-test.sqlite <span class="o">stats</span>
+metrics: <span class="v">3</span>
+series:  <span class="v">12</span>
 
-<div class="note">
-  <strong>Restoring to a new machine</strong> — copy the backup file to the
-  new machine, set <code>database.path</code> to it, and run. That is the
-  whole procedure: one file, one setting. The default ports, admin socket,
-  and everything else come up normally.
-</div>
-
-<h3>4. Vacuum: what it is, when and how to run it</h3>
-<p><code>VACUUM</code> rewrites the entire database file into a compact
-form, reclaiming space from deleted rows and dropped partitions.</p>
-
-<h4>Why the file grows</h4>
-<p>sqtseries drops expired monthly partitions automatically (retention,
-default 30 days) and deletes data as you prune it. Those pages are freed to
-SQLite's internal freelist — the space is <em>reusable</em> but the file
-does <em>not</em> shrink, because the database is set to
-<code>auto_vacuum = INCREMENTAL</code> (set once when the file is created).
-The file stays at its historical peak size until you vacuum it. WAL
-checkpointing (background, at 64 MB) truncates the <code>-wal</code> file —
-it never shrinks the main database file.</p>
-
-<h4>When to run it</h4>
-<ul>
-  <li>After heavy pruning or retention drops, when you want the disk space
-      back.</li>
-  <li>Periodically as part of maintenance (weekly/monthly is plenty for most
-      workloads).</li>
-  <li>When the file size matters (backups, moving machines, quotas).</li>
-</ul>
-
-<h4>How to run it</h4>
-<pre><code># CLI — full VACUUM (recommended; stop the service first)
-sqtseries stop
-sqtseries vacuum          # prints "VACUUM complete"
-sqtseries run</code></pre>
-<p><code>VACUUM</code> needs exclusive access to the file. A live service's
-concurrent reads and writes usually block it. The admin command exists for
-small maintenance, but it often fails while the service is busy:</p>
-<pre><code># Admin command — may fail with VACUUM_BUSY while running
-{"cmd": "vacuum"}    # -> {"status":"ok","vacuumed":true}
-                     # or {"status":"error","error":{"code":"VACUUM_BUSY",...}}</code></pre>
-<p>The offline <code>sqtseries vacuum</code> (service stopped) is the
-recommended path for anything larger than a quick tidy.</p>
-
-<h4>Backup vs vacuum — don't confuse them</h4>
-<div class="table-wrap"><table>
-  <tr><th></th><th><code>VACUUM INTO</code> (backup)</th>
-      <th><code>VACUUM</code> (vacuum)</th></tr>
-  <tr><td>Creates a file</td><td>Yes — a standalone snapshot</td>
-      <td>No — rewrites the existing file in place</td></tr>
-  <tr><td>Needs the service stopped</td><td>No — safe while running</td>
-      <td>Yes (recommended)</td></tr>
-  <tr><td>Shrinks the database</td><td>No (source untouched)</td>
-      <td>Yes</td></tr>
-  <tr><td>Use for</td><td>Backup, restore, moving machines</td>
-      <td>Reclaiming disk space</td></tr>
-</table></div>
-
-<h3>5. Storage layout summary</h3>
-<pre><code>~/.sqtseries/
-├── data/
-│   ├── db.sqlite          # the database — everything lives here
-│   ├── db.sqlite-wal      # WAL (recent writes; checkpointed automatically)
-│   ├── db.sqlite-shm      # WAL index (recreated)
-│   └── runtime.json       # pid + active ports (recreated)
-└── backups/
-    └── sqtseries-YYYYMMDD-HHMMSS.db   # consistent snapshots</code></pre>
-<p>Everything you need to back up is one folder; everything you need to
-restore is one file.</p>
-
-<h2>Where to go next</h2>
-<div class="cards">
-  <div class="card"><h3><a href="configuration.html">Configuration</a></h3>
-    <p>The <code>[backup]</code> and <code>[database]</code> settings, env
-    vars, and every default.</p></div>
-  <div class="card"><h3><a href="architecture.html">Architecture</a></h3>
-    <p>Retention, WAL checkpointing, and how the storage engine is laid
-    out.</p></div>
-  <div class="card"><h3><a href="api.html">API Reference</a></h3>
-    <p>The admin <code>backup</code>/<code>vacuum</code> commands and
-    error codes (<code>BACKUP_FAILED</code>, <code>VACUUM_BUSY</code>).</p></div>
-  <div class="card"><h3><a href="examples.html">Examples</a></h3>
-    <p><code>maintenance_examples.py</code> runs backup/vacuum/health
-    against a live service.</p></div>
-</div>
-
-
+<span class="c"># or read it with sqlite3 directly</span>
+<span class="p">$</span> sqlite3 /tmp/restore-test.sqlite <span class="v">"PRAGMA integrity_check; SELECT COUNT(*) FROM series;"</span>
+ok
+<span class="v">12</span></pre>
+    <p>Copy the snapshot to the scratch path first — <code>--db</code> will create and
+    migrate a fresh empty file if the path does not exist, which would "verify" nothing
+    at all.</p>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+
+  <div class="box">
+    <span class="lbl">The restored database answers historical queries identically</span>
+    <p>A snapshot contains the schema, the series table, every partition inside the
+    retention window, and the hourly rollup rows for those partitions. So a restored
+    service answers questions about last month exactly as before, and does not have to
+    wait for the rollup to catch up over the next <code>rollup.interval</code>.</p>
+    <p>The current partial hour is the exception: the snapshot was taken at a moment,
+    and writes after it are of course not in it. That is the expected cost of a
+    point-in-time backup, and it is why the interval is a choice.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Vacuum is a different job</h2>
+  <p>Reclaiming disk space is not the same activity as protecting data, and the two are
+  easy to confuse.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th></th><th>Backup</th><th>Vacuum</th></tr></thead>
+    <tbody>
+      <tr><td>What it does</td><td>copies the database elsewhere</td>
+        <td>rewrites the database in place</td></tr>
+      <tr><td>Protects data</td><td><strong>yes</strong></td><td class="muted">no</td></tr>
+      <tr><td>Reclaims space</td><td class="muted">no</td><td><strong>yes</strong></td></tr>
+      <tr><td>Needs the service stopped</td><td class="muted">no</td>
+        <td>yes, for anything large</td></tr>
+      <tr><td>Blocks ingest</td><td>not meaningfully</td>
+        <td>yes, for its whole duration</td></tr>
+    </tbody>
+  </table></div>
+
+<pre><span class="c"># reclaim space: stop the service first for anything big</span>
+<span class="p">$</span> sqtseries <span class="o">stop</span>
+<span class="p">$</span> sqtseries <span class="o">vacuum</span>
+<span class="ok">VACUUM complete</span>
+<span class="p">$</span> sqtseries <span class="o">run</span></pre>
+
+  <p>Over the admin socket there is a <code>vacuum</code> command too, and it will
+  refuse politely if the database is in use:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"vacuum"</span>)
+{<span class="v">'status'</span>: <span class="v">'error'</span>, <span class="v">'error'</span>: {<span class="v">'code'</span>: <span class="v">'VACUUM_BUSY'</span>,
+ <span class="v">'message'</span>: <span class="v">'vacuum failed while running; stop the service and use `sqtseries vacuum`: …'</span>}}</pre>
+
+  <p>You rarely need to. SQLite reuses free pages internally, so the file only grows
+  when there is genuinely more data. A file that keeps growing under
+  <code>retention.enabled = true</code> is worth investigating — it usually means
+  partitions are not being dropped.</p>
+</section>
+
+<section>
+  <h2>How much to keep</h2>
+  <p>Retention already bounds the database, so the backup question is smaller than it
+  looks. Choose a retention window that matches what you actually need, and a backup
+  interval that matches how much you would have to re-enter.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Goal</th><th>Setting</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Bound the file size</td><td><code>retention.default_ttl</code></td>
+        <td>Partitions past the TTL are dropped whole, rollup rows included, so
+        deleted data leaves no aggregate trace.</td></tr>
+      <tr><td>Bound re-entry work</td><td><code>backup.interval</code></td>
+        <td>Worst-case loss is one interval, plus the partial hour at the
+        snapshot moment.</td></tr>
+      <tr><td>Keep history cheap</td><td><code>rollup.enabled</code></td>
+        <td>On, so wide queries read summary rows instead of scanning raw
+        points.</td></tr>
+    </tbody>
+  </table></div>
+
+<pre><span class="c"># a year of history, snapshotted daily</span>
+[retention]
+default_ttl = <span class="v">"365d"</span>
+check_interval = <span class="v">"1h"</span>
+
+[backup]
+enabled  = <span class="v">true</span>
+interval = <span class="v">"24h"</span>
+path     = <span class="v">"/mnt/backups/sqtseries/"</span></pre>
+
+  <p class="small muted"><code>365d</code>, not <code>12m</code> — <code>m</code>
+  means <strong>minutes</strong>. See
+  <a href="configuration.html">Configuration</a> for both duration syntaxes.</p>
+
+  <div class="box">
+    <span class="lbl">A snapshot is a full database, so they add up</span>
+    <p>Each one is the whole thing, not an increment. Twenty daily snapshots of a 2 GB
+    database is 40 GB. If that matters, keep fewer, keep them compressed, or take
+    snapshots less often and accept a larger worst-case loss. This is the trade the
+    <code>VACUUM INTO</code> approach makes deliberately: a snapshot you can restore
+    without a second tool is worth more than one that is a third of the size.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Checking on it</h2>
+  <p>Two counters, on the admin socket or the dashboard:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> st = c.admin(<span class="v">"stats"</span>)
+<span class="p">&gt;&gt;&gt;</span> st[<span class="v">"backup_runs"</span>], st[<span class="v">"backups_created"</span>], st[<span class="v">"last_backup"</span>]
+(<span class="v">3</span>, <span class="v">3</span>, <span class="v">'/home/iam/.sqtseries/backups/sqtseries-20260930-172525.db'</span>)</pre>
+
+  <p><code>backup_runs</code> counts passes; <code>backups_created</code> counts files
+  actually written. Equal numbers mean every pass wrote something. Runs climbing while
+  creations stay flat means a recent snapshot was found and kept — normal, and the
+  reason a restart loop cannot fill the disk.</p>
+
+  <pre><span class="c"># the files on disk</span>
+<span class="p">$</span> ls -laht ~/.sqtseries/backups/ | head
+<span class="c"># and the newest one</span>
+<span class="p">$</span> ls -t ~/.sqtseries/backups/sqtseries-*.db | head -1</pre>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every backup and retention setting with its real default, and the two
+      duration syntaxes.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>Automating the snapshot on a timer, and where a service unit puts its
+      backup directory.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The <code>backup</code> and <code>vacuum</code> admin commands, and every
+      counter the stats reply carries.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>How retention drops a partition, and why that is cheaper than deleting
+      rows.</p>
+    </div>
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>If you would rather see the service running before thinking about
+      disaster recovery.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p><code>last_backup</code> and <code>backups_created</code> on screen, updating
+      once a second.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>Why not just copy the file</h5>
+      <p>
+            In WAL mode a live database is three files: the main file, the WAL, and
+            the shared-memory file. Copying only the main file mid-write gives you a
+            database missing its most recent committed pages.
+            <code>VACUUM INTO</code> writes a single, complete, consistent file in
+            one pass, and it does not need the service to stop.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The backup is a full database, not a fragment</h5>
+      <p>
+            A snapshot contains the schema, the series table, every partition inside
+            the retention window, and the hourly rollup rows for them. Restoring it
+            gives back a service that answers historical queries identically,
+            without waiting for the rollup to catch up.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Restore is four steps, and step 4 is the one people skip</h5>
+      <p>
+            Stop the service, put the file where <code>database.path</code> points,
+            start it, then <em>verify</em> with <code>sqtseries health</code> and a
+            count. An unrestored backup is a guess, not a backup. The full procedure,
+            including a dry run into a scratch path, is on this page.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Vacuum is not a backup</h5>
+      <p>
+            <code>VACUUM</code> rewrites the file to reclaim free pages. It does not
+            protect anything, and it cannot run while another statement holds the
+            database. Run <code>sqtseries vacuum</code> with the service stopped for
+            anything large; the admin command exists but holds the single SQLite
+            writer for the duration, which pauses ingest.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Automatic backups are on by default</h5>
+      <p>
+            The service snapshots once at first start, then every
+            <code>backup.interval</code>. A pass that finds a snapshot younger than
+            the interval counts the run and writes nothing, so a restart cannot
+            produce a second copy in the same second.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Retention already limits what you need to keep</h5>
+      <p>
+            Partitions older than <code>retention.default_ttl</code> are dropped,
+            rollup rows and all, so the file does not grow without bound. Choose a
+            backup interval and a retention window that suit the data rather than
+            archiving indefinitely.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — one file, copied, and put back.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

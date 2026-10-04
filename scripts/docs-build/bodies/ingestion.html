@@ -1,0 +1,492 @@
+<section>
+  <h2>Three ways in, one shape</h2>
+  <p class="lede">A measurement is four fields of JSON. Send it on a ZeroMQ PUSH
+  socket, an HTTP POST, or through the bundled Python <code>Client</code> — the
+  three are interchangeable and land in the same place.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Measurement</strong>, or <strong>point</strong> — one value for one metric
+    at one moment. Everything else on this page is machinery around storing those.<br>
+    <strong>Series</strong> — one metric with one exact set of tags. The pair is the
+    identity, and it is what a stored row is keyed on.<br>
+    <strong>Topic</strong> — the metric name on the wire. Publishing and subscribing both
+    use it.<br>
+    <strong>Frame</strong> — one ZeroMQ message. On the ingest path one frame is one
+    measurement.<br>
+    <strong>HWM</strong> — high-water mark. The queue limit on a socket; reaching it is
+    how backpressure begins.<br>
+    <strong>Clock skew</strong> — how far a client timestamp is from the server clock. A
+    write outside the window is refused.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">4</div><div class="l">Fields per measurement</div></div>
+    <div class="stat"><div class="n">101000</div><div class="l">Ingest HWM, frames</div></div>
+    <div class="stat"><div class="n">100</div><div class="l">Queued batches, bounded</div></div>
+    <div class="stat"><div class="n">300s</div><div class="l">Clock-skew window</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Silent drops</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>The message</h2>
+  <p>This is the whole contract. It is the same on every transport, so anything you
+  learn reading it applies everywhere.</p>
+
+{{wire_ingest}}
+
+  <p>A minimal message, and a complete one:</p>
+
+<pre><span class="c">// the smallest useful message</span>
+{<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: 0.42}
+
+<span class="c">// everything, with an explicit time</span>
+{
+  <span class="v">"metric"</span>:    <span class="v">"cpu.load"</span>,
+  <span class="v">"value"</span>:     0.42,
+  <span class="v">"tags"</span>:       {<span class="v">"host"</span>: <span class="v">"web1"</span>, <span class="v">"region"</span>: <span class="v">"eu-west"</span>},
+  <span class="v">"timestamp"</span>: <span class="v">1790786862.857</span>
+}</pre>
+
+  <div class="box warn">
+    <span class="lbl">Server-assigned timestamps are forced strictly increasing</span>
+    <p>When you omit <code>timestamp</code>, the server stamps it — and then walks it
+    forward by at least one nanosecond if it would otherwise collide with the previous
+    one it handed out. The reason is the primary key: a measurement table is keyed on
+    <code>(series_id, timestamp_ns)</code>, so two points for the same series at the
+    same nanosecond would violate it and roll back the whole transaction.</p>
+    <p>The wall clock is coarser than a burst — fifty frames can land inside one clock
+    tick — so without this a burst of untimestamped writes to one metric would lose
+    data. The drift is bounded at 1 ns per assigned point, which is far below any
+    resolution you would ever notice.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Over HTTP</h2>
+  <p>One object, or an array of them. The array is validated in full before anything
+  is stored, so a single bad item rejects the batch rather than leaving a
+  half-written one — which makes a retry safe.</p>
+
+<pre><span class="p">$</span> curl -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">'{"metric":"cpu.load","value":0.42,"tags":{"host":"web1"}}'</span>
+<span class="ok">{"status":"ok","written":1}</span>
+
+<span class="p">$</span> curl -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">'[{"metric":"cpu.load","value":0.51,"tags":{"host":"web1"}},
+         {"metric":"cpu.load","value":0.63,"tags":{"host":"web1"}}]'</span>
+<span class="ok">{"status":"ok","written":2}</span></pre>
+
+  <p>Every accepted measurement is also republished to live subscribers, exactly as
+  the ZeroMQ path does. A write over HTTP is therefore visible on a WebSocket within
+  milliseconds.</p>
+
+  <h3>What gets refused</h3>
+  <p>All of these are <code>400</code>, with the reason in <code>detail</code>:</p>
+
+<pre><span class="c"># value must be a number</span>
+curl -X POST .../write -d <span class="v">'{"metric":"x","value":"hot"}'</span>
+<span class="v">{"detail":"value must be a number"}</span>
+
+<span class="c"># metric must be present and non-empty</span>
+curl -X POST .../write -d <span class="v">'{"metric":"","value":1}'</span>
+<span class="v">{"detail":"metric must be a non-empty string"}</span>
+
+<span class="c"># tags are string -&gt; string, every pair</span>
+curl -X POST .../write -d <span class="v">'{"metric":"x","value":1,"tags":{"n":5}}'</span>
+<span class="v">{"detail":"tags must be string-&gt;string object"}</span>
+
+<span class="c"># a value must be finite — not NaN, not Infinity</span>
+curl -X POST .../write -d <span class="v">'{"metric":"x","value":1e400}'</span>
+<span class="v">{"detail":"value must be finite"}</span>
+
+<span class="c"># outside the clock-skew window</span>
+curl -X POST .../write -d <span class="v">'{"metric":"x","value":1,"timestamp":1000000000}'</span>
+<span class="v">{"detail":"client timestamp skew exceeds 300.0s"}</span></pre>
+
+  <p class="small muted">A boolean is rejected as a value even though Python treats
+  <code>bool</code> as a subclass of <code>int</code> — <code>true</code> is almost
+  never a measurement, and accepting it hides a bug in the caller.</p>
+</section>
+
+<section>
+  <h2>Over ZeroMQ</h2>
+  <p>A PUSH socket, one JSON object per frame, no reply. Connect to the ingest port,
+  which is the one the auto-detector chose — read it from
+  <code>sqtseries ports</code>, not from your config.</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> import zmq, orjson, time
+<span class="p">&gt;&gt;&gt;</span> ctx = zmq.Context()
+<span class="p">&gt;&gt;&gt;</span> sock = ctx.socket(zmq.PUSH)
+<span class="p">&gt;&gt;&gt;</span> sock.setsockopt(zmq.LINGER, <span class="v">2000</span>)   <span class="c"># flush on close, do not lose the last point</span>
+<span class="p">&gt;&gt;&gt;</span> sock.connect(<span class="v">"tcp://127.0.0.1:12500"</span>)
+<span class="p">&gt;&gt;&gt;</span> for i in range(5):
+<span class="p">... </span>    sock.send(orjson.dumps({<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: i * <span class="v">0.1</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>}}))
+<span class="p">...</span>
+<span class="p">&gt;&gt;&gt;&gt;&gt;&gt;&gt;</span> sock.close(linger=<span class="v">2000</span>); ctx.term()</pre>
+
+  <div class="box warn">
+    <span class="lbl">Set LINGER before you connect, and keep it non-zero</span>
+    <p>ZeroMQ drops anything still queued in the send buffer when a socket closes.
+    With the default <code>LINGER = 0</code>, a measurement written microseconds
+    before exit is simply gone — verified: write-then-close delivered 0 of 1. Setting
+    <code>LINGER = 2000</code> gives the queue two seconds to drain. It must also be
+    set <em>before</em> connect, which is a pyzmq requirement and not a ZeroMQ
+    one.</p>
+    <p>The bundled <code>Client</code> does both for you.</p>
+  </div>
+
+  <h3>There is no batch envelope</h3>
+  <p>One frame is one measurement, and that is not an oversight. Throughput comes
+  from many small frames and from committing a burst in one transaction, not from a
+  larger payload. A 10,000-point batch in a single frame would have to be parsed,
+  validated and held whole before anything could be stored, which turns one slow
+  allocation into a stall for every other client.</p>
+
+  <pre><span class="p">&gt;&gt;&gt;</span> <span class="c"># faster: many small frames</span>
+<span class="p">&gt;&gt;&gt;</span> <span class="f">for</span> point <span class="f">in</span> points:
+<span class="p">... </span>    sock.send(orjson.dumps(point))
+<span class="p">...</span>
+
+<span class="c"># not faster, and much worse under load: one huge frame</span>
+<span class="p">&gt;&gt;&gt;</span> sock.send(orjson.dumps(points))</pre>
+
+  <p>The persister batches whatever it drained. It draws the batch boundary, not the
+  producer.</p>
+</section>
+
+<section>
+  <h2>From Python</h2>
+  <p>The bundled <code>Client</code> wraps all four sockets. It is the shortest path to
+  a working integration in Python.</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> from sqtseries import Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+
+<span class="c"># one point, server-stamped</span>
+<span class="p">&gt;&gt;&gt;</span> c.write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+
+<span class="c"># with an explicit time, epoch seconds or ISO-8601</span>
+<span class="p">&gt;&gt;&gt;</span> c.write(<span class="v">"cpu.load"</span>, <span class="v">0.44</span>, timestamp=<span class="v">"2026-09-30T17:00:00Z"</span>)
+
+<span class="c"># many points, one frame each — still one loop, still no reply</span>
+<span class="p">&gt;&gt;&gt;</span> c.write_many([
+<span class="p">...</span>     {<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.51</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>}},
+<span class="p">...</span>     {<span class="v">"metric"</span>: <span class="v">"mem.used"</span>, <span class="v">"value"</span>: <span class="v">3.2</span>,  <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>}},
+<span class="p">...</span> ])
+
+<span class="p">&gt;&gt;&gt;</span> c.close()   <span class="c"># flushes the write socket, then closes everything</span></pre>
+
+  <p>It is also a context manager, so an exception cannot leak a socket:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> <span class="f">with</span> Client() <span class="f">as</span> c:
+<span class="p">...</span>     c.write(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>)
+<span class="p">...</span>     <span class="c"># closed on the way out, LINGER included</span></pre>
+
+  <p>Pointing at non-default ports:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> c = Client(ports={<span class="v">"write"</span>: <span class="v">12601</span>, <span class="v">"query"</span>: <span class="v">12602</span>,
+<span class="p">...</span>                <span class="v">"subscribe"</span>: <span class="v">12603</span>, <span class="v">"admin"</span>: <span class="v">12604</span>})</pre>
+</section>
+
+<section>
+  <h2 id="tags">Tags are dimensions</h2>
+  <p>A tag is a label that splits a metric into a dimension. This is the part of the
+  model worth understanding properly, because getting it wrong is expensive in a way
+  that is not obvious until much later.</p>
+
+  <p>The identity of a stored measurement is the pair (metric, tags). Not the metric
+  alone, and not the metric plus an arbitrary identifier:</p>
+
+<pre><span class="c">// three series, not one series with three rows</span>
+{<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.42</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>}}
+{<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.71</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web2"</span>}}
+{<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"value"</span>: <span class="v">0.33</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web3"</span>}}</pre>
+
+  <p>Querying <code>cpu.load</code> returns all three mixed together, ordered by time.
+  That is usually what you want for a dashboard, and almost never what you want for
+  an alert — which is why knowing this before you have a million rows matters more
+  than it sounds.</p>
+
+  <table>
+    <thead><tr><th>You want</th><th>Do this</th></tr></thead>
+    <tbody>
+      <tr><td>Every host's load in one series</td>
+        <td>query <code>cpu.load</code> with no tag filter</td></tr>
+      <tr><td>Just <code>web1</code></td>
+        <td>query the metric, then filter on the tags in the result — there is no
+        server-side tag filter on the query path</td></tr>
+      <tr><td>A single flat metric per host</td>
+        <td>use distinct metric names, <code>cpu.load.web1</code>, and no tags</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <span class="lbl">Tags cannot be changed later</span>
+    <p>There is no update and no delete on the query path, and retention drops whole
+    monthly partitions. So a tag set you write is the tag set that measurement keeps
+    for its whole life. Two consequences worth deciding early:</p>
+    <p><strong>Do not use a high-cardinality value as a tag.</strong> A request ID, a
+    session ID or a full timestamp turns one series per tag value into one series per
+    row, which multiplies the series table and defeats the rollup. Tags are for
+    dimensions with a small number of values — host, region, service, status.</p>
+    <p><strong>Keep the set of tag keys small and stable.</strong> Each distinct set
+    makes its own series. If <code>cpu.load</code> is written once with
+    <code>{host}</code> and once with <code>{host, rack}</code>, that is two series,
+    and a query returns both interleaved.</p>
+    <p>Values must be strings. The storage layer JSON-encodes the whole set into one
+    column behind a <code>CHECK</code> constraint that rejects anything which is not
+    valid JSON, so a malformed tag set cannot be stored even if validation is
+    bypassed.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Timestamps</h2>
+  <p>Three accepted forms, and one rule that catches people out.</p>
+
+  <table>
+    <thead><tr><th>Form</th><th>Example</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Epoch seconds</td><td><code>1790786862.857</code></td>
+        <td>A float. Converted to nanoseconds internally.</td></tr>
+      <tr><td>ISO-8601 with <code>Z</code></td><td><code>2026-09-30T17:00:00Z</code></td>
+        <td>The clearest option and the one to prefer.</td></tr>
+      <tr><td>ISO-8601 with an offset</td><td><code>2026-09-30T19:00:00+02:00</code></td>
+        <td>Converted to UTC.</td></tr>
+      <tr><td>ISO-8601 with no zone</td><td><code>2026-09-30T17:00:00</code></td>
+        <td>Read as <strong>UTC</strong>, not as local time.</td></tr>
+      <tr><td>ISO-8601, nanoseconds</td><td><code>2026-09-30T17:00:00.123456789Z</code></td>
+        <td>Up to 9 fractional digits. Fewer pad right (<code>.123</code> is
+        123 ms); more than 9 truncate.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box">
+    <span class="lbl">The nanosecond heuristic</span>
+    <p>A value whose absolute size exceeds <code>1e12</code> is interpreted as
+    <strong>nanoseconds</strong> rather than seconds. That threshold is what lets an
+    ISO-8601 timestamp survive the JSON round trip as an exact integer: once parsed
+    it becomes something like <code>1790786862857143900</code>, and on the way back
+    in it is clearly nanoseconds. Epoch seconds never come close to
+    <code>1e12</code> — current values are around <code>1.79e9</code> — so the two
+    cannot be confused.</p>
+  </div>
+
+  <h3>The clock-skew guard</h3>
+  <p>With <code>reject_client_timestamp_skew_s</code> at its default of 300, a
+  timestamp more than five minutes from the server clock is refused:</p>
+
+<pre><span class="c"># a 2026-09-11 timestamp written on 2026-09-30</span>
+curl -X POST .../write -d <span class="v">'{"metric":"x","value":1,"timestamp":"2026-09-11T14:04:00Z"}'</span>
+<span class="v">{"detail":"client timestamp skew exceeds 300.0s"}</span>   <span class="c"># 400</span></pre>
+
+  <p>This is deliberate and it protects a real invariant. The hourly rollup only
+  summarises an hour <em>after</em> it has finished — and it waits the skew window
+  before doing so, precisely so that a late write cannot land in an hour already
+  summarised. Without the guard you could write into a closed hour and its value
+  would be invisible to every rollup-served query until the partition was rebuilt.</p>
+
+  <p>If your producer's clock cannot be trusted, set
+  <code>reject_client_timestamp_skew_s = 0</code> and rely on the rollup watermark
+  instead. Note the trade: with the guard off, a write that genuinely lands in a
+  rolled hour is accepted and quietly missing from rollup answers.</p>
+</section>
+
+<section>
+  <h2>When the producer outruns the disk</h2>
+  <p>Ingest is a bounded pipeline, and it stays bounded by pushing back rather than by
+  dropping. Three limits do the work, in this order:</p>
+
+  <ol class="steps">
+    <li><b>The persister falls behind</b><span>Commits are slower than arrivals, so
+    batches start queueing. The queue is capped at
+    <code>ingestion.pending_max</code> — 100 batches by default.</span></li>
+    <li><b>The queue is full</b><span>The receive loop stops reading frames. It does
+    not discard them. They sit in the socket, which holds up to
+    <code>ingestion.hwm</code> — 101,000 frames by default, chosen to absorb a
+    producer burst.</span></li>
+    <li><b>The socket is full</b><span>PUSH senders block in <code>send()</code>. This
+    is real backpressure, and it propagates to your producer's own write loop.</span></li>
+  </ol>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 250" role="img" aria-label="Backpressure ladder: a producer sends PUSH frames into a socket bounded by the high-water mark of 101000 frames; the receive loop parses into a batch queue bounded at 100 outstanding batches; the persister commits each batch in one transaction; when the queue fills the loop suspends, and when the socket fills the producer blocks, so memory stays bounded and nothing is dropped to keep up">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <style>
+          .ext{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .cont{fill:#fff;stroke:#0d4f60;stroke-width:1.6}
+          .bound{fill:#fdefef;stroke:#a4262c;stroke-width:1.5;stroke-dasharray:5 3}
+          .n{font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .p{font:600 10.5px ui-monospace,Menlo,monospace;fill:#0d4f60}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .w{font:600 10px ui-monospace,Menlo,monospace;fill:#a4262c}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .back{fill:none;stroke:#a4262c;stroke-width:1.6;stroke-dasharray:6 4;marker-end:url(#ah1)}
+        </style>
+      </defs>
+
+      <rect class="ext" x="20" y="70" width="150" height="70" rx="6"/>
+      <text class="n" x="36" y="96">producer</text>
+      <text class="a" x="36" y="114">PUSH send()</text>
+      <text class="s" x="36" y="132">blocks when full</text>
+
+      <rect class="bound" x="204" y="60" width="176" height="90" rx="6"/>
+      <text class="n" x="220" y="86">socket buffer</text>
+      <text class="w" x="220" y="106">HWM = 101000 frames</text>
+      <text class="s" x="220" y="126">frames wait here,</text>
+      <text class="s" x="220" y="142">never discarded</text>
+
+      <rect class="cont" x="414" y="70" width="166" height="70" rx="6"/>
+      <text class="n" x="430" y="96">receive loop</text>
+      <text class="p" x="430" y="114">parse + validate</text>
+      <text class="s" x="430" y="132">never awaits commit</text>
+
+      <rect class="bound" x="614" y="60" width="166" height="90" rx="6"/>
+      <text class="n" x="630" y="86">batch queue</text>
+      <text class="w" x="630" y="106">max 100 batches</text>
+      <text class="s" x="630" y="126">the first bound</text>
+      <text class="s" x="630" y="142">to fill</text>
+
+      <rect class="cont" x="814" y="70" width="150" height="70" rx="6"/>
+      <text class="n" x="830" y="96">persister</text>
+      <text class="p" x="830" y="114">one commit</text>
+      <text class="p" x="830" y="130">per batch</text>
+
+      <path class="ln" d="M170,105 L204,105"/>
+      <path class="ln" d="M380,105 L414,105"/>
+      <path class="ln" d="M580,105 L614,105"/>
+      <path class="ln" d="M780,105 L814,105"/>
+
+      <path class="back" d="M697,60 C697,20 292,20 292,60"/>
+      <text class="w" x="380" y="16">queue full → the loop stops reading → the socket fills → the producer blocks</text>
+
+      <path class="ln" d="M889,150 C889,200 95,200 95,150"/>
+      <text class="s" x="330" y="218">on shutdown the socket is drained before it closes, so accepted frames are persisted</text>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 2 — the ladder of bounds.</strong> The order matters.
+  The batch queue is the first thing to fill, because it is by far the smallest — 100
+  batches against 101,000 frames. That is deliberate: the queue is where backpressure
+  is cheapest to apply, and the socket HWM exists to absorb a burst while the queue
+  catches up, not to be a buffer the service treats as spare capacity.</figcaption>
+  </figure>
+
+  <div class="box ok">
+    <span class="lbl">When a batch genuinely cannot be stored</span>
+    <p>If the insert fails — a disk error, a corrupt row, a constraint the validation
+    did not anticipate — the whole batch is dropped and its size is added to
+    <code>dropped</code> on the admin socket. The worker survives; one bad batch does
+    not take the service with it.</p>
+    <p>That is the only way data leaves the pipeline, and it is counted. So
+    <code>dropped</code> and <code>invalid</code> on the admin socket tell you
+    whether anything was lost, without you having to infer it from a gap in the data.
+    A sustained non-zero <code>dropped</code> means the database is rejecting
+    writes; alert on it.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Without a service at all</h2>
+  <p>If your program is a single Python process, you do not need any of this. Open the
+  engine directly — no ports, no service, no serialisation, no other process to
+  supervise.</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> <span class="f">from</span> sqtseries.engine <span class="f">import</span> StorageEngine, create_sqlite_engine
+<span class="p">&gt;&gt;&gt;</span> <span class="f">from</span> sqtseries <span class="f">import</span> TimeSeriesDB
+<span class="p">&gt;&gt;&gt;</span> <span class="f">import</span> time
+
+<span class="p">&gt;&gt;&gt;</span> engine = create_sqlite_engine(<span class="v">"/tmp/embedded.sqlite"</span>)
+<span class="p">&gt;&gt;&gt;</span> db = TimeSeriesDB(StorageEngine(engine))
+
+<span class="p">&gt;&gt;&gt;</span> db.insert(<span class="v">"cpu.load"</span>, <span class="v">0.42</span>, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+<span class="p">&gt;&gt;&gt;&gt;&gt;&gt;&gt;</span> <span class="v">1</span>
+<span class="p">&gt;&gt;&gt;</span> db.query(<span class="v">"cpu.load"</span>)
+<span class="p">[(1790786862857143900, 0.42)]</span>
+
+<span class="p">&gt;&gt;&gt;</span> db.aggregate(<span class="v">"cpu.load"</span>)
+<span class="p">{'avg': 0.42}</span>
+
+<span class="p">&gt;&gt;&gt;</span> db.close(); engine.dispose()</pre>
+
+  <p>Same schema, same query code, same rollup. The difference is only that
+  <code>query</code> returns <strong>nanoseconds</strong> here rather than seconds,
+  because there is no gateway doing the conversion. The full embedded API is on
+  <a href="api.html#embedded">API Reference</a>.</p>
+</section>
+
+<section>
+  <h2>Choosing a transport</h2>
+  <table>
+    <thead><tr><th></th><th>ZeroMQ PUSH</th><th>HTTP POST</th><th>Embedded</th></tr></thead>
+    <tbody>
+      <tr><td>Best for</td><td>sustained high rates from a long-lived process</td>
+        <td>shell scripts, browsers, one-off writes</td>
+        <td>a single Python process</td></tr>
+      <tr><td>Reply</td><td>none, fire and forget</td>
+        <td><code>{"status":"ok","written":N}</code></td>
+        <td>rows inserted</td></tr>
+      <tr><td>Batch in one call</td><td class="muted">no</td><td>yes, a JSON array</td>
+        <td>yes, <code>insert_many</code></td></tr>
+      <tr><td>Backpressure</td><td>blocks the sender</td>
+        <td>a <code>504</code> if the commit is slow</td>
+        <td>the call returns when committed</td></tr>
+      <tr><td>Publishes to subscribers</td><td>yes</td><td>yes</td>
+        <td class="muted">no — there is no bus</td></tr>
+      <tr><td>Needs another language's ZMQ binding</td><td>yes</td><td>no</td>
+        <td>Python only</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">Use both HTTP and ZeroMQ against the same service if you
+  like. They converge on the same tables, the same rollup, and the same live
+  stream — and the admin counters merge them, so there is no way to tell afterwards
+  which transport a point arrived on.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>Reading back what you stored: time windows, all ten aggregations, buckets,
+      limits, and the rollup fast path.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>Watching stored values arrive live over ZeroMQ SUB or a WebSocket, with
+      the topic-matching rules.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>The same message from Go, Rust, PHP, Node.js and the shell, with the one
+      units rule that causes most bugs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every ingest setting with its real default — HWM, queue depth, frame size and
+      the skew window.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The exact wire shapes, the HTTP routes with every parameter, and every error
+      code a write can return.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>Runnable producer scripts, including a sustained high-rate pump and a tag
+      discipline you can copy.</p>
+    </div>
+  </div>
+</section>

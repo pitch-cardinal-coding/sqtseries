@@ -12,6 +12,11 @@ def _ns(dt: datetime) -> int:
     return int(dt.timestamp() * 1_000_000_000)
 
 
+def _shift_months(dt: datetime, months: int) -> datetime:
+    total = dt.year * 12 + (dt.month - 1) + months
+    return dt.replace(year=total // 12, month=total % 12 + 1, day=15)
+
+
 @pytest.fixture
 def engine(tmp_path):
     eng = create_sqlite_engine(str(tmp_path / "ret.sqlite"))
@@ -136,15 +141,19 @@ class TestRetentionManager:
 
         pm = PartitionManager(engine)
 
-        for y, m in [(2025, 11), (2026, 2)]:
-            pm.ensure_partition(y, m)
-            dt = datetime(y, m, 15, tzinfo=UTC)
+        # run_once() uses the real "now", so hardcoded months rotted once already
+        # (both aged out together after the date passed 2026-02). Retention keeps
+        # a partition whose last day is >= now - ttl, so a 200d TTL puts the
+        # horizon ~6 months back: -1 clears it, -14 misses it, both by a lot.
+        now = datetime.now(UTC)
+        recent = _shift_months(now, -1)
+        old = _shift_months(now, -14)
+
+        for dt in (old, recent):
+            pm.ensure_partition(dt.year, dt.month)
             store.insert_many([("cpu", None, 1.0, _ns(dt))])
         store.invalidate_partitions()
         assert len(store._parts_cache if store._parts_cache else []) in (0, 2)
-
-        # Real "now" is far past 2026-02, so use a TTL that retains it:
-        # horizon = now - 200d lands in Jan 2026 -> keep 2026_02, drop 2025_11.
 
         mgr = RetentionManager(engine, store, ttl="200d", interval=3600.0)
 
@@ -152,8 +161,8 @@ class TestRetentionManager:
         await mgr.run_once()
         pm = PartitionManager(engine)
         names = pm.list_partitions()
-        assert "measurements_2025_11" not in names
-        assert "measurements_2026_02" in names
+        assert f"measurements_{old:%Y_%m}" not in names
+        assert f"measurements_{recent:%Y_%m}" in names
         assert mgr.runs == 1
         assert mgr.dropped_total == 1
 

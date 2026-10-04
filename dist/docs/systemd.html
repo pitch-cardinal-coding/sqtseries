@@ -3,246 +3,697 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Systemd — sqtseries</title>
+<title>sqtseries — Running as a systemd service</title>
+<meta name="description" content="Install sqtseries as a hardened systemd unit, per-user or system-wide, with a dedicated user, correct permissions, and a verified restart.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a class="here" href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Systemd Integration</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>Systemd is the tool most Linux computers use to start programs in the
-background and keep them running. Running sqtseries as a systemd service
-gives it three things automatically: it starts when you boot the computer, it
-restarts if it crashes, and its logs are collected in one place
-(journald). <code>sqtseries install</code> writes a pre-hardened unit file and
-enables + starts it; <code>sqtseries uninstall</code> removes it.</p>
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · operations</a></div>
+  <h1>Systemd</h1>
+  <p class="tagline">The service is meant to run for years unattended. This page generates the unit, explains every hardening directive in it, and shows how to prove the service comes back after a failure.</p>
+  <div class="meta">
+    <span><b>Install</b> <code>sqtseries install</code></span>
+    <span><b>Scope</b> user unit, or <code>--system</code> for root</span>
+    <span><b>Hardening</b> <code>ProtectSystem=strict</code> and more</span>
+    <span><b>Writable</b> the data directory only</span>
+    <span><b>Restart</b> on failure, 5 s backoff</span>
+  </div>
+</header>
 
-<h3>Install</h3>
-<pre><code># per-user service (no root)
-sqtseries install
+<main>
+<section>
+  <h2>Install it as a service</h2>
+  <p class="lede">The service is meant to run for years unattended. One command writes
+  a hardened systemd unit, and this page explains every line of it.</p>
 
-# system-wide (root) — run as a dedicated user in production
-sudo sqtseries install --system
-</code></pre>
-<p><code>install</code> does three things: writes the unit file, runs
-<code>systemctl --user daemon-reload</code> (or plain
-<code>daemon-reload</code> for <code>--system</code>), and runs
-<code>systemctl [--user] enable --now sqtseries</code> (start now + start on
-boot). It uses the Python interpreter of the <code>sqtseries</code> command
-you ran (its <code>sys.executable</code>), so the unit starts the same
-Python that installed it.</p>
-<p>There is no root check in the code: <code>--system</code> simply targets
-<code>/etc/systemd/system</code>, so without root the write fails with a
-permission error — run it under <code>sudo</code>.</p>
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Unit</strong> — the systemd service file, <code>sqtseries.service</code>.<br>
+    <strong>User unit</strong> — under <code>~/.config/systemd/user/</code>, no root,
+    stops when you log out unless lingering is on.<br>
+    <strong>System unit</strong> — under <code>/etc/systemd/system/</code>, runs at
+    boot for good.<br>
+    <strong>Hardening</strong> — systemd directives that restrict what the process may
+    touch.<br>
+    <strong>Restart policy</strong> — what systemd does when the process exits.<br>
+    <strong>Journal</strong> — the log, read with <code>journalctl</code>.<br>
+    <strong>Lingering</strong> — <code>loginctl enable-linger</code>, which keeps a
+    user unit alive with nobody logged in.</p>
+  </div>
 
-<h3>User vs system unit</h3>
-<div class="table-wrap"><table>
-  <tr><th></th><th>User unit (default)</th><th>System unit (<code>--system</code>)</th></tr>
-  <tr><td>Location</td><td><code>~/.config/systemd/user/sqtseries.service</code></td><td><code>/etc/systemd/system/sqtseries.service</code></td></tr>
-  <tr><td>Control</td><td><code>systemctl --user ...</code> (or
-      <code>journalctl --user ...</code>)</td><td><code>sudo systemctl ...</code>
-      (or <code>journalctl ...</code>)</td></tr>
-  <tr><td>Runs as</td><td>your user, in your session</td><td>the installing user
-      (auto-detected into <code>User=</code> with full home access, so the
-      database stays under their <code>$HOME</code>); root only when no
-      installing user is detected — or use the dedicated user below</td></tr>
-  <tr><td>Boot start</td><td>after you log in (needs <code>loginctl
-      enable-linger $USER</code> to survive logout)</td><td>on boot, independent
-      of any login</td></tr>
-</table></div>
+  <div class="stats">
+    <div class="stat"><div class="n">1</div><div class="l">Command to install</div></div>
+    <div class="stat"><div class="n">strict</div><div class="l">Filesystem protection</div></div>
+    <div class="stat"><div class="n">5 s</div><div class="l">Restart backoff</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Retries per minute</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">Writable paths, no more</div></div>
+  </div>
+</section>
 
-<h3>The generated unit</h3>
-<p>Rendered with the database at its default location, for a per-user
-install with a config file (lines shown are the exact template):</p>
-<pre><code>[Unit]
+<section>
+  <h2>The command</h2>
+  <p>Install it with the same configuration you actually want. The unit embeds the
+  flags it was installed with, so a service that serves custom ports does not come
+  back on the defaults after a reboot.</p>
+
+<pre><span class="c"># a user unit — no root needed</span>
+<span class="p">$</span> sqtseries <span class="o">--config</span> ~/sqtseries.toml <span class="o">install</span>
+systemd unit installed
+
+<span class="c"># a system unit — runs at boot, needs root</span>
+<span class="p">$</span> sudo sqtseries <span class="o">--config</span> /etc/sqtseries/config.toml <span class="o">install</span> <span class="o">--system</span>
+systemd unit installed</pre>
+
+  <p><code>install</code> writes the file, runs <code>daemon-reload</code>, and
+  enables and starts the unit. There is no separate enable step.</p>
+
+  <div class="box warn">
+    <span class="lbl">Install with your config, every time</span>
+    <p>The unit's <code>ExecStart</code> is built from the arguments you pass to
+    <code>install</code>. Install without <code>--config</code> and the service will
+    boot with whatever <code>~/.sqtseries/</code> happens to say at that moment, which
+    is not the same thing as the ports you tested.</p>
+    <p>It also embeds the resolved database path as
+    <code>SQT_SERIES_DATABASE__PATH</code>. Installing a system unit as root against a
+    default path would put the database under <code>/root</code>, so the installer
+    detects the human who ran <code>sudo</code> and re-anchors the path into their
+    home — including the case where <code>~</code> had already expanded to
+    <code>/root</code> before the installer ever saw it.</p>
+  </div>
+
+  <h3>User unit or system unit</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th></th><th>User unit</th><th>System unit (<code>--system</code>)</th></tr></thead>
+    <tbody>
+      <tr><td>File</td><td><code>~/.config/systemd/user/sqtseries.service</code></td>
+        <td><code>/etc/systemd/system/sqtseries.service</code></td></tr>
+      <tr><td>Needs root</td><td class="muted">no</td><td>yes</td></tr>
+      <tr><td>Target</td><td><code>default.target</code></td>
+        <td><code>multi-user.target</code></td></tr>
+      <tr><td>Survives logout</td><td>only with
+        <code>loginctl enable-linger $USER</code></td><td><strong>yes</strong></td></tr>
+      <tr><td>Runs as</td><td>you</td>
+        <td>you if the installer found you under <code>sudo</code>, otherwise
+        root</td></tr>
+      <tr><td>Best for</td><td>a desktop or a laptop you sit at</td>
+        <td>a machine that is always on</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>The most common surprise with a user unit is that it stops when you log out.
+  Enable lingering once:</p>
+
+<pre><span class="p">$</span> loginctl enable-linger <span class="v">$USER</span></pre>
+</section>
+
+<section>
+  <h2>The generated unit</h2>
+  <p>This is the real output, with a real config. Yours will differ in the paths and
+  the Python interpreter.</p>
+
+<pre><span class="c">[Unit]</span>
 Description=sqtseries time-series database
 After=network.target
 StartLimitIntervalSec=60
 StartLimitBurst=3
 
-[Service]
+<span class="c">[Service]</span>
 Type=simple
-ExecStart=/home/user/.venv/bin/python -m sqtseries --config /home/user/sqtseries.toml run
+ExecStart=/home/iam/devcode/.env/sqtseries/bin/python3 -m sqtseries --config /home/iam/sqtseries.toml <span class="f">run</span>
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=sqtseries
-
-# Security hardening
+<span class="c"># Security hardening</span>
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/user/.sqtseries/data /home/user/.sqtseries/backups
+ReadWritePaths=/home/iam/.sqtseries/data /home/iam/.sqtseries/backups
 
-# Environment
+<span class="c"># Environment</span>
 Environment=LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
-Environment=SQT_SERIES_DATABASE__PATH=/home/user/.sqtseries/data/db.sqlite
+Environment=SQT_SERIES_DATABASE__PATH=/home/iam/.sqtseries/data/db.sqlite
 Environment=SQT_SERIES_LOGGING__LEVEL=INFO
 
-[Install]
-WantedBy=default.target
-</code></pre>
-<p>Field by field:</p>
-<div class="table-wrap"><table>
-  <tr><th>Directive</th><th>Value</th><th>Purpose</th></tr>
-  <tr><td><code>[Unit] After</code></td><td><code>network.target</code></td><td>Start once the network stack is up (the service binds local sockets).</td></tr>
-  <tr><td><code>StartLimitIntervalSec</code> / <code>StartLimitBurst</code></td><td><code>60</code> / <code>3</code></td><td>Refuse to start more than 3 times within 60 s — breaks crash loops (e.g. a persistent port conflict).</td></tr>
-  <tr><td><code>Type</code></td><td><code>simple</code></td><td>sqtseries stays in the foreground and is the main process.</td></tr>
-  <tr><td><code>ExecStart</code></td><td><code>&lt;python&gt; -m sqtseries [--config &lt;path&gt;] run</code></td><td>The same command the CLI runs. <code>--config</code> appears only when you installed with one.</td></tr>
-  <tr><td><code>Restart</code></td><td><code>on-failure</code></td><td>Restart only when the process exits abnormally (non-zero, or killed by a signal).</td></tr>
-  <tr><td><code>RestartSec</code></td><td><code>5</code></td><td>Wait 5 s between restarts.</td></tr>
-  <tr><td><code>StandardOutput</code> / <code>StandardError</code></td><td><code>journal</code></td><td>All logs go to journald, nothing is written to files.</td></tr>
-  <tr><td><code>SyslogIdentifier</code></td><td><code>sqtseries</code></td><td>Tag for <code>journalctl -u sqtseries.service</code>.</td></tr>
-  <tr><td><code>NoNewPrivileges</code></td><td><code>true</code></td><td>Cannot gain new privileges (setuid etc.).</td></tr>
-  <tr><td><code>ProtectSystem</code></td><td><code>strict</code></td><td>The whole filesystem is read-only for the service.</td></tr>
-  <tr><td><code>ProtectHome</code></td><td><code>read-only</code> (user units; <code>false</code> on system units with a detected user)</td><td><code>~</code> is readable but not writable.</td></tr>
-  <tr><td><code>ReadWritePaths</code></td><td>database parent dir + <code>backup.path</code> dir</td><td>The only places the service may write: its SQLite file lives in the first, backups written by <code>sqtseries backup</code> go to the second.</td></tr>
-  <tr><td><code>Environment=LD_PRELOAD</code></td><td>path of <code>libjemalloc.so.2</code> when present, otherwise omitted</td><td>Uses the jemalloc allocator when the machine has it (returns freed memory faster under sustained load); plain default allocator otherwise. The service runs correctly either way.</td></tr>
-  <tr><td><code>Environment=SQT_SERIES_DATABASE__PATH</code></td><td>resolved <code>database.path</code></td><td>Keeps the service pointed at the same database the CLI resolves to (including any <code>--db</code> you used when installing).</td></tr>
-  <tr><td><code>Environment=SQT_SERIES_LOGGING__LEVEL</code></td><td><code>INFO</code></td><td>Stable log level for the journal.</td></tr>
-  <tr><td><code>WantedBy</code></td><td><code>default.target</code> (user) / <code>multi-user.target</code> (system)</td><td>Start (and auto-start) with the default target, i.e. normal boot.</td></tr>
-  <tr><td><code>User</code></td><td>installing user (system unit only, when detected)</td><td>Present only on system units with a detected non-root installer; user units have no <code>User=</code> line. Pairs with <code>ProtectHome=false</code> and the home dir in <code>ReadWritePaths</code> on those units.</td></tr>
-</table></div>
+<span class="c">[Install]</span>
+WantedBy=default.target</pre>
 
-<h3>Production layout (/opt)</h3>
-<p>A production install (<code>make deploy</code> or <code>cd dist &amp;&amp;
-sudo make install</code>) lays out exactly these paths — verified on this
-machine, all readable by the installing user:</p>
-<div class="table-wrap"><table>
-  <tr><th>Path</th><th>What it is</th></tr>
-  <tr><td><code>/opt/sqtseries</code></td><td>production venv (<code>bin/python3</code>, <code>bin/sqtseries</code>)</td></tr>
-  <tr><td><code>/opt/sqtseries/config.toml</code></td><td>service config (installed from the template on first install; never overwritten)</td></tr>
-  <tr><td><code>/usr/local/bin/sqtseries</code></td><td>symlink to the production console script</td></tr>
-  <tr><td><code>~/.sqtseries/data/db.sqlite</code></td><td>default database (owned by you, writable)</td></tr>
-  <tr><td><code>~/.sqtseries/backups/</code></td><td>default snapshot directory</td></tr>
-  <tr><td><code>/etc/systemd/system/sqtseries.service</code></td><td>system unit (only with <code>--system</code>)</td></tr>
-  <tr><td><code>~/.config/systemd/user/sqtseries.service</code></td><td>user unit (default <code>install</code>)</td></tr>
-</table></div>
+  <h3>Every line, and why it is there</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Directive</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">After=network.target</td>
+        <td>Waits for networking. The ZMQ and HTTP ports are loopback and HTTP, so
+        this is about ordering, not about a remote peer.</td></tr>
+      <tr><td class="opt">StartLimitIntervalSec=60</td>
+        <td>With the next line: at most three starts in any 60-second window.</td></tr>
+      <tr><td class="opt">StartLimitBurst=3</td>
+        <td>A service that crashes on boot four times in a minute is then left
+        <em>stopped</em> rather than restarted forever. Without this a bad config
+        produces an infinite loop that fills the journal.</td></tr>
+      <tr><td class="opt">Type=simple</td>
+        <td>The process is the service; systemd does not fork or track a pid
+        file.</td></tr>
+      <tr><td class="opt">ExecStart=…</td>
+        <td>Built from your <code>install</code> arguments, with the paths
+        shell-quoted.</td></tr>
+      <tr><td class="opt">Restart=on-failure</td>
+        <td>Restart on a non-zero exit or a signal, but <strong>not</strong> on a
+        clean exit. A deliberate <code>sqtseries stop</code> stays stopped.</td></tr>
+      <tr><td class="opt">RestartSec=5</td>
+        <td>Five seconds between attempts, so a crash does not spin.</td></tr>
+      <tr><td class="opt">StandardOutput/Error=journal</td>
+        <td>Logs go to the journal, where <code>journalctl</code> can find them.
+        <code>SyslogIdentifier</code> is what you grep on.</td></tr>
+      <tr><td class="opt">User=…</td>
+        <td>System units only, and only when the installer resolved a non-root
+        installing user. Without it a system unit runs as root.</td></tr>
+      <tr><td class="opt">NoNewPrivileges=true</td>
+        <td>Nothing the process does can gain privilege — no setuid binary, no
+        child process escalating. A large part of why a parser bug in a dependency
+        is survivable.</td></tr>
+      <tr><td class="opt">ProtectSystem=strict</td>
+        <td>The entire filesystem is read-only to the process, <em>including</em>
+        <code>/usr</code> and <code>/etc</code>. It cannot rewrite its own
+        dependencies or a system config file.</td></tr>
+      <tr><td class="opt">ProtectHome=read-only</td>
+        <td>Everything under every home directory is read-only — so the process can
+        read the database but cannot damage anything else in your home. System units
+        instead set this to <code>false</code>, because the data directory lives
+        there and has to be writable.</td></tr>
+      <tr><td class="opt">ReadWritePaths=…</td>
+        <td>The only exceptions, and there are exactly two: the data directory and
+        the backup directory. Every other path stays read-only.</td></tr>
+      <tr><td class="opt">Environment=LD_PRELOAD=…</td>
+        <td>jemalloc, but <strong>only if it is present</strong>. The service is
+        correct without it; preloading just trims memory retained under sustained
+        load. A missing library is not an error.</td></tr>
+      <tr><td class="opt">Environment=SQT_SERIES_DATABASE__PATH</td>
+        <td>The resolved path, so the unit and the command line agree even if the
+        config file moves.</td></tr>
+    </tbody>
+  </table></div>
 
-<h3>Custom ports and settings (--config)</h3>
-<p>Install with a config file and the file's path is embedded in
-<code>ExecStart</code>, so the service boots with exactly the ports and
-settings you configured. As with every command, <code>--config</code> is a
-<b>global</b> flag and must come before the subcommand:</p>
-<pre><code>sqtseries --config config.toml install            # per-user
-sudo sqtseries --config config.toml install --system</code></pre>
-<p>From then on the unit runs <code>python -m sqtseries --config
-config.toml run</code>. Change the config and restart the unit to apply
-the new values. <code>--db</code> works the same way when installing
-without a config: the database path is embedded via
-<code>SQT_SERIES_DATABASE__PATH</code> and <code>ReadWritePaths</code>.</p>
-
-<h3>Management commands</h3>
-<p>Manage the service with <code>systemctl</code> (and inspect it with the
-sqtseries CLI). There is no <code>sqtseries enable/disable/restart/logs</code>
-command — those are systemctl/journalctl:</p>
-<pre><code>systemctl --user status sqtseries
-systemctl --user restart sqtseries
-systemctl --user stop sqtseries
-systemctl --user enable sqtseries        # start on boot
-systemctl --user disable sqtseries       # stop auto-start
-
-# system service
-sudo systemctl status sqtseries
-sudo systemctl restart sqtseries
-</code></pre>
-
-<h3>Status &amp; logs</h3>
-<pre><code>sqtseries status            # reads runtime: pid, ports, db
-journalctl --user -u sqtseries.service -f        # follow logs
-journalctl --user -u sqtseries.service -n 100    # last 100 lines
-journalctl --user -u sqtseries.service --since today
-# system service: journalctl -u sqtseries.service -f
-</code></pre>
-<p>Logs go to journald, not a file. On a headless server, enable lingering so
-the user service survives logout:</p>
-<pre><code>loginctl enable-linger $USER</code></pre>
-
-<h3>Restart semantics and graceful shutdown</h3>
-<p><code>Restart=on-failure</code> only restarts when the process exits
-abnormally. sqtseries handles SIGTERM and SIGINT with a graceful shutdown —
-it drains in-flight work, checkpoints the WAL, removes its runtime file, and
-exits 0. A deliberate <code>systemctl stop</code>, <code>sqtseries stop</code>
-or Ctrl-C therefore does <em>not</em> trip Restart. Only genuine failures
-(crash, non-zero exit) trigger a restart, and the <code>StartLimitIntervalSec
-60 + StartLimitBurst 3</code> guard stops a crash loop from hammering the
-machine. Clean shutdowns are logged as "shutting down" / "shutdown complete"
-in the journal.</p>
-
-<h3>System service as a dedicated user</h3>
-<p>For production, run the system unit under its own user with the database
-in a service-owned directory:</p>
-<pre><code>sudo useradd -r -s /bin/false sqtseries
-sudo mkdir -p /var/lib/sqtseries /var/backups/sqtseries \
-&amp;&amp; sudo chown -R sqtseries:sqtseries /var/lib/sqtseries /var/backups/sqtseries
-
-# config.toml with the data/backup locations and any custom ports
-cat &gt; /etc/sqtseries/config.toml &lt;&lt;'EOF'
-[database]
-path = "/var/lib/sqtseries/db.sqlite"
-
-[backup]
-path = "/var/backups/sqtseries/"
-
-# custom ports, retention, etc. go here too
-EOF
-
-sudo sqtseries --config /etc/sqtseries/config.toml install --system
-</code></pre>
-<p>Then edit <code>/etc/systemd/system/sqtseries.service</code> to set
-<code>User=sqtseries</code> (auto-detection picks the <em>installing</em>
-user, so point it at the dedicated one by hand) with a matching
-<code>ReadWritePaths</code>, then reload:</p>
-<pre><code># add to [Service]:
-#   User=sqtseries
-sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart sqtseries</code></pre>
-<p>Without the hand edit, a system install serves the installing user's
-database (auto-detected <code>User=</code>); after it, the service runs
-with those permissions (and <code>NoNewPrivileges</code> /
-<code>ProtectSystem=strict</code> keep the exposure small).</p>
-
-<h3>Uninstall</h3>
-<pre><code>sqtseries uninstall          # stop + disable + remove the unit (user)
-sudo sqtseries uninstall --system
-</code></pre>
-<p><code>uninstall</code> runs <code>systemctl [--user] disable --now
-sqtseries.service</code> and removes the unit file. Uninstalling the unit does
-<em>not</em> delete your data. To remove the package and data too, see
-the <a href="../README.md">README</a> (CLI reference).</p>
-
-<h2>Where to go next</h2>
-<div class="cards">
-  <div class="card"><h3><a href="configuration.html">Configuration</a></h3>
-    <p>Every setting the unit can carry, with env vars and defaults.</p></div>
-  <div class="card"><h3><a href="backup.html">Backup &amp; Restore</a></h3>
-    <p>Protect the database before trusting a background service with it.</p></div>
-  <div class="card"><h3><a href="dashboard.html">Dashboard</a></h3>
-    <p>Watch your service live once it is running.</p></div>
-</div>
-
-
+  <div class="box key">
+    <span class="lbl">ReadWritePaths is the whole point</span>
+    <p><code>ProtectSystem=strict</code> plus <code>ProtectHome=read-only</code> would
+    leave the service unable to write its database at all, because the default path is
+    under <code>~</code>. <code>ReadWritePaths</code> re-opens exactly the two
+    directories it needs and nothing else. The process can read the whole system and
+    write almost none of it.</p>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+
+  <h3>Checking the hardening yourself</h3>
+<pre><span class="p">$</span> systemd-analyze security <span class="v">sqtseries.service</span>
+<span class="c">→ Overall exposure level for sqtseries.service: 2.4 OK ✓</span></pre>
+</section>
+
+<section>
+  <h2>Running it</h2>
+
+<pre><span class="c"># user unit</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> status sqtseries
+<span class="c"># system unit</span>
+<span class="p">$</span> sudo systemctl status sqtseries
+
+<span class="c"># the log</span>
+<span class="p">$</span> journalctl <span class="o">--user</span> <span class="o">-u</span> sqtseries <span class="o">-f</span>
+<span class="c">#   follow it live</span>
+<span class="p">$</span> journalctl <span class="o">-u</span> sqtseries <span class="o">-n</span> <span class="v">100</span> <span class="o">--no-pager</span>
+<span class="c">#   since the last boot</span>
+<span class="p">$</span> journalctl <span class="o">-u</span> sqtseries <span class="o">-b</span> <span class="o">--no-pager</span>
+
+<span class="c"># restart, and stop</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> restart sqtseries
+<span class="p">$</span> systemctl <span class="o">--user</span> stop sqtseries</pre>
+
+  <p>Note that <code>systemctl stop</code> and <code>sqtseries stop</code> are not
+  the same thing. The first asks systemd to stop the unit, which sends SIGTERM and
+  gives the process its normal shutdown. The second sends SIGTERM and waits for the
+  port to actually be free. Either is fine; the second is what you want inside a
+  script that is about to rebind the ports.</p>
+</section>
+
+<section>
+  <h2>Proving the restart policy works</h2>
+  <p>An untested restart policy is a hope, not a plan. This takes thirty seconds.</p>
+
+<pre><span class="c"># 1. find the pid</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> show sqtseries <span class="o">--property</span> MainPID
+MainPID=<span class="v">1234</span>
+
+<span class="c"># 2. kill it uncleanly — no chance to flush anything</span>
+<span class="p">$</span> kill <span class="o">-9</span> <span class="v">1234</span>
+
+<span class="c"># 3. wait, and watch it come back with a different pid</span>
+<span class="p">$</span> sleep <span class="v">8</span>
+<span class="p">$</span> systemctl <span class="o">--user</span> show sqtseries <span class="o">--property</span> MainPID
+MainPID=<span class="v">1290</span>
+
+<span class="c"># 4. and the data survived</span>
+<span class="p">$</span> sqtseries <span class="o">health</span>
+<span class="ok">ok</span>
+<span class="p">$</span> sqtseries <span class="o">stats</span>
+metrics: <span class="v">3</span>
+series:  <span class="v">12</span></pre>
+
+  <div class="box ok">
+    <span class="lbl">Why a <code>SIGKILL</code> does not lose data</span>
+    <p>Because every commit goes through SQLite's write-ahead log first. A commit is
+    durable when it is written to the WAL, not when it reaches the main file — so
+    <code>kill -9</code> can lose at most a commit that had not been written, and the
+    next start replays the WAL.</p>
+    <p>What a hard kill <em>can</em> cost is a frame that was accepted into the socket
+    queue but not yet persisted, since the shutdown drain that would have flushed it
+    never ran. That is inherent to a hard kill; the graceful path is what avoids it,
+    and the difference is why <code>sqtseries stop</code> exists.</p>
+  </div>
+
+  <h3>If it will not start</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>status=203/EXEC</code></td><td>the interpreter in
+        <code>ExecStart</code> no longer exists</td>
+        <td>reinstall with the full path to the current interpreter</td></tr>
+      <tr><td><code>Permission denied</code> on the database</td>
+        <td><code>ReadWritePaths</code> does not cover the data directory</td>
+        <td>reinstall with <code>--db</code> pointing inside a writable path</td></tr>
+      <tr><td>Starts, exits immediately</td><td>a configuration error</td>
+        <td>read the journal; the message names the setting</td></tr>
+      <tr><td>Port already in use</td><td>a previous instance is still holding
+        it</td><td><code>sqtseries stop</code>, or wait for
+        <code>RestartSec</code></td></tr>
+      <tr><td>Stops after three restarts</td><td><code>StartLimitBurst</code> reached
+        — a real crash loop</td><td>read the journal before restarting it</td></tr>
+      <tr><td>Stops when you log out</td><td>user unit without lingering</td>
+        <td><code>loginctl enable-linger $USER</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Shutting down cleanly</h2>
+  <p>SIGTERM starts an ordered shutdown, and the order is the point.</p>
+
+  <ol class="steps">
+    <li><b>Stop the background tasks</b><span>Rollup, retention, maintenance and
+    backup are cancelled so none of them starts new work.</span></li>
+    <li><b>Drain the ingest socket</b><span>Frames already accepted are swept and
+    queued. This happens <em>before</em> the socket closes, because closing discards
+    whatever libzmq still holds.</span></li>
+    <li><b>Flush the persister</b><span>Every queued batch is committed, behind a
+    bounded 60-second budget so a wedged disk cannot hang the stop forever.</span></li>
+    <li><b>Stop the brokers and the gateway</b><span>In-flight query replies are
+    allowed to drain, then the HTTP server is given five seconds to finish its
+    connections.</span></li>
+    <li><b>Checkpoint the WAL</b><span><code>PRAGMA optimize</code> and a
+    <code>TRUNCATE</code> checkpoint, so the next start is fast and the file is
+    compact.</span></li>
+    <li><b>Remove the runtime file</b><span>The last step. <code>sqtseries status</code>
+    uses its absence, so a restart script that waits for it knows the process is
+    really gone — not merely answering to signal 0 as a not-yet-reaped zombie
+    does.</span></li>
+  </ol>
+
+  <p>Under systemd, SIGTERM arrives the same way, so a restart never discards a frame
+  that was already accepted. A hard kill skips all of it, which is the difference the
+  test above demonstrates.</p>
+</section>
+
+<section>
+  <h2>Uninstalling</h2>
+
+<pre><span class="c"># user unit</span>
+<span class="p">$</span> sqtseries <span class="o">uninstall</span>
+systemd unit removed
+
+<span class="c"># system unit</span>
+<span class="p">$</span> sudo sqtseries <span class="o">uninstall</span> <span class="o">--system</span>
+systemd unit removed</pre>
+
+  <p>This stops the unit and removes the file. It does <strong>not</strong> touch your
+  database or your backups — they are yours, and deleting a database because someone
+  removed a service file would be a nasty surprise. Delete
+  <code>~/.sqtseries/</code> yourself when you mean it.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting the unit embeds, and the security settings to review before
+      exposing the service.</p>
+    </div>
+    <div class="card">
+      <h4><a href="backup.html">Backup and restore</a></h4>
+      <p>Snapshots on a timer, the restore procedure, and what a hard kill can and
+      cannot cost you.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>What the page shows about the running service, including whether the last
+      snapshot succeeded.</p>
+    </div>
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>Running two instances side by side, with their own database and ports.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The <code>health</code>, <code>stats</code> and <code>backup</code> admin
+      commands, for scripting health checks.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>What runs in the background while the service is up, and what stops it
+      first.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>Install with the config you actually want</h5>
+      <p>
+            The unit embeds the flags it was installed with.
+            <code>sqtseries --config c.toml install</code> produces a unit that
+            boots with that config, so a service that serves custom ports does not
+            silently come back on the defaults after a reboot.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>User unit or system unit</h5>
+      <p>
+            Without <code>--system</code> the unit goes to
+            <code>~/.config/systemd/user/</code> and needs no root, but it stops
+            when you log out unless lingering is enabled. With
+            <code>--system</code> it goes to <code>/etc/systemd/system/</code> and
+            runs as a system service — for a machine that is always on, this is the
+            right choice.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Hardening, and why each line is there</h5>
+      <p>
+            The generated unit sets <code>NoNewPrivileges</code>,
+            <code>ProtectSystem=strict</code> and
+            <code>ProtectHome=read-only</code>, then re-opens exactly one writable
+            path: the data directory. The process therefore cannot write anywhere
+            else on the filesystem, and cannot gain privilege through a child
+            process. Check it yourself with <code>systemd-analyze security</code>.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The data directory is the exception</h5>
+      <p>
+            Because <code>ProtectHome=read-only</code> also covers
+            <code>~</code>, the default database path needs an explicit read-write
+            grant or the service will not start. That is the single most common
+            systemd failure, and the unit the installer generates already handles
+            it — but it is the first thing to check if you hand-write a unit.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Proving it restarts</h5>
+      <p>
+            <code>Restart=on-failure</code> with a 5 s backoff means a crash is
+            recovered without help. Kill the process and watch it come back, then
+            confirm the data is intact. An untested restart policy is a hope, not a
+            plan — the recipe is on this page.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Stopping is graceful and complete</h5>
+      <p>
+            <code>sqtseries stop</code> sends SIGTERM and waits for exit, and the
+            service drains the ingest queue, flushes in-flight publishes,
+            checkpoints the WAL and removes its runtime file as the last step. Under
+            systemd the same happens, so a restart never discards a frame already
+            accepted.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — installed once, then forgotten.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

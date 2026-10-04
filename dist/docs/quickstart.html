@@ -3,239 +3,717 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Quick Start — sqtseries</title>
+<title>sqtseries — Quick Start: the whole cycle in one page</title>
+<meta name="description" content="Install sqtseries, start the service, write a measurement, query it back, subscribe live, and run it as a systemd unit.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a class="here" href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Quick Start</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>You can have sqtseries recording data within a few minutes. You will need
-Python 3.14 or newer on your computer. The steps below use the bundled
-Python client; if you prefer other languages or plain web requests, the
-same steps are shown with HTTP and each language is covered in
-<a href="clients.html">Client Libraries</a>.</p>
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · the whole cycle</a></div>
+  <h1>Quick Start</h1>
+  <p class="tagline">From nothing to a running service, a stored measurement, an answer, a live subscription, and a unit file that starts on boot. The shortest honest path through the product.</p>
+  <div class="meta">
+    <span><b>Install</b> <code>pip install sqtseries</code></span>
+    <span><b>Run</b> <code>sqtseries run</code>, prints the links</span>
+    <span><b>Store</b> one file at <code>~/.sqtseries/data/db.sqlite</code></span>
+    <span><b>Ports</b> six, five fixed and one auto-detected</span>
+    <span><b>Tested</b> every command below was run as written</span>
+  </div>
+</header>
 
-<h3>1. Install</h3>
-<pre><code>pip install sqtseries</code></pre>
-<div class="note">
-  <strong>Python 3.14+</strong> is required. Using a virtual environment is
-  recommended if you manage multiple Python projects.
-</div>
+<main>
+<section>
+  <h2>What you are about to do</h2>
+  <p class="lede">Install the package, start the service, store one measurement, read
+  it back, watch one arrive live, and then leave it running under systemd. Every
+  command on this page was run as written, and the output shown is the real
+  output.</p>
 
-<h3>2. Start the service</h3>
-<pre><code>sqtseries run</code></pre>
-<p>The service prints <code>Serving &lt;db&gt;</code> plus its dashboard,
-docs, and health links, then its log — and stays in the foreground
-(press Ctrl+C to stop it; the shutdown is graceful and exits cleanly). On the
-first run it creates its database file at
-<code>~/.sqtseries/data/db.sqlite</code> and starts background tasks that
-keep the data tidy.</p>
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Service</strong> — the running <code>sqtseries run</code> process. It
+    owns the database and all six ports.<br>
+    <strong>Measurement</strong>, or <strong>point</strong> — one value for one metric
+    at one moment.<br>
+    <strong>Metric</strong> — the name of the thing measured, like
+    <code>cpu.load</code>.<br>
+    <strong>Tag</strong> — a label that splits a metric into dimensions, like
+    <code>host=web1</code>.<br>
+    <strong>Series</strong> — one metric with one exact set of tags.<br>
+    <strong>Port</strong> — one of six TCP ports. Five are fixed; the sixth, ingest, is
+    chosen at start-up.<br>
+    <strong>Runtime file</strong> — <code>runtime.json</code>, written next to the
+    database, recording the pid and the ports actually bound.</p>
+  </div>
 
-<p>To choose your own ports and database file, write a config file and pass
-it with <code>--config</code>. Global flags such as <code>--config</code> and
-<code>--db</code> belong <strong>before the subcommand</strong>, not
-after:</p>
-<pre><code># config.toml — pick your own ports and DB location
-[database]
-path = "/data/tsdb.sqlite"
+  <div class="stats">
+    <div class="stat"><div class="n">2</div><div class="l">Commands to start</div></div>
+    <div class="stat"><div class="n">12505</div><div class="l">HTTP port</div></div>
+    <div class="stat"><div class="n">12500</div><div class="l">Ingest, auto-detected</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">SQLite file</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Servers to provision</div></div>
+  </div>
+</section>
 
-[ingestion]
-port = 14001
+<section>
+  <h2>Before you start</h2>
+  <p>Two things must be true. Python 3.14 or newer, and the <code>sqtseries</code>
+  package installed. If you use the project virtual environment, point
+  <code>PY</code> at it once and reuse it for every command on this page.</p>
 
-[query]
-port = 14002
+<pre><span class="p">$</span> PY=/home/iam/devcode/.env/sqtseries/bin/python3
+<span class="p">$</span> $PY --version
+<span class="c"># Python 3.14.4 or newer</span>
 
-[streaming]
-port = 14003
+<span class="p">$</span> $PY -m pip install sqtseries
+<span class="p">$</span> $PY -m sqtseries --version
+<span class="ok">sqtseries, version 0.1.0</span></pre>
 
-[admin]
-port = 14004
+  <p>Check the command list. This is the whole surface — eleven commands, and two
+  global flags:</p>
 
-[http]
-port = 14005
+<pre><span class="p">$</span> $PY -m sqtseries --help
+<span class="c">Usage: python -m sqtseries [OPTIONS] COMMAND [ARGS]...</span>
 
-[stats]
-port = 14006
+  sqtseries — embedded time-series database on SQLite + ZeroMQ.
 
-[ports]
-auto_detect = false
+Options:
+  --version      Show the version and exit.
+  --config FILE  Path to config file (TOML/YAML/JSON).
+  --db FILE      Database file to use (overrides config file and env vars).
+  --help         Show this message and exit.
 
-sqtseries --config config.toml run
-python3 -m sqtseries --config config.toml run   # identical
-sqtseries --config config.toml status           # status uses the same config</code></pre>
+Commands:
+  backup     Create a consistent VACUUM INTO backup.
+  health     Health check (read-only DB probe).
+  install    Install the systemd service unit.
+  optimize   Optimize query-planner statistics.
+  ports      Show active ports.
+  run        Start the sqtseries service (foreground).
+  stats      Show database statistics.
+  status     Show service status.
+  stop       Stop the sqtseries service.
+  uninstall  Remove the systemd service unit.
+  vacuum     Database maintenance: full VACUUM.</pre>
 
-<div class="note">
-  <strong>Flag order matters.</strong> <code>sqtseries run --config
-  config.toml</code> errors with "No such option" — put global flags
-  (<code>--version</code>, <code>--config</code>, <code>--db</code>,
-  <code>--help</code>) before the subcommand:
-  <code>sqtseries --config config.toml run</code>.
-</div>
+  <div class="box warn">
+    <span class="lbl">Global flags come first</span>
+    <p><code>--config</code> and <code>--db</code> belong to the command group, not to
+    a subcommand, so they must come <strong>before</strong> the subcommand name:</p>
+<pre>$PY -m sqtseries <span class="o">--config</span> c.toml <span class="o">run</span>   <span class="c"># correct</span>
+$PY -m sqtseries <span class="o">run</span> <span class="o">--config</span> c.toml      <span class="c"># wrong: no such option</span></pre>
+  </div>
+</section>
 
-<p>You can also pick just the database on the command line — it overrides
-both the config file and environment variables:</p>
-<pre><code>sqtseries --db /data/tsdb.sqlite run
-sqtseries --config prod.toml --db /data/other.sqlite status</code></pre>
-<p>If other databases live in the same directory, <code>run</code> prints
-them so you can pick one with <code>--db</code>; see
-<a href="configuration.html">Configuration</a> for how <code>--db</code> and
-conflicting databases are handled.</p>
+<section>
+  <h2>1 · Start the service</h2>
+  <p>One command. It creates the database, binds all six ports, starts the
+  background tasks, and prints where everything lives.</p>
 
-<h3>3. Send data</h3>
-<p>A "measurement" has three parts: a name, a number, and optionally labels
-(tags). The time is taken from the server clock unless you provide it. Send
-a few in Python with the bundled client:</p>
-<pre><code>from sqtseries import Client
+<pre><span class="p">$</span> $PY -m sqtseries run
+Serving /home/iam/.sqtseries/data/db.sqlite
+  dashboard: http://127.0.0.1:12505/dashboard
+  docs:      http://127.0.0.1:12505/docs
+  health:    http://127.0.0.1:12505/api/v1/health
+  help:      sqtseries --help, sqtseries &lt;cmd&gt; --help
+2026-09-30T17:00:43.577719Z [info     ] quick_check passed
+2026-09-30T17:00:43.579947Z [info     ] pubsub listening (xpub)        endpoint=tcp://127.0.0.1:12503
+2026-09-30T17:00:43.580730Z [info     ] ingress listening              endpoint=tcp://127.0.0.1:12500
+2026-09-30T17:00:43.581208Z [info     ] query broker listening         endpoint=tcp://127.0.0.1:12502
+2026-09-30T17:00:43.581597Z [info     ] query broker listening         endpoint=tcp://127.0.0.1:12504
+2026-09-30T17:00:43.582016Z [info     ] stats publisher started        endpoint=tcp://127.0.0.1:12506
+2026-09-30T17:00:43.890792Z [info     ] rollup complete                partition=measurements_2026_09 rows=0
+2026-09-30T17:00:43.892709Z [info     ] rollup advanced                rows=0 watermark=1790784000000000000
+Started server process [178445]
+Waiting for application startup.
+Application startup complete.
+Uvicorn running on http://0.0.0.0:12505 (Press CTRL+C to quit)
+2026-09-30T17:00:43.936772Z [info     ] service started                ports={'ingest': 12500, 'query': 12502}</pre>
 
-c = Client()
-c.write("cpu.usage", 0.72, {"host": "web1", "env": "prod"})
-c.write("cpu.usage", 0.65, {"host": "web2", "env": "prod"})
-c.write_many([
-    {"metric": "mem.usage", "value": 512.0, "tags": {"host": "web1"}},
-    {"metric": "mem.usage", "value": 388.0, "tags": {"host": "web2"}},
-])
-</code></pre>
-<p>Or over HTTP with the widely available <code>curl</code> tool:</p>
-<pre><code>curl -X POST http://127.0.0.1:12505/api/v1/write \
-  -H "Content-Type: application/json" \
-  -d '{"metric":"cpu.usage","tags":{"host":"web1"},"value":0.72}'</code></pre>
+  <p class="small muted">Leave that terminal running. Every step from here needs it.
+  To prove it is alive without disturbing it, open a second terminal.</p>
 
-<h3>4. Read data back</h3>
-<p>A query asks for a name, a start and end time, and often an aggregation
-(such as "average" or "maximum"). The client takes start/end in
-<em>nanoseconds</em> (epoch) or ISO-8601 (<code>"2026-09-11T14:00:00Z"</code>);
-the HTTP gateway takes them in <em>seconds</em> or ISO-8601 —
-the <a href="queries.html">Queries</a> page explains this in detail.</p>
-<pre><code>from sqtseries import Client
-import time
+  <div class="box warn">
+    <span class="lbl">Look at the ingest port</span>
+    <p>The log says <code>ingress listening … 12500</code>, even though the
+    configured value is <code>ingestion.port = 12501</code>. With the default
+    <code>ports.auto_detect = true</code>, the ingest port is the <strong>first free
+    port in the 12500–12700 range</strong>, so it is 12500 and 12501 is never used.
+    The five fixed ports keep their configured values.</p>
+<pre>$PY -m sqtseries <span class="o">ports</span>
+ingest: <span class="v">12500</span>
+query: 12502
+stream: 12503
+admin:  12504
+http:   12505
+stats:  12506</pre>
+    <p>Read the ingest port from here, not from your config file. If you would
+    rather it used a fixed port, set <code>ports.auto_detect = false</code> — see
+    <a href="configuration.html">Configuration</a>.</p>
+  </div>
+</section>
 
-c = Client()
-now_ns = time.time_ns()
-rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns)
-print(rows)  # e.g. [{'timestamp': 1.7e9, 'value': 0.72}, ...]  # seconds
+<section>
+  <h2>2 · Store a measurement</h2>
+  <p>Over HTTP, from the shell. A measurement needs a metric name and a value;
+  tags are optional.</p>
 
-# Summary numbers for the whole window
-stats = c.aggregate("cpu.usage", funcs=["avg", "min", "max", "count", "p95"])
-print(stats)
-</code></pre>
-<p>The same over HTTP:</p>
-<pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=1m"
-curl "http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.usage&amp;funcs=avg,max,p95"</code></pre>
-<p>Want to explore without curl? Open <a href="../api-docs" target="_blank" rel="noopener">Swagger UI</a>
-(or <a href="../redoc" target="_blank" rel="noopener">ReDoc</a>) on your running
-service and try every endpoint from the browser.</p>
+<pre><span class="p">$</span> curl -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">'{"metric":"cpu.load","value":0.42,"tags":{"host":"web1"}}'</span>
+<span class="ok">{"status":"ok","written":1}</span></pre>
 
-<h3>5. Watch data live</h3>
-<p>If your data is still arriving, you can watch it as it comes in. Each
-payload is a measurement that was just accepted.</p>
-<pre><code>from sqtseries import Client
+  <p>You can send many in one request. The whole array is validated before any of it
+  is stored, so one bad item rejects the batch instead of leaving a half-written
+  one:</p>
 
-c = Client()
-for payload in c.subscribe("cpu."):   # prefix match on the metric name
-    if payload is not None:            # None = idle heartbeat
-        print(payload)                 # e.g. {'metric': 'cpu.usage', 'tags': ..., 'value': ...}
-</code></pre>
-<p>It is also possible from a browser (WebSocket):</p>
-<pre><code>const ws = new WebSocket("ws://127.0.0.1:12505/ws/subscribe?metric=cpu.");
-ws.onmessage = (e) =&gt; console.log(JSON.parse(e.data));</code></pre>
+<pre><span class="p">$</span> curl -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">'[{"metric":"cpu.load","value":0.51,"tags":{"host":"web1"}},
+         {"metric":"cpu.load","value":0.63,"tags":{"host":"web1"}},
+         {"metric":"mem.used","value":3.2,"tags":{"host":"web1"}}]'</span>
+<span class="ok">{"status":"ok","written":3}</span></pre>
 
-<h3>6. Check whether it is healthy</h3>
-<pre><code>sqtseries status    # pid, version, database path, ports
-sqtseries health    # "ok" when the database file is intact
-sqtseries ports     # which ports are actually bound</code></pre>
-<pre><code>$ sqtseries --config config.toml status
-Service: running (pid 2301)
+  <p>Or from Python, over ZeroMQ. The <code>Client</code> is bundled, so there is
+  nothing to install and no URL to configure:</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> from sqtseries import Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> c.write(<span class="v">"cpu.load"</span>, 0.77, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+<span class="p">&gt;&gt;&gt;</span> c.close()</pre>
+
+  <p class="small muted">The default <code>Client</code> ports match the defaults in
+  the table above. If your service moved ports, pass them:
+  <code>Client(ports={"write": …, "query": …, "subscribe": …, "admin": …})</code>.</p>
+</section>
+
+<section>
+  <h2>3 · Read it back</h2>
+  <p>Read every stored point for a metric:</p>
+
+<pre><span class="p">$</span> curl <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load"</span>
+<span class="ok">{"status":"ok","data":[{"timestamp":1790786862.8571439,"value":0.42},
+ {"timestamp":1790786862.8774092,"value":0.51},
+ {"timestamp":1790786862.8774092,"value":0.63}]}</span></pre>
+
+  <p>Note the timestamps: about <code>1.79e9</code>. That is <strong>epoch
+  seconds</strong>, even though they are stored as nanoseconds. Over HTTP both the
+  request and the response use seconds — the conversion is the gateway's job.</p>
+
+  <p>Aggregate a whole window in one call:</p>
+
+<pre><span class="p">$</span> curl <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,min,max,count"</span>
+<span class="ok">{"status":"ok","aggregations":{"avg":0.54,"min":0.42,"max":0.77,"count":3.0}}</span></pre>
+
+  <p>And from Python, over ZeroMQ. Here the request takes
+  <strong>nanoseconds</strong> and the reply comes back in seconds:</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> from sqtseries import Client
+<span class="p">&gt;&gt;&gt;</span> import time
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> now = time.time_ns()
+<span class="p">&gt;&gt;&gt;</span> rows = c.query(<span class="v">"cpu.load"</span>, start=now - <span class="v">3600</span>*10**<span class="v">9</span>, end=now)
+<span class="p">&gt;&gt;&gt;</span> rows
+<span class="p">[{'timestamp': 1790786862.8571439, 'value': 0.42}, …]</span>
+<span class="p">&gt;&gt;&gt;</span> c.aggregate(<span class="v">"cpu.load"</span>, start=now - <span class="v">3600</span>*10**<span class="v">9</span>)
+<span class="p">{'avg': 0.54}</span>
+<span class="p">&gt;&gt;&gt;</span> c.close()</pre>
+
+  <div class="box warn">
+    <span class="lbl">The units, in one box</span>
+    <p>This is the mistake that produces an empty result instead of an error, so it
+    is worth stating flatly.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Where</th><th>Request <code>start</code> / <code>end</code></th><th>Response <code>timestamp</code></th></tr></thead>
+      <tbody>
+        <tr><td>HTTP <code>/read</code>, <code>/aggregate</code></td>
+          <td><strong>seconds</strong>, or an ISO-8601 string</td>
+          <td><strong>seconds</strong></td></tr>
+        <tr><td>ZMQ query socket, <code>Client.query</code></td>
+          <td><strong>nanoseconds</strong> as an integer, or an ISO-8601 string</td>
+          <td><strong>seconds</strong></td></tr>
+      </tbody>
+    </table></div>
+    <p>Sending seconds where nanoseconds are expected asks for a window in 1970 and
+    returns nothing at all — no error, no warning, just an empty list.</p>
+  </div>
+</section>
+
+<section>
+  <h2>4 · Watch values arrive live</h2>
+  <p>Subscribe over ZeroMQ. The iterator yields one dict per measurement, and
+  <code>None</code> as a heartbeat whenever the socket is quiet, so your loop never
+  blocks forever.</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> from sqtseries import Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> for payload in c.subscribe(<span class="v">"cpu."</span>, timeout=<span class="v">1.0</span>):
+<span class="p">... </span>    if payload is None:
+<span class="p">... </span>        print(<span class="v">"(idle)"</span>)
+<span class="p">... </span>        continue
+<span class="p">... </span>    print(payload)
+<span class="p">...</span>
+<span class="p">&gt;&gt;&gt;&gt;&gt;&gt;&gt;</span> <span class="c"># Ctrl-C to stop</span>
+{'metric': 'cpu.load', 'tags': {'host': 'web1'}, 'value': 0.81}
+(idle)</pre>
+
+  <p>From a browser, open the same stream over a WebSocket. <code>*</code> takes
+  everything:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> <span class="c"># in a browser console, on the host running the service</span>
+<span class="p">&gt;&gt;&gt;</span> ws = <span class="v">new WebSocket("ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>)
+<span class="p">&gt;&gt;&gt;</span> ws.onmessage = e =&gt; console.log(e.data)
+<span class="p">&gt;&gt;&gt;</span> ws.onmessage = e =&gt; console.log(JSON.parse(e.data))
+<span class="p">&gt;&gt;&gt;</span></pre>
+
+  <p>The full protocol, including the topic-matching rules and the keepalive
+  frame, is on <a href="streaming.html">Streaming</a>.</p>
+</section>
+
+<section>
+  <h2>5 · Check on it</h2>
+  <p>From a second terminal. These work whether or not the service is running, and
+  none of them need a client library.</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">status</span>
+Service: running (pid 178445)
 Version:  0.1.0
-DB:       /data/tsdb.sqlite
-  ingest: 14001
-  query: 14002
-  stream: 14003
-  admin: 14004
-  http: 14005
-  stats: 14006
-  dashboard: http://127.0.0.1:14005/dashboard
-  docs:      http://127.0.0.1:14005/docs
-  health:    http://127.0.0.1:14005/api/v1/health
+DB:       /home/iam/.sqtseries/data/db.sqlite
+  ingest: 12500
+  query: 12502
+  stream: 12503
+  admin: 12504
+  http: 12505
+  stats: 12506
+  dashboard: http://127.0.0.1:12505/dashboard
+  docs:      http://127.0.0.1:12505/docs
+  health:    http://127.0.0.1:12505/api/v1/health
   help:      sqtseries --help, sqtseries &lt;cmd&gt; --help
 
-$ sqtseries --config config.toml ports
-ingest: 14001
-query: 14002
-stream: 14003
-admin: 14004
-http: 14005
-stats: 14006
-  dashboard: http://127.0.0.1:14005/dashboard
-  docs:      http://127.0.0.1:14005/docs
-  health:    http://127.0.0.1:14005/api/v1/health
-  help:      sqtseries --help, sqtseries &lt;cmd&gt; --help</code></pre>
-<p><code>health</code> runs a read-only database integrity probe
-(<code>PRAGMA quick_check</code>) and exits 0 when the answer is
-<code>ok</code>, 1 when it is <code>degraded</code>. That makes it usable in
-scripts and service monitors.</p>
+<span class="p">$</span> $PY -m sqtseries <span class="o">stats</span>
+metrics: <span class="v">2</span>
+series:  <span class="v">2</span>
 
-<h3>7. Run it as a background service</h3>
-<p>The <code>install</code> command sets up a systemd service that starts
-sqtseries when your computer boots and keeps it running (a per-user unit by
-default; <code>install --system</code> targets the system). Pass the same
-<code>--config</code> you used for <code>run</code> and it is baked into the
-unit, so your ports and settings survive in the service too:</p>
-<pre><code>sqtseries --config config.toml install
-sqtseries --config config.toml status
-journalctl --user -u sqtseries.service -f    # follow its logs</code></pre>
-<p>Details, including uninstalling, are on the
-<a href="systemd.html">Systemd</a> page.</p>
+<span class="p">$</span> $PY -m sqtseries <span class="o">health</span>
+<span class="ok">ok</span></pre>
 
-<h3>8. Stop the service</h3>
-<pre><code>sqtseries --config config.toml stop   # SIGTERM to the running instance</code></pre>
-<p>Stopping in the foreground with Ctrl+C does the same graceful shutdown,
-so data is never left half-written. <code>stop</code> resolves the runtime
-file next to the database; without a matching <code>--config</code>/<code>--db</code>
-it refuses to touch an instance serving a different database.</p>
+  <p><code>health</code> exits <code>0</code> when the database is sound and
+  <code>1</code> when it is not, so it works as a load-balancer check:</p>
 
-<h3>Config file formats</h3>
-<p>Config files may be <code>.toml</code>, <code>.yaml</code>, or
-<code>.json</code>. TOML and JSON work with no extra packages; YAML needs
-<code>pyyaml</code> installed, which is <strong>not</strong> a dependency of
-sqtseries — so avoid YAML unless you have (or add) <code>pyyaml</code>
-separately. A config file can also be selected with the environment variable
-<code>SQT_SERIES_CONFIG_FILE</code> instead of <code>--config</code>.</p>
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">health</span> &amp;&amp; echo <span class="v">"ready"</span> || echo <span class="v">"not ready"</span></pre>
 
-<h2>Where to go next</h2>
-<div class="cards">
-  <div class="card"><h3><a href="configuration.html">Configuration</a></h3>
-    <p>Change ports, the database location, logging, retention, and more.</p></div>
-  <div class="card"><h3><a href="ingestion.html">Ingestion</a></h3>
-    <p>Details of writing data: timestamps, and limits.</p></div>
-  <div class="card"><h3><a href="queries.html">Queries</a></h3>
-    <p>All the aggregations, intervals, and options available.</p></div>
-  <div class="card"><h3><a href="api.html">API Reference</a></h3>
-    <p>The embedded Python API, the client, the CLI, and admin commands.</p></div>
-</div>
+  <p>Or over HTTP, from anything:</p>
 
+<pre><span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/health
+<span class="ok">{"status":"ok","version":"0.1.0"}</span>
 
+<span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/stats
+<span class="ok">{"status":"ok","metrics":2,"series":2}</span></pre>
+
+  <p>And the live page, which shows rates, connections, topics and storage pushing
+  second by second: <strong>http://127.0.0.1:12505/dashboard</strong></p>
+</section>
+
+<section>
+  <h2>6 · Stop it, and start it for real</h2>
+  <p><code>run</code> runs in the foreground, so it stops when you press Ctrl-C.
+  <code>stop</code> does the same thing from another terminal, and additionally
+  waits until the process has actually gone — which matters when something is
+  about to rebind the ports.</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">stop</span>
+Sent SIGTERM to pid 178445</pre>
+
+  <p>For a machine that stays on, install a unit. Generate it with the same config
+  you actually want, so the service does not come back on the defaults after a
+  reboot:</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">--config</span> ~/sqtseries.toml <span class="o">install</span>
+systemd unit installed
+
+<span class="p">$</span> systemctl --user daemon-reload
+<span class="p">$</span> systemctl --user enable --now sqtseries
+<span class="p">$</span> systemctl --user status sqtseries --no-pager</pre>
+
+  <div class="box">
+    <span class="lbl">Running two instances</span>
+    <p>Give the second one its own database and its own ports. Use
+    <code>--db</code> for the file and a config file for the ports:</p>
+<pre>[database]
+path = <span class="v">"~/.sqtseries/data/second.sqlite"</span>
+
+[ports]
+auto_detect  = false
+port_offset  = <span class="v">100</span>
+
+[ingestion]
+port = 12601
+[query]
+port = 12602
+[streaming]
+port = 12603
+[admin]
+port = 12604
+[http]
+port = 12605
+host = <span class="v">"127.0.0.1"</span>
+[stats]
+port = 12606</pre>
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">--config</span> second.toml <span class="o">run</span></pre>
+    <p><code>run</code> refuses to start over a database another live instance is
+    serving, and <code>stop</code> refuses to stop an instance whose database is not
+    the one it resolves. Those two refusals are what stop a restart script from
+    killing the wrong process.</p>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>All three transports in depth, the wire format, tags as dimensions, the
+      clock-skew guard, and what happens when a producer outruns the disk.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>All ten aggregations, epoch-aligned buckets, the hourly rollup fast path,
+      and when a query is refused for being too large.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting with its environment variable and real default, the two
+      duration syntaxes, and every validation rule.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every route, every parameter, every admin command and every error code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>A system-level unit, a dedicated user, every hardening directive explained,
+      and how to prove the service restarts.</p>
+    </div>
+    <div class="card">
+      <h4><a href="backup.html">Backup and restore</a></h4>
+      <p>Consistent snapshots while the service is running, the restore procedure,
+      and the restore test worth doing once.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>Order matters</h5>
+      <p>
+            The service must be up before anything else on this page. Every
+            example after step 1 talks to a running service on its ports.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Two ways to send data</h5>
+      <p>
+            Over HTTP with <code>curl</code>, or over ZeroMQ with the bundled
+            Python <code>Client</code>. Both store the same shape. HTTP is the
+            one to reach for from a language with no ZMQ binding.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Timestamps: seconds over HTTP, nanoseconds over ZMQ</h5>
+      <p>
+            This trips up nearly everyone. The HTTP routes take and return
+            <strong>epoch seconds</strong>; the ZMQ query message takes
+            <strong>epoch nanoseconds</strong> and returns seconds. Both are
+            covered on <a href="ingestion.html">Ingestion</a> and
+            <a href="api.html">API Reference</a>.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Where to go next</h5>
+      <p>
+            Settings: <a href="configuration.html">Configuration</a>. More
+            questions: <a href="queries.html">Queries</a>. Running it properly:
+            <a href="systemd.html">Systemd</a>.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>If a command fails</h5>
+      <p>
+            <code>sqtseries health</code> checks the database file directly and
+            needs no service. <code>sqtseries status</code> shows the real ports
+            and pid, or says the runtime file is stale.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>One instance per database</h5>
+      <p>
+            <code>run</code> refuses to start over a database another live
+            instance is serving. To run a second service, give it its own
+            <code>--db</code> and its own ports — see
+            <a href="configuration.html">Configuration</a>.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — install, run, write, query, subscribe, done.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

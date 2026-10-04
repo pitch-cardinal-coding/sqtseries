@@ -3,318 +3,897 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Queries — sqtseries</title>
+<title>sqtseries — Queries: asking questions of the past</title>
+<meta name="description" content="Query sqtseries: time ranges, all ten aggregations, interval bucketing, downsampling, gap filling, limits, and the hourly rollup fast path.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a class="here" href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Queries</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>Querying means asking for stored measurements, usually over a time range,
-sometimes with a summary (aggregation). You can query over the ZMQ REP socket
-(port 12502) or the HTTP gateway (port 12505). One thing to keep in mind: the
-two transports use different time units, described in the warning below.</p>
-
-<div class="note">
-  <strong>Time units differ by transport.</strong> The ZMQ query path takes
-  <code>start</code>/<code>end</code> in <em>epoch nanoseconds</em>; the HTTP
-  gateway takes them in <em>epoch seconds</em>. Both also accept ISO-8601
-  strings (<code>2026-09-11T14:04:00Z</code>). Query results always return
-  timestamps in <em>seconds</em>. Ingestion timestamps are seconds on both.
-</div>
-
-<h3>ZMQ request format</h3>
-<p>This is the raw JSON sent over the query socket. With the bundled Python
-client you normally do not build it yourself — it is shown here for
-completeness and for other languages.</p>
-<pre><code>{
-  "type": "query",                    // optional — omitted is treated as a query
-  "metric": "cpu.usage",             // required: non-empty string
-  "start": 1720000000000000000,      // epoch NANOSECONDS (optional, inclusive) — or "2026-09-11T14:00:00Z"
-  "end":   1720003600000000000,      // epoch NANOSECONDS (optional, inclusive) — or "2026-09-11T15:00:00Z"
-  "aggregation": "avg",              // optional
-  "interval": "15m",                 // optional bucket size
-  "limit": 100,                      // optional, first N in the selected order
-  "order": "asc"                     // optional: asc | desc
-}</code></pre>
-<p>Notes:</p>
-<ul>
-  <li>Omitting <code>start</code>/<code>end</code> queries all time. Bounds are
-      inclusive. A query with <code>aggregation</code> and no
-      <code>interval</code> returns a single value over the whole window;
-      with an <code>interval</code> it returns one value per bucket
-      (buckets aligned to the Unix epoch).</li>
-  <li>There is no tag filter on the wire — a metric's data is queried as a
-      whole. (Write <code>tags</code> to split a metric into series; only the
-      embedded Python API can query by <code>series_ids</code> directly — see
-      below.)</li>
-  <li><code>limit</code> and <code>order</code> apply to the raw paths; results
-      are ordered ascending (or descending with <code>order=desc</code>) and
-      the first N are kept.</li>
-  <li>Server-side budget: queries are answered through a worker thread with a
-      <code>query.timeout_s</code> budget (default 30.0; set to 0 to disable).
-      A query that exceeds the budget gets <code>QUERY_TIMEOUT</code> back and
-      the service stays responsive. The bundled client also applies its own
-      30s receive timeout and raises <code>ClientError</code> if no reply
-      arrives in time.</li>
-</ul>
-
-<h3>Aggregation functions</h3>
-<div class="table-wrap"><table>
-  <tr><th>Function</th><th>Description</th></tr>
-  <tr><td><code>avg</code></td><td>Average (arithmetic mean)</td></tr>
-  <tr><td><code>sum</code></td><td>Sum of values</td></tr>
-  <tr><td><code>min</code></td><td>Smallest value</td></tr>
-  <tr><td><code>max</code></td><td>Largest value</td></tr>
-  <tr><td><code>count</code></td><td>Number of values</td></tr>
-  <tr><td><code>first</code></td><td>First value in the window/bucket</td></tr>
-  <tr><td><code>last</code></td><td>Last value in the window/bucket</td></tr>
-  <tr><td><code>median</code></td><td>Median (middle value)</td></tr>
-  <tr><td><code>p95</code></td><td>95th percentile: 95% of values are at or below this</td></tr>
-  <tr><td><code>p99</code></td><td>99th percentile: 99% of values are at or below this</td></tr>
-</table></div>
-<p>Percentiles use rank interpolation: for a sorted list of <em>n</em> values,
-the <em>q</em>-th percentile sits at rank <code>(n-1) * q</code> and is
-linearly interpolated between the two neighbours. Empty windows — a window
-with no data — behave differently by endpoint: on the
-<code>/api/v1/aggregate</code> (and ZMQ <code>aggregations</code>) paths,
-<code>count</code> and <code>sum</code> return <code>0.0</code> and every
-other function returns <code>NaN</code> (serialized as <code>null</code>);
-on the single-function paths (<code>/read?aggregation=…</code> and ZMQ
-<code>aggregation</code>) an empty window returns <code>data: []</code>.</p>
-
-<h3>Intervals</h3>
-<p>An interval is a number plus a unit: <code>s</code> (seconds),
-<code>m</code> (minutes), <code>h</code> (hours), <code>d</code> (days).
-Examples: <code>5s</code>, <code>1m</code>, <code>15m</code>, <code>1h</code>,
-<code>1d</code>. Buckets start at Unix-epoch boundaries
-(<code>ts // bucket_ns * bucket_ns</code>).</p>
-
-<h3>Multiple whole-window aggregations</h3>
-<p>Send <code>aggregations</code> (a comma-separated string) instead of
-<code>aggregation</code> to get several values over one window. The reply's
-<code>data</code> becomes a <em>dict</em> of function → value instead of a
-list:</p>
-<pre><code>{
-  "type": "query",
-  "metric": "cpu.usage",
-  "aggregations": "avg,min,max,p95"
-}
-# → {"status":"ok","data":{"avg":0.71,"min":0.4,"max":0.98,"p95":0.91}}
-</code></pre>
-
-<h3>Response format</h3>
-<pre><code>{
-  "status": "ok",
-  "data": [
-    {"timestamp": 1720000000.0, "value": 0.72},   // seconds
-    {"timestamp": 1720000060.0, "value": 0.68}
-  ]
-}</code></pre>
-<p>For a whole-window <code>aggregation</code> (no interval) the single result
-row is anchored at the window's oldest sample (the last one when
-<code>order=desc</code>). For an aggregations (multi-func) query,
-<code>data</code> is <code>{func: value}</code>.</p>
-
-<h3>HTTP queries</h3>
-<p>HTTP is the easiest path from scripts, browsers, and languages without a
-ZMQ binding. Timestamps are in <em>seconds</em> (or ISO-8601) here; results are identical in
-shape to the ZMQ path.</p>
-<div class="table-wrap"><table>
-  <tr><th>Endpoint</th><th>Params</th><th>Returns</th></tr>
-  <tr><td><code>GET /api/v1/read</code></td>
-      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds or ISO-8601),
-          <code>aggregation</code>, <code>interval</code>, <code>limit</code> (1–100000),
-          <code>order</code> (asc|desc)</td>
-      <td><code>{"status":"ok","data":[{timestamp,value}]}</code></td></tr>
-  <tr><td><code>GET /api/v1/aggregate</code></td>
-      <td><code>metric</code> (required), <code>start</code>, <code>end</code> (seconds or ISO-8601),
-          <code>funcs</code> (comma list, default <code>avg</code>)</td>
-      <td><code>{"status":"ok","aggregations":{func:value}}</code></td></tr>
-  <tr><td><code>GET /api/v1/stats</code></td>
-      <td>—</td>
-      <td><code>{"status":"ok","metrics":N,"series":M}</code></td></tr>
-</table></div>
-<pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;aggregation=avg&amp;interval=15m"
-curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=1720000000&amp;end=1720003600&amp;limit=10&amp;order=desc"
-curl "http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.usage&amp;funcs=avg,min,max,p95"
-curl "http://127.0.0.1:12505/api/v1/stats"
-curl "http://127.0.0.1:12505/api/v1/health"</code></pre>
-<p>Bad parameters (<code>limit</code> outside 1–100000, invalid
-<code>order</code>, missing <code>metric</code>) are rejected with
-<code>422</code>; <code>start</code>/<code>end</code> that are neither numeric
-nor ISO-8601 with <code>400</code>; an unknown <code>aggregation</code>, or an invalid
-<code>interval</code> used together with an <code>aggregation</code>, with
-<code>400</code>.</p>
-
-<h3>Examples</h3>
-<p>For every classic question phrased the way a person asks it ("average
-CPU last hour?", "peak temperature yesterday?", "99th percentile over the
-week?"), see the runnable
-<a href="examples.html">question catalog</a> —
-<code>examples/question_examples.py</code> seeds data and answers 13 such
-questions with machine-readable output. The building blocks below are the
-same ones it uses.</p>
-<h4>Last hour of raw data (Python client)</h4>
-<pre><code>from sqtseries import Client
-import time
-
-c = Client()
-now_ns = time.time_ns()
-rows = c.query("cpu.usage", start=now_ns - 3600 * 10**9, end=now_ns)</code></pre>
-
-<h4>Per-minute averages</h4>
-<pre><code>c.query("cpu.usage", aggregation="avg", interval="1m")</code></pre>
-
-<h4>Daily max over the last week</h4>
-<pre><code>c.query("cpu.usage", start=now_ns - 7 * 86400 * 10**9, end=now_ns,
-        aggregation="max", interval="1d")</code></pre>
-
-<h4>Raw ZMQ query</h4>
-<pre><code>import zmq, orjson
-
-ctx = zmq.Context()
-sock = ctx.socket(zmq.REQ)
-sock.setsockopt(zmq.LINGER, 500)
-sock.setsockopt(zmq.RCVTIMEO, 30000)
-sock.connect("tcp://127.0.0.1:12502")
-sock.send(orjson.dumps({
-    "type": "query", "metric": "cpu.usage",
-    "start": now_ns - 3600 * 10**9, "end": now_ns,
-    "aggregation": "avg", "interval": "1m",
-}))
-reply = orjson.loads(sock.recv())
-print(reply)</code></pre>
-
-<h4>HTTP (seconds or ISO-8601)</h4>
-<pre><code>curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=1720000000&amp;end=1720003600&amp;aggregation=avg&amp;interval=1m"
-curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;start=2026-09-11T14:00:00Z&amp;end=2026-09-11T15:00:00Z"</code></pre>
-<p>Prefer clicking to curl? Every endpoint above is live in
-<a href="../api-docs" target="_blank" rel="noopener">Swagger UI</a> (or
-<a href="../redoc" target="_blank" rel="noopener">ReDoc</a>) on your running
-service — fill the parameters and hit <em>Try it out</em>.</p>
-
-<h3 id="series-id">Querying by series_id (embedded API)</h3>
-<p>Each unique <code>(metric, tags)</code> pair is a <em>series</em>. The
-embedded Python API can query a specific series directly — the wire protocol
-cannot (it has no tag filter). This path uses the clustered primary key
-<code>(series_id, timestamp_ns)</code> and is the fastest way to isolate one
-host:</p>
-<pre><code>from sqtseries.engine import StorageEngine, create_sqlite_engine, initialize_schema
-from sqtseries.query import TimeSeriesDB
-
-engine = create_sqlite_engine("~/.sqtseries/data/db.sqlite")
-initialize_schema(engine)
-tsdb = TimeSeriesDB(StorageEngine(engine))
-
-sids = tsdb.store.series_ids_for_metric("cpu.usage")
-rows = tsdb.query(series_ids=[sids[0]], start=now_ns - 3600 * 10**9, end=now_ns)</code></pre>
-<p>To answer <em>per-tag</em> questions (which host is hottest? which room is
-busiest?), map each series_id back to its tags and query the ones you care
-about:</p>
-<pre><code>import orjson
-
-sids = tsdb.store.series_ids_for_metric("cpu.usage")
-by_host = {}
-for sid in sids:
-    _, tags_json = tsdb.store.get_series_meta(sid)
-    tags = orjson.loads(tags_json) if tags_json else {}
-    by_host.setdefault(tags.get("host", "untagged"), []).append(sid)
-
-# the two web hosts only — per-series averages in one clustered-PK pass
-target = [sid for host, sids_ in by_host.items() if host.startswith("web") for sid in sids_]
-rows = tsdb.query(series_ids=target, start=start_ns, end=end_ns)
-for host, sids_ in by_host.items():
-    rows = tsdb.query(series_ids=sids_, start=start_ns, end=end_ns)
-    avg = sum(v for _, v in rows) / len(rows) if rows else 0
-    print(f"{host}: avg {avg:.2f}")</code></pre>
-<p>The same pattern works with any tag key. See
-<a href="ingestion.html">Tags: why and how</a> for when to use tags and
-cardinality guidance, and the runnable <code>examples/tags_examples.py</code>.</p>
-
-<h3>Gap filling (embedded API)</h3>
-<p>The embedded query API supports linear interpolation of small gaps
-(<code>fill_gaps_ns</code> inserts a midpoint between two samples when the gap
-is at most that size):</p>
-<pre><code># fill gaps &lt;= 60s by inserting a midpoint value
-rows = tsdb.query("cpu.usage", start=..., end=..., fill_gaps_ns=60 * 10**9)</code></pre>
-<p><code>downsample_to_intervals(..., fill_missing=True)</code> (in
-<code>sqtseries.query.agg</code>) emits <code>NaN</code> buckets for empty
-intervals instead of skipping them. Both are embedded-only conveniences —
-there is no wire parameter for them.</p>
-
-<h3>NaN and infinity values</h3>
-<p>Non-finite values (<code>NaN</code>, <code>±Inf</code>) are
-<strong>rejected</strong> at ingest on both paths (ZMQ: dropped and counted
-<code>invalid</code>; HTTP: <code>400</code> "value must be finite"). They can
-however be <em>returned</em>: empty-window aggregate results are
-<code>NaN</code>, serialized as <code>null</code>.</p>
-
-<h3>The rollup fast path</h3>
-<p>Wide-window aggregates can be answered from the hourly rollup table instead
-of scanning every raw row. The exact eligibility rules:</p>
-<ul>
-  <li><strong>Eligible when</strong> the aggregation is
-      <code>avg</code>, <code>sum</code>, <code>min</code>, <code>max</code>,
-      or <code>count</code> (the functions expressible from the rollup's
-      count/sum/min/max columns).</li>
-  <li><strong>The interval</strong>, if given, must be a whole-hour multiple
-      (<code>1h</code>, <code>2h</code>, <code>1d</code>, …); non-hour
-      intervals (<code>1m</code>, <code>30m</code>, <code>90m</code>, …)
-      fall back to raw rows.</li>
-  <li><strong>The window</strong> must span at least two completed hours and
-      its end-hour boundary must be at or below the rollup watermark (which
-      tracks the last completed, rolled hour) — a tail reaching into the
-      current hour simply falls back to raw rows instead.</li>
-  <li><strong>Not eligible:</strong> <code>first</code>, <code>last</code>,
-      <code>median</code>, <code>p95</code>, <code>p99</code>; non-whole-hour
-      intervals; windows shorter than two completed hours.</li>
-  <li><strong>Always exact.</strong> Only completed hours are rolled, and the
-      in-progress hour is read from raw rows and merged — the rollup is an
-      acceleration, never an approximation.</li>
-</ul>
-<p>Measured effect (<a href="benchmarks.md">benchmarks</a>, 2M rows at 20K
-points per series): the same wide-window query drops from 11.22ms linear
-(raw scan) to 0.97ms near-constant (~11.6x). The rollup runs in the background
-(<code>rollup.interval</code>, default every 5 minutes); hours are only
-rolled once they are at least the client-skew window past completion.</p>
-
-<h3>Where to go next</h3>
-<ul>
-  <li><a href="ingestion.html">Ingestion</a> — get data into the database
-      first.</li>
-  <li><a href="streaming.html">Streaming</a> — live data instead of (or in
-      addition to) history.</li>
-  <li><a href="clients.html">Client Libraries</a> — the same query shapes
-      from Go, Rust, PHP, and Node.js.</li>
-  <li><a href="api.html">API Reference</a> — response/error formats and the
-      full wire protocol.</li>
-  <li><a href="examples.html">Examples</a> — <code>consumer.py</code> and
-      <code>query_examples.py</code> are runnable.</li>
-</ul>
-
-
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · reading data</a></div>
+  <h1>Queries</h1>
+  <p class="tagline">Read a metric over a window, raw or aggregated, bucketed or whole-window, with the exact rules for limits, ordering, empty windows, and the point at which a query is refused for being too large.</p>
+  <div class="meta">
+    <span><b>Aggregations</b> 10, exact — never approximate</span>
+    <span><b>Intervals</b> <code>Ns/Nm/Nh/Nd</code>, epoch-aligned</span>
+    <span><b>Fast path</b> hourly rollup for 5 of the 10</span>
+    <span><b>Row cap</b> <code>query.max_rows</code>, 413 not truncation</span>
+    <span><b>Units</b> ns in over ZMQ, seconds in over HTTP</span>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</header>
+
+<main>
+<section>
+  <h2>Asking questions of the past</h2>
+  <p class="lede">Read a metric over a window — raw, aggregated over the whole window,
+  or bucketed by the hour. Every answer is exact. A query that would be too large is
+  refused with a reason, never quietly shortened.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Window</strong> — the <code>start</code> and <code>end</code> you ask
+    over. End is inclusive.<br>
+    <strong>Bucket</strong> — one slice of the window, aligned to the epoch, not to
+    your first sample.<br>
+    <strong>Raw</strong> — the stored points, unmodified.<br>
+    <strong>Rollup</strong> — the hourly summary table the fast path reads.<br>
+    <strong>Watermark</strong> — the next hour the rollup will process.<br>
+    <strong><code>max_rows</code></strong> — the cap on raw rows one query may
+    materialise.<br>
+    <strong>Backfill</strong> — a write whose timestamp is older than the newest
+    stored data.<br>
+    <strong>NaN</strong> — "no value". JSON has no NaN, so it arrives as
+    <code>null</code>.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">10</div><div class="l">Aggregations, all exact</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">Served from the rollup</div></div>
+    <div class="stat"><div class="n">10,000</div><div class="l">Default row cap</div></div>
+    <div class="stat"><div class="n">1 h</div><div class="l">Rollup granularity</div></div>
+    <div class="stat"><div class="n">5 s</div><div class="l">Result cache TTL</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Three shapes of question</h2>
+  <p>The same two parameters give you three different answers, and it is worth being
+  precise about which is which.</p>
+
+  <ol class="steps">
+    <li><b>Raw — no <code>aggregation</code></b><span>You get the stored points, in
+    timestamp order. This is the only shape that returns individual
+    measurements.</span></li>
+    <li><b>Whole window — <code>aggregation</code>, no <code>interval</code></b><span>You
+    get <strong>one value</strong> for the entire window, anchored at the oldest
+    sample inside it.</span></li>
+    <li><b>Bucketed — <code>aggregation</code> <em>and</em> <code>interval</code></b><span>You
+    get <strong>one value per bucket</strong>, each anchored at its bucket
+    start.</span></li>
+  </ol>
+
+  <pre><span class="c"># 1. raw</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;limit=3&amp;order=desc"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"data"</span>:[
+  {<span class="v">"timestamp"</span>:<span class="v">1790793328.2546144</span>,<span class="v">"value"</span>:<span class="v">31.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790793250.3138034</span>,<span class="v">"value"</span>:<span class="v">31.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790793028.2546144</span>,<span class="v">"value"</span>:<span class="v">24.0</span>}]}
+
+<span class="c"># 2. whole window, every function at once</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,sum,min,max,count,first,last,median,p95,p99"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:<span class="v">59.25</span>,<span class="v">"sum"</span>:<span class="v">12798.0</span>,<span class="v">"min"</span>:<span class="v">20.0</span>,
+ <span class="v">"max"</span>:<span class="v">100.0</span>,<span class="v">"count"</span>:<span class="v">216.0</span>,<span class="v">"first"</span>:<span class="v">20.0</span>,<span class="v">"last"</span>:<span class="v">31.0</span>,
+ <span class="v">"median"</span>:<span class="v">59.0</span>,<span class="v">"p95"</span>:<span class="v">97.0</span>,<span class="v">"p99"</span>:<span class="v">99.85</span>}}
+
+<span class="c"># 3. bucketed by the hour</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;aggregation=avg&amp;interval=1h"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"data"</span>:[
+  {<span class="v">"timestamp"</span>:<span class="v">1790769600.0</span>,<span class="v">"value"</span>:<span class="v">34.46666666666667</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790773200.0</span>,<span class="v">"value"</span>:<span class="v">59.75</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790776800.0</span>,<span class="v">"value"</span>:<span class="v">62.75</span>}, …]}</pre>
+
+  <div class="box">
+    <span class="lbl">Why the hour buckets start on the hour</span>
+    <p>A bucket is <code>timestamp // interval</code>, so it is aligned to the epoch and
+    not to your first sample. With <code>interval=1h</code> the buckets are 00:00,
+    01:00, 02:00 — whatever time you happened to ask from.</p>
+    <p>This is what makes two overlapping queries agree. If buckets started at the first
+    sample, asking for 09:30–10:30 and 10:15–11:15 would produce buckets on completely
+    different boundaries, and neither could be compared with the other or with a chart
+    someone else produced.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The ten aggregations</h2>
+  <p>All ten are exact. None of them is an estimate, and none is approximate even when
+  it is computed from the hourly summary rather than from raw rows.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Name</th><th>Result over a window</th><th>Empty window</th><th>From the hourly rollup?</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">avg</td><td>Arithmetic mean.</td><td class="muted">NaN</td><td>yes</td></tr>
+      <tr><td class="opt">sum</td><td>Total.</td><td><code>0.0</code></td><td>yes</td></tr>
+      <tr><td class="opt">min</td><td>Smallest value.</td><td class="muted">NaN</td><td>yes</td></tr>
+      <tr><td class="opt">max</td><td>Largest value.</td><td class="muted">NaN</td><td>yes</td></tr>
+      <tr><td class="opt">count</td><td>Number of points.</td><td><code>0.0</code></td><td>yes</td></tr>
+      <tr><td class="opt">first</td><td>Oldest value in the bucket.</td><td class="muted">NaN</td><td class="muted">no</td></tr>
+      <tr><td class="opt">last</td><td>Newest value in the bucket.</td><td class="muted">NaN</td><td class="muted">no</td></tr>
+      <tr><td class="opt">median</td><td>Middle value.</td><td class="muted">NaN</td><td class="muted">no</td></tr>
+      <tr><td class="opt">p95</td><td>95th percentile, linearly interpolated between the two nearest ranks.</td><td class="muted">NaN</td><td class="muted">no</td></tr>
+      <tr><td class="opt">p99</td><td>99th percentile, same method.</td><td class="muted">NaN</td><td class="muted">no</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">The last column is the important one. The hourly
+  summary stores only count, sum, min and max, so those five are answered from
+  it and the other five must read the raw rows. That is a speed difference, not
+  a correctness one: every answer is exact either way. <code>min</code>,
+  <code>max</code>, <code>avg</code>, <code>sum</code> and <code>count</code>
+  are also the only functions SQLite can bucket inside the database, so
+  <code>aggregation</code> + <code>interval</code> in that set never
+  materialises a raw row in Python.</p>
+
+  <p class="small muted">On an empty window <code>sum</code> and <code>count</code> are
+  <code>0.0</code> and the rest have no value. JSON cannot carry <code>NaN</code>, so
+  it arrives as <code>null</code>:</p>
+
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=does.not.exist&amp;funcs=avg,sum,count,median"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:<span class="v">null</span>,<span class="v">"sum"</span>:<span class="v">0.0</span>,<span class="v">"count"</span>:<span class="v">0.0</span>,<span class="v">"median"</span>:<span class="v">null</span>}}</pre>
+
+  <p>So a client must treat <code>null</code> as "no data" rather than as zero.
+  <code>sum = 0.0</code> is the mathematically honest answer for an empty set;
+  <code>avg = null</code> is the honest answer for an average of nothing.</p>
+
+  <h3>What the percentiles actually do</h3>
+  <p><code>p95</code> and <code>p99</code> sort the values, take
+  <code>rank = (n - 1) × q</code>, and interpolate linearly between the two nearest
+  ranks. With six values, <code>p99</code> gives
+  <code>50 × 0.05 + 99 × 0.95 = 96.55</code>.</p>
+
+  <p>That is a choice, and it is the same one <code>numpy.percentile</code> makes by
+  default. It is worth knowing before you compare a number from here with one from a
+  tool that uses nearest-rank instead — the two will differ slightly on small samples
+  and agree closely on large ones.</p>
+</section>
+
+<section>
+  <h2>Intervals</h2>
+  <p>A number and a unit, with no spaces and no separators: <code>30s</code>,
+  <code>5m</code>, <code>1h</code>, <code>1d</code>. There is no week and no month
+  unit.</p>
+
+  <pre><span class="c"># fine granularity, for a chart</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;aggregation=avg&amp;interval=5m"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"data"</span>:[
+  {<span class="v">"timestamp"</span>:<span class="v">1790771400.0</span>,<span class="v">"value"</span>:<span class="v">20.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790771700.0</span>,<span class="v">"value"</span>:<span class="v">27.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790772000.0</span>,<span class="v">"value"</span>:<span class="v">34.0</span>}, …]}</pre>
+
+  <div class="box warn">
+    <span class="lbl">Intervals that are not a whole number of hours cannot use the rollup</span>
+    <p><code>5m</code> and <code>30m</code> are answered by grouping inside SQLite —
+  fast, and it never materialises a raw row in Python. But they are <em>not</em> served
+  from the hourly summary, because the summary stores one row per hour and cannot
+  answer a question about five of those minutes.</p>
+    <p>This is a speed difference only. The values are identical either way.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Limits, order, and the row cap</h2>
+
+  <h3><code>limit</code></h3>
+  <p>Which end it takes from depends on <code>order</code>:</p>
+
+<pre><span class="c"># the newest N points — the usual "current value" query</span>
+curl -s <span class="v">"…/api/v1/read?metric=cpu.load&amp;limit=1&amp;order=desc"</span>
+
+<span class="c"># the oldest N</span>
+curl -s <span class="v">"…/api/v1/read?metric=cpu.load&amp;limit=10&amp;order=asc"</span></pre>
+
+  <p><code>limit</code> must be between 1 and 100,000. Outside that you get
+  <code>422</code> — the value is checked before the handler runs:</p>
+
+<pre>curl -s -w <span class="v">" [%{http_code}]\n"</span> <span class="v">"…/api/v1/read?metric=cpu.load&amp;limit=0"</span>
+{<span class="v">"detail"</span>:[{<span class="v">"type"</span>:<span class="v">"greater_than_equal"</span>,<span class="v">"loc"</span>:[<span class="v">"query"</span>,<span class="v">"limit"</span>],
+  <span class="v">"msg"</span>:<span class="v">"Input should be greater than or equal to 1"</span>,<span class="v">"ctx"</span>:{<span class="v">"ge"</span>:<span class="v">1</span>}}]} <span class="c"># 422</span></pre>
+
+  <div class="box">
+    <span class="lbl"><code>limit</code> means different things with and without an aggregation</span>
+    <p>On a <strong>raw read</strong> it bounds the SQL fetch, so a limit of 1 with
+    <code>order=desc</code> reads exactly one row. On an <strong>aggregated</strong>
+    query it bounds the number of <em>result</em> rows — the buckets — because the
+    transform still needs every raw row in the window to compute them.</p>
+    <p>So <code>limit=1</code> on a raw read is cheap, and on a bucketed query it means
+    "one bucket", not "one input row".</p>
+  </div>
+
+  <h3>The row cap, and why it errors instead of truncating</h3>
+  <p>A query that would materialise more than <code>query.max_rows</code> raw rows
+  (10,000 by default) is <strong>refused</strong>. It is not shortened, because a
+  silently truncated answer is indistinguishable from a correct one — and you would
+  draw conclusions from data that was never returned.</p>
+
+<pre>$ curl -s -w <span class="v">" [%{http_code}]\n"</span> \
+    <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load"</span>
+{<span class="v">"detail"</span>:<span class="v">"query would materialize more than max_rows=10000 raw rows; narrow the time
+ window, use an aggregation+interval, or raise query.max_rows"</span>} <span class="c"># 413</span></pre>
+
+  <p>Three ways out, and only three:</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Fix</th><th>Example</th><th>Trade</th></tr></thead>
+    <tbody>
+      <tr><td>Narrow the window</td><td>add <code>start</code> and <code>end</code></td>
+        <td>none, if you only needed part of the range</td></tr>
+      <tr><td>Aggregate</td><td><code>aggregation=avg</code> or an
+        <code>interval</code></td>
+        <td>you lose individual points — which is what you wanted anyway</td></tr>
+      <tr><td>Raise the cap</td><td><code>query.max_rows = 100000</code></td>
+        <td>more memory per query; this is the cap that bounds it</td></tr>
+    </tbody>
+  </table></div>
+
+  <p class="small muted">The cap is checked with a <code>COUNT(*)</code> <em>before</em>
+  the fetch, so a refused query never pays for the rows it will not get. It applies
+  identically to the raw path and to the hourly-rollup fast path — the cap is a
+  property of the query, not of the route it takes.</p>
+
+  <h3><code>order</code></h3>
+  <p><code>asc</code> (the default) or <code>desc</code>. Anything else is
+  <code>422</code>, also checked before the handler.</p>
+</section>
+
+<section>
+  <h2>Where a query is answered from</h2>
+  <p>Three routes, chosen automatically. You do not pick, and the answer is the same
+  whichever one runs.</p>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 300" role="img" aria-label="Query routing: a query with an aggregation in the rollup-eligible set, an interval that is a whole number of hours, a window inside the rolled region and spanning at least two hours, takes the rollup path and reads the hourly summary plus raw partition edges; a bucketed query with avg, sum, min, max or count is grouped inside SQLite and never materialises a raw row in Python; everything else, including raw reads, median, p95, p99, first, last and gap filling, scans the raw partitions">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0b6e8c"/>
+        </marker>
+        <style>
+          .q{fill:#fff;stroke:#0d4f60;stroke-width:1.8}
+          .roll{fill:#e6f6fb;stroke:#0b6e8c;stroke-width:1.8}
+          .sql{fill:#e9f7f1;stroke:#046c4e;stroke-width:1.8}
+          .raw{fill:#fdf6ec;stroke:#b45309;stroke-width:1.8}
+          .n{font:600 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .b{font:600 10.5px ui-monospace,Menlo,monospace;fill:#0b6e8c}
+          .g{font:600 10.5px ui-monospace,Menlo,monospace;fill:#046c4e}
+          .a{font:600 10.5px ui-monospace,Menlo,monospace;fill:#b45309}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .bLn{fill:none;stroke:#0b6e8c;stroke-width:1.8;marker-end:url(#ah2)}
+          .gLn{fill:none;stroke:#046c4e;stroke-width:1.8;marker-end:url(#ah2)}
+        </style>
+      </defs>
+
+      <rect class="q" x="20" y="112" width="150" height="66" rx="6"/>
+      <text class="n" x="36" y="138">your query</text>
+      <text class="s" x="36" y="156">metric, window,</text>
+      <text class="s" x="36" y="170">aggregation, interval</text>
+
+      <rect class="roll" x="248" y="30" width="300" height="86" rx="6"/>
+      <text class="n" x="264" y="54">rollup_hourly</text>
+      <text class="b" x="264" y="74">avg, sum, min, max, count</text>
+      <text class="s" x="264" y="92">interval a whole number of hours</text>
+      <text class="s" x="264" y="108">window inside the rolled region</text>
+
+      <rect class="sql" x="248" y="128" width="300" height="76" rx="6"/>
+      <text class="n" x="264" y="152">SQLite groups per bucket</text>
+      <text class="g" x="264" y="172">avg, sum, min, max, count</text>
+      <text class="s" x="264" y="190">any interval — no raw row in Python</text>
+
+      <rect class="raw" x="248" y="216" width="300" height="72" rx="6"/>
+      <text class="n" x="264" y="240">raw partition scan</text>
+      <text class="a" x="264" y="260">raw reads, median, p95, p99, first, last,</text>
+      <text class="a" x="264" y="276">gap filling</text>
+
+      <rect class="q" x="700" y="112" width="260" height="66" rx="6"/>
+      <text class="n" x="716" y="138">the same answer</text>
+      <text class="s" x="716" y="156">exact on all three routes</text>
+      <text class="s" x="716" y="170">the cap applies to all three</text>
+
+      <path class="bLn" d="M170,132 L248,74"/>
+      <path class="gLn" d="M170,145 L248,166"/>
+      <path class="ln" d="M170,158 L248,252"/>
+      <path class="ln" d="M548,74 L700,132"/>
+      <path class="ln" d="M548,166 L700,145"/>
+      <path class="ln" d="M548,252 L700,158"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — three routes, one answer.</strong> The
+  distinction that matters in practice is the middle row: <code>avg</code>,
+  <code>sum</code>, <code>min</code>, <code>max</code> and <code>count</code> can be
+  grouped inside SQLite, so a five-minute bucket over a week returns a few hundred
+  partials and never loads a raw row. Everything else must read the rows. The values
+  are identical either way, so the only thing to take away is which of your
+  dashboards will scale and which will not.</figcaption>
+  </figure>
+
+  <h3>When the rollup is used</h3>
+  <p>All four must hold:</p>
+  <ul>
+    <li>the aggregation is one of <code>avg</code>, <code>sum</code>,
+      <code>min</code>, <code>max</code>, <code>count</code>;</li>
+    <li>any <code>interval</code> is a whole number of hours;</li>
+    <li>the window ends at or before the rollup watermark;</li>
+    <li>the window spans at least two hours.</li>
+  </ul>
+
+  <p>That last one is not a limitation — it is an optimisation working. For a window
+  under two hours the raw path is genuinely faster: one partition, one index, no
+  merge. The eligibility test exists so the fast path is used where it wins.</p>
+
+  <h3>Why the rollup answer is exact</h3>
+  <p>The summary stores count, sum, min and max per series per hour. An average over
+  any number of hours is <code>sum of sums / sum of counts</code> — the same average a
+  full scan produces, computed from sufficient statistics.</p>
+
+  <p>The window is split into <strong>disjoint</strong> sources: the first partial hour
+  and the last partial hour from the raw partitions, every fully-inside hour from the
+  rollup. Disjoint is the load-bearing word. If they overlapped, every point in the
+  overlap would be counted twice and the average would be quietly wrong.</p>
+
+  <h3>The current hour is always read live</h3>
+  <p>An hour is summarised only after the clock passes it, and then only after waiting
+  the client clock-skew window — so a late write can never land in an hour already
+  summarised. The consequence is that the current, unfinished hour is never in the
+  rollup, and is read from the raw partition instead. That is why results are never
+  stale, and why a dashboard showing "now" is always right.</p>
+</section>
+
+<section>
+  <h2>Backfills are picked up</h2>
+  <p>A write whose timestamp is older than the newest data — a backfill — is the one
+  case where the rollup needs help, because the hour it lands in may already have been
+  summarised.</p>
+
+  <p>When that happens the write path <strong>rewinds the rollup watermark</strong> to
+  the backfilled hour, inside the same transaction as the insert. The next rollup pass
+  re-aggregates from there. Re-aggregation is idempotent, so re-rolling a range is
+  safe and costs only the hours actually touched.</p>
+
+<pre><span class="c"># six points spread across five already-rolled hours</span>
+<span class="c"># then, without any manual step:</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=spread.test&amp;funcs=count,sum"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"count"</span>:<span class="v">6.0</span>,<span class="v">"sum"</span>:<span class="v">249.0</span>}}</pre>
+
+  <div class="box ok">
+    <span class="lbl">Why this matters more than it looks</span>
+    <p>Before the rewind, a backfilled point was <strong>accepted, reported as stored,
+    and then silently omitted from every rollup-served answer</strong> — while a raw
+    read still showed it. That combination is the worst kind of bug: the write
+    reported success, the data was on disk, and only the aggregate was wrong. Nothing
+    in the API response hinted at it.</p>
+    <p>Watermarks only ever move forward, so an hour that had been passed was never
+    revisited. Rewinding on write is what makes the rollup self-healing instead of
+    requiring a manual partition rebuild.</p>
+  </div>
+
+  <p class="small muted">The one thing still required of you: the write must be
+  <em>accepted</em> in the first place. The default clock-skew guard refuses a
+  timestamp more than 300 s from the server clock, so a genuine multi-day backfill
+  needs <code>ingestion.reject_client_timestamp_skew_s = 0</code>. See
+  <a href="ingestion.html">Ingestion</a>.</p>
+</section>
+
+<section>
+  <h2>Results are cached briefly</h2>
+  <p>Identical queries inside a 5-second window are served from a bounded cache, which
+  is what makes a dashboard polling the same metric every second cheap rather than
+  quadratic.</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> st = c.admin(<span class="v">"stats"</span>)
+<span class="p">&gt;&gt;&gt;</span> st[<span class="v">"query_cache_size"</span>], st[<span class="v">"query_cache_hits"</span>], st[<span class="v">"query_cache_misses"</span>]
+(<span class="v">2</span>, <span class="v">14</span>, <span class="v">6</span>)</pre>
+
+  <p>A low hit rate on a busy dashboard usually means the polling interval is longer
+  than the cache TTL, so every poll misses. Poll faster, or ask for more per
+  request.</p>
+
+  <p>The cache is bounded twice over — by entry count (512) and by total rows across
+  all entries (200,000) — and a single result larger than that budget is never cached
+  at all, so one huge query cannot flush everything or pin memory here.</p>
+</section>
+
+<section>
+  <h2>Querying from Python</h2>
+  <p>Over ZeroMQ, and remember the units: nanoseconds in the request, seconds in the
+  reply.</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> <span class="f">import</span> time
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> now = time.time_ns()
+
+<span class="c"># raw — nanoseconds in</span>
+<span class="p">&gt;&gt;&gt;</span> rows = c.query(<span class="v">"cpu.load"</span>, start=now - <span class="v">3600</span>*10**<span class="v">9</span>, end=now, limit=<span class="v">5</span>, order=<span class="v">"desc"</span>)
+<span class="p">&gt;&gt;&gt;</span> rows
+[{<span class="v">'timestamp'</span>: <span class="v">1790793328.2546144</span>, <span class="v">'value'</span>: <span class="v">31.0</span>}, …]   <span class="c"># SECONDS out</span>
+
+<span class="c"># several aggregates in one pass</span>
+<span class="p">&gt;&gt;&gt;</span> c.aggregate(<span class="v">"cpu.load"</span>, start=now - <span class="v">7</span>*<span class="v">24</span>*<span class="v">3600</span>*10**<span class="v">9</span>, funcs=[<span class="v">"avg"</span>,<span class="v">"p95"</span>,<span class="v">"p99"</span>])
+{<span class="v">'avg'</span>: <span class="v">59.25</span>, <span class="v">'p95'</span>: <span class="v">97.0</span>, <span class="v">'p99'</span>: <span class="v">99.85</span>}
+
+<span class="p">&gt;&gt;&gt;</span> c.close()</pre>
+
+  <h3>Embedded, without a service</h3>
+  <p>The same query code, in-process, with no ports. The one difference is that
+  <code>query</code> returns <strong>nanoseconds</strong>, because there is no gateway
+  converting them.</p>
+
+<pre><span class="f">from</span> sqtseries.engine <span class="f">import</span> StorageEngine, create_sqlite_engine
+<span class="f">from</span> sqtseries <span class="f">import</span> TimeSeriesDB
+
+engine = create_sqlite_engine(<span class="v">"/tmp/embedded.sqlite"</span>)
+db = TimeSeriesDB(StorageEngine(engine), max_rows=<span class="v">10000</span>)
+
+<span class="c"># raw</span>
+rows = db.query(<span class="v">"cpu.load"</span>, start=None, end=None, limit=<span class="v">10</span>)
+<span class="c"># [(timestamp_ns, value), ...]</span>
+
+<span class="c"># whole window</span>
+db.aggregate(<span class="v">"cpu.load"</span>, funcs=[<span class="v">"avg"</span>, <span class="v">"max"</span>])
+<span class="c"># {"avg": 59.25, "max": 100.0}</span>
+
+<span class="c"># bucketed</span>
+db.query(<span class="v">"cpu.load"</span>, aggregation=<span class="v">"avg"</span>, interval=<span class="v">"1h"</span>)
+
+<span class="c"># stream without materialising — bounded memory over a huge window</span>
+<span class="f">for</span> ts_ns, value <span class="f">in</span> db.query_stream(<span class="v">"cpu.load"</span>):
+    ...
+
+<span class="c"># fill gaps up to 5 minutes by linear interpolation</span>
+<span class="c"># (embedded API only — there is no wire parameter for it)</span>
+rows = db.query(<span class="v">"cpu.load"</span>, fill_gaps_ns=<span class="v">5</span> * <span class="v">60</span> * <span class="v">10</span>**<span class="v">9</span>)
+
+db.close(); engine.dispose()</pre>
+
+  <div class="box">
+    <span class="lbl">Gap filling is embedded-only, on purpose</span>
+    <p><code>fill_gaps_ns</code> inserts an interpolated midpoint across gaps no larger
+    than the value you give. It is not on the wire because it changes the
+    <em>meaning</em> of a result: a row you interpolated is not a row anybody measured,
+    and a client that cannot tell the difference will average it in as though it were.
+    Keeping it in the Python API means the caller is a programmer who can choose to
+    use it deliberately.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The four canonical questions</h2>
+  <p>These are the questions people actually ask, with the exact calls. All four
+  outputs below are real, from the seeded example data.</p>
+
+  <h3>1 · What was the average CPU load over the last hour?</h3>
+<pre>st, en = time.time() - <span class="v">3600</span>, time.time()
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;start=$st&amp;end=$en&amp;funcs=avg"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:<span class="v">62.27</span>}}</pre>
+  <p>One call. The window is one hour wide, so this uses the raw path — which is the
+  faster route at that width.</p>
+
+  <h3>2 · What was the peak temperature yesterday?</h3>
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=temp.celsius&amp;funcs=max&amp;start=…&amp;end=…"</span>
+<span class="c"># ANSWER: peak_temp_yesterday = 24.49</span></pre>
+  <p><code>max</code> is rollup-eligible, so a whole-day window is answered from hourly
+  summary rows rather than from every reading.</p>
+
+  <h3>3 · Show me the 99th percentile response time for the past week</h3>
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=latency.web&amp;funcs=p99&amp;start=…&amp;end=…"</span>
+<span class="c"># ANSWER: p99_latency_week = 108.00</span></pre>
+  <div class="box warn">
+    <span class="lbl">This one reads every raw row</span>
+    <p><code>p99</code> cannot be derived from count, sum, min and max, so a week of
+    latency data is scanned in full. That is why the row cap applies here more readily
+    than to an average — and why, if you need a rolling p99 dashboard over months, you
+    should either widen the cap deliberately or store hourly percentiles yourself as
+    a separate metric.</p>
+    <p>This is the practical cost of the model, and it is worth knowing before you
+    build a percentile dashboard rather than after.</p>
+  </div>
+
+  <h3>4 · How many measurements did I record today?</h3>
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=count&amp;start=…&amp;end=…"</span>
+<span class="c"># ANSWER: count_today = 37</span></pre>
+  <p>Note the trap: <code>count</code> is <strong>per metric</strong>. To count
+  everything recorded today, ask each metric and add the results — there is no
+  cross-metric count, and a series is per metric and tag set.</p>
+</section>
+
+<section>
+  <h2>Troubleshooting</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Empty result over ZMQ, works over HTTP</td>
+        <td>seconds sent where nanoseconds were expected</td>
+        <td>the request asks for 1970 — see
+        <a href="clients.html">Client Libraries</a></td></tr>
+      <tr><td><code>413</code></td><td>the result would exceed
+        <code>query.max_rows</code></td>
+        <td>narrow the window, aggregate, or raise the cap</td></tr>
+      <tr><td><code>504</code></td><td>the query exceeded
+        <code>query.timeout_s</code></td>
+        <td>same three options, or raise the timeout</td></tr>
+      <tr><td><code>422</code> on <code>limit</code> or <code>order</code></td>
+        <td>outside the accepted range or pattern</td>
+        <td><code>limit</code> is 1–100000; <code>order</code> is
+        <code>asc</code> or <code>desc</code></td></tr>
+      <tr><td><code>400 unsupported aggregation</code></td><td>a typo in the function
+        name</td><td>the ten names are in the table above</td></tr>
+      <tr><td><code>null</code> where a number was expected</td>
+        <td>an empty window, for every function except sum and count</td>
+        <td>treat <code>null</code> as no data, not as zero</td></tr>
+      <tr><td>Fewer buckets than expected</td>
+        <td>buckets with no data in them are omitted, not emitted empty</td>
+        <td>fill them client-side from the bucket interval</td></tr>
+      <tr><td>An aggregate disagrees with a raw read</td>
+        <td class="muted">should be impossible — please report it</td>
+        <td>the equivalence is covered by the test suite</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every query parameter with its type, default and accepted range, and every
+      status code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>Timestamps, the clock-skew guard, and how to seed historical data without
+      fighting it.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>Watching values live, and reading back anything a slow subscriber
+      missed.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p><code>max_rows</code>, <code>timeout_s</code>, <code>rollup.interval</code> and
+      every other bound on this page.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>The runnable question catalogue, with the skew-guard setting it
+      needs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>How the hourly summary is built, and why merging disjoint sources is
+      what makes it exact.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>Raw or aggregated, and how they differ</h5>
+      <p>
+            With no <code>aggregation</code> you get the stored points. With
+            <code>aggregation</code> alone you get one value for the whole window,
+            anchored at the oldest sample in it. With <code>aggregation</code> and
+            <code>interval</code> you get one value per bucket, each anchored at
+            its bucket start.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Buckets are epoch-aligned</h5>
+      <p>
+            A bucket is <code>timestamp // interval</code>, not a window that
+            starts at your first sample. With <code>interval=1h</code> the bucket
+            is the top of the hour, whatever time you asked from. That is what
+            makes two queries over overlapping windows agree.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Why some aggregates are slower</h5>
+      <p>
+            The hourly summary stores count, sum, min and max. Those five
+            aggregations, and only those, can be answered from it.
+            <code>median</code>, <code>p95</code>, <code>p99</code>,
+            <code>first</code> and <code>last</code> must read the raw rows. The
+            answer is identical either way — this is a speed difference only, and
+            it is worth knowing before you build a percentile dashboard.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The rollup only covers finished hours</h5>
+      <p>
+            An hour is summarised once the clock is past it, plus the clock-skew
+            window, so a write can never land in an hour already summarised. The
+            current hour is therefore always read live. A query that spans fewer
+            than two hours skips the fast path entirely: there is nothing to
+            accelerate and the raw path is faster.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Too big is an error, not a short answer</h5>
+      <p>
+            A read that would materialise more than <code>query.max_rows</code>
+            raw rows raises <code>MAX_ROWS_EXCEEDED</code> over ZMQ and
+            <code>413</code> over HTTP. The check is a <code>COUNT(*)</code>
+            before the fetch, so you are not charged for rows you will not get.
+            The fix is always one of: narrow the window, add an aggregation, or
+            raise the cap.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Results are cached for five seconds</h5>
+      <p>
+            Identical queries inside the TTL are served from a bounded cache,
+            which is what makes a dashboard that polls the same metric every second
+            cheap. Watch <code>query_cache_hits</code> and
+            <code>query_cache_misses</code> on the admin socket to see it working.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — the past, in milliseconds.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

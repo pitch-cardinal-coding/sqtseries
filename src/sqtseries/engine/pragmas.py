@@ -15,14 +15,18 @@ def run_optimize(db: Database) -> None:
 
 
 def wal_checkpoint(db: Database, mode: str = "PASSIVE") -> str:
-    """PRAGMA wal_checkpoint. TRUNCATE is shutdown-only (corruption risk)."""
+    """PRAGMA wal_checkpoint, serialized on the writer handle.
+
+    Not run on a pooled reader: SQLite's WAL-reset corruption bug (sqlite.org
+    /wal.html section 11, fixed in 3.51.3 / 3.50.7 / 3.44.6) fires when one
+    connection checkpoints while another commits on the same file. See
+    ``Database.checkpoint``.
+    """
 
     mode = mode.upper()
     if mode not in ("PASSIVE", "FULL", "RESTART", "TRUNCATE"):
         raise ValueError(f"Invalid checkpoint mode: {mode}")
-    with db.connect() as conn:
-        row = conn.exec_driver_sql(f"PRAGMA wal_checkpoint({mode})").first()
-    return ",".join(str(x) for x in row) if row else ""
+    return db.checkpoint(mode)
 
 
 def quick_check(db: Database) -> str:

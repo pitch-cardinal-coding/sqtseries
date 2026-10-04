@@ -9,8 +9,8 @@ When the queue is full the loop stops reading frames and libzmq backpressure
 applies: frames buffer up to RCVHWM (101000), senders block past
 that. Bounded memory, zero silent loss.
 
-Drain loop pattern per pyzmq-asyncio-research-2026.md §9: poll once, drain up
-to N with NOBLOCK, yield to the loop.
+Drain loop pattern per markdown/RESEARCHES.md §3 "Write Queue": poll once,
+drain up to N with NOBLOCK, yield to the loop.
 """
 
 import asyncio

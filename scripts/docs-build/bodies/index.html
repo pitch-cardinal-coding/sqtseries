@@ -1,0 +1,345 @@
+<section>
+  <h2>What this is</h2>
+  <p class="lede">sqtseries stores numbers that change over time and answers questions
+  about them in milliseconds. You give it measurements as they happen — CPU load,
+  room temperature, visitor counts, prices, meter readings — and it keeps them in
+  one SQLite file on your own machine. There is no server to provision and no
+  schema to design.</p>
+
+  <p>Two things happen behind the scenes so your questions stay fast without you
+  doing anything. Measurements are stored in monthly partitions, so old data can be
+  dropped whole instead of row by row. And a background task summarises every
+  finished hour into count, sum, minimum and maximum, so a query about last month
+  reads a few dozen summary rows instead of millions of stored points. Because the
+  summary keeps the count and the sum, the average it produces is the real average,
+  not an estimate of one.</p>
+
+  <div class="box key">
+    <span class="lbl">The fifteen pages</span>
+    <p><strong>Metric</strong> — the name of something you measure, like
+    <code>cpu.load</code>.<br>
+    <strong>Measurement</strong>, or <strong>point</strong> — one value for one
+    metric at one moment, with optional tags.<br>
+    <strong>Tag</strong> — a label that splits a metric into dimensions, like
+    <code>host=web1</code>. A series is a metric plus its tags.<br>
+    <strong>Series</strong> — one metric with one exact set of tags. Every stored
+    measurement belongs to exactly one.<br>
+    <strong>Partition</strong> — one table per month, named
+    <code>measurements_YYYY_MM</code>.<br>
+    <strong>Rollup</strong> — the hourly summary table, <code>rollup_hourly</code>.<br>
+    <strong>Query window</strong> — the <code>start</code> and <code>end</code> you ask
+    over.<br>
+    <strong>Port</strong> — one of six TCP ports. Five are fixed; the ingest port is
+    chosen at start-up.<br>
+    <strong>Client</strong> — the bundled Python <code>Client</code>, or any code that
+    speaks the same JSON.<br>
+    <strong>WAL</strong> — SQLite's write-ahead log, which makes every commit
+    crash-atomic.<br>
+    <strong>HWM</strong> — high-water mark: a socket queue limit. Reaching it is how
+    backpressure starts.<br>
+    <strong>pts/s</strong> — points per second, the unit of ingest rate.</p>
+  </div>
+
+  <div class="stats four">
+    <div class="stat"><div class="n">6</div><div class="l">TCP ports</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">SQLite file</div></div>
+    <div class="stat"><div class="n">10</div><div class="l">Aggregations</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">Process, no server</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>How a measurement travels</h2>
+  <p>One shape, three ways in, one place it lands. ZeroMQ is the high-rate path and
+  is fire-and-forget. HTTP is the path for scripts, browsers and languages with no
+  ZMQ binding. The WebSocket exists for watching, not for writing. A single Python
+  process can skip all of it and open the engine directly.</p>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 400" role="img" aria-label="sqtseries data flow: three ways in — a ZeroMQ PUSH socket on the auto-detected port, an HTTP POST to the gateway, or a Python Client — all converge on the ingress pipeline, which validates and batches into a bounded queue drained by a persister task; the persister commits one transaction per batch into monthly SQLite partitions and then republishes to the XPUB stream, the WebSocket fan-out and the stats socket, while the query facade answers from the hourly rollup plus the raw partition edges">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0b6e8c"/>
+        </marker>
+        <style>
+          .lane{fill:#f1f6f8;stroke:#d5e0e6;stroke-width:1}
+          .laneT{font:600 10px ui-monospace,Menlo,monospace;fill:#8fa4b4;letter-spacing:.14em}
+          .ext{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .cont{fill:#fff;stroke:#0d4f60;stroke-width:1.6}
+          .store{fill:#f4f9fa;stroke:#475569;stroke-width:1.6}
+          .bound{fill:#fdefef;stroke:#a4262c;stroke-width:1.4;stroke-dasharray:5 3}
+          .n{font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .p{font:600 10.5px ui-monospace,Menlo,monospace;fill:#0d4f60}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .t{font:600 10px ui-monospace,Menlo,monospace;fill:#0b6e8c}
+          .w{font:600 10px ui-monospace,Menlo,monospace;fill:#a4262c}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .lne{fill:none;stroke:#0b6e8c;stroke-width:1.8;marker-end:url(#ah2)}
+          .lnd{fill:none;stroke:#94a3b8;stroke-width:1.3;stroke-dasharray:4 3;marker-end:url(#ah1)}
+        </style>
+      </defs>
+
+      <rect class="lane" x="8" y="8" width="964" height="200" rx="7"/>
+      <text class="laneT" x="22" y="26">WRITE PATH  ·  three ways in, one shape</text>
+
+      <rect class="ext" x="26" y="44" width="200" height="72" rx="6"/>
+      <text class="n" x="42" y="68">ZeroMQ PUSH</text>
+      <text class="a" x="42" y="86">tcp://127.0.0.1:12500+</text>
+      <text class="s" x="42" y="104">one JSON object per frame</text>
+
+      <rect class="ext" x="26" y="126" width="200" height="72" rx="6"/>
+      <text class="n" x="42" y="150">HTTP POST</text>
+      <text class="a" x="42" y="168">/api/v1/write</text>
+      <text class="s" x="42" y="186">one object, or an array</text>
+
+      <rect class="ext" x="26" y="208" width="200" height="72" rx="6"/>
+      <text class="n" x="42" y="232">Python Client</text>
+      <text class="a" x="42" y="250">c.write(metric, value)</text>
+      <text class="s" x="42" y="268">wraps the PUSH socket</text>
+
+      <rect class="cont" x="286" y="98" width="188" height="112" rx="6"/>
+      <text class="n" x="302" y="122">ingress</text>
+      <text class="p" x="302" y="142">validate, then batch</text>
+      <text class="s" x="302" y="162">never awaits the commit,</text>
+      <text class="s" x="302" y="178">so a slow disk cannot</text>
+      <text class="s" x="302" y="194">throttle reception</text>
+
+      <rect class="bound" x="286" y="222" width="188" height="58" rx="6"/>
+      <text class="n" x="302" y="246">bounded queue</text>
+      <text class="w" x="302" y="264">pending_max = 100 batches</text>
+
+      <rect class="cont" x="536" y="98" width="188" height="182" rx="6"/>
+      <text class="n" x="552" y="122">persister task</text>
+      <text class="p" x="552" y="142">BEGIN IMMEDIATE,</text>
+      <text class="p" x="552" y="158">one commit per batch</text>
+      <text class="s" x="552" y="182">publishes only after</text>
+      <text class="s" x="552" y="198">the commit succeeds,</text>
+      <text class="s" x="552" y="214">so a subscriber can</text>
+      <text class="s" x="552" y="230">never see a lost point</text>
+      <text class="s" x="552" y="252">a failed batch is dropped</text>
+      <text class="s" x="552" y="268">whole and counted</text>
+
+      <rect class="store" x="786" y="98" width="170" height="182" rx="6"/>
+      <text class="n" x="802" y="122">SQLite</text>
+      <text class="p" x="802" y="142">WAL, one file</text>
+      <text class="s" x="802" y="166">measurements_YYYY_MM</text>
+      <text class="s" x="802" y="182">WITHOUT ROWID, clustered</text>
+      <text class="s" x="802" y="198">on (series_id, ts)</text>
+      <text class="s" x="802" y="222">rollup_hourly</text>
+      <text class="s" x="802" y="238">count, sum, min, max</text>
+      <text class="s" x="802" y="262">retention drops a whole</text>
+      <text class="s" x="802" y="278">partition, not rows</text>
+
+      <path class="ln" d="M226,80 L286,140"/>
+      <path class="ln" d="M226,162 L286,158"/>
+      <path class="ln" d="M226,244 L286,176"/>
+      <path class="ln" d="M474,154 L536,154"/>
+      <path class="ln" d="M724,166 L786,166"/>
+
+      <rect class="lane" x="8" y="300" width="964" height="92" rx="7"/>
+      <text class="laneT" x="22" y="318">READ AND WATCH  ·  what the commit feeds</text>
+
+      <rect class="cont" x="26" y="330" width="204" height="52" rx="6"/>
+      <text class="n" x="42" y="352">query facade</text>
+      <text class="s" x="42" y="370">ROUTER 12502, HTTP /read, /aggregate</text>
+
+      <rect class="cont" x="272" y="330" width="204" height="52" rx="6"/>
+      <text class="n" x="288" y="352">XPUB stream</text>
+      <text class="s" x="288" y="370">12503, and /ws/subscribe</text>
+
+      <rect class="cont" x="518" y="330" width="204" height="52" rx="6"/>
+      <text class="n" x="534" y="352">stats socket</text>
+      <text class="s" x="534" y="370">12506, connect and sub events</text>
+
+      <rect class="cont" x="764" y="330" width="194" height="52" rx="6"/>
+      <text class="n" x="780" y="352">admin socket</text>
+      <text class="s" x="780" y="370">12504, health and stats</text>
+
+      <path class="lne" d="M828,280 L128,330"/>
+      <path class="lne" d="M840,280 L374,330"/>
+      <path class="lne" d="M852,280 L620,330"/>
+      <path class="lnd" d="M864,280 L861,330"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — one shape, three doors.</strong> The two
+  decisions that matter are on this diagram. First, the receive loop never awaits a
+  commit, so ingest rate is not capped at the disk's write rate; the cost is a
+  bounded queue, and when that queue is full the socket HWM takes over and senders
+  block. Second, publishing happens <em>after</em> the commit, which is what makes
+  the live stream trustworthy: a subscriber can never observe a point that later
+  failed to land.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Pick the page that matches what you are doing</h2>
+  <p>Fifteen pages. Three are reference — read them when you need to look something
+  up. The rest are runbooks, each one answering one job from start to finish.</p>
+
+  <div class="toc">
+    <h5>Contents</h5>
+    <div class="tocgrid">
+      <a href="quickstart.html"><span class="n">01</span>Quick Start</a>
+      <a href="ingestion.html"><span class="n">02</span>Ingestion</a>
+      <a href="queries.html"><span class="n">03</span>Queries</a>
+      <a href="streaming.html"><span class="n">04</span>Streaming</a>
+      <a href="configuration.html"><span class="n">05</span>Configuration</a>
+      <a href="clients.html"><span class="n">06</span>Client Libraries</a>
+      <a href="dashboard.html"><span class="n">07</span>Dashboard</a>
+      <a href="camera.html"><span class="n">08</span>Camera analytics</a>
+      <a href="backup.html"><span class="n">09</span>Backup and restore</a>
+      <a href="systemd.html"><span class="n">10</span>Systemd</a>
+      <a href="api.html"><span class="n">11</span>API Reference</a>
+      <a href="examples.html"><span class="n">12</span>Examples</a>
+      <a href="architecture.html"><span class="n">13</span>Architecture</a>
+      <a href="codebase-guide.html"><span class="n">14</span>Codebase Guide</a>
+      <a href="benchmarks.md"><span class="n">15</span>Benchmarks</a>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>The whole cycle on one page: install, run, write a measurement, read it
+      back, subscribe live, check status, and install as a service. Start here if
+      this is your first time.</p>
+      <p class="tradeoff"><b>Read this first</b> if you have not run sqtseries
+      before. Every other page assumes the chain, the ports and the units it
+      sets out.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting, with its environment variable, its real default, and the
+      validation rule that refuses a bad value. Includes the two different duration
+      syntaxes, which is where most mistakes live.</p>
+      <p class="tradeoff"><b>Read before changing a port.</b> The ingest port is not
+      the one you configure.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Write — getting numbers in</h2>
+  <p>Each of these turns a source of numbers into stored measurements. They are
+  otherwise interchangeable: pick whichever matches the language and rate you
+  already have.</p>
+
+  <div class="cards">
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>ZeroMQ PUSH, HTTP <code>POST</code>, or the bundled Python Client — the
+      identical JSON shape. What a tag really is, how timestamps behave, the
+      clock-skew guard, and what happens when a producer outruns the disk.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>Python, Go, Rust, PHP, Node.js and the shell. There is no client library
+      to install and nothing to generate — if your language can send JSON, it
+      already speaks sqtseries.</p>
+      <p class="tradeoff"><b>One rule causes most bugs:</b> seconds over HTTP,
+      nanoseconds over ZeroMQ.</p>
+    </div>
+    <div class="card">
+      <h4><a href="camera.html">Camera analytics</a></h4>
+      <p>A complete worked example. A script pumps realistic camera metrics in over
+      HTTP, a live page watches them arrive over a WebSocket, and seventeen
+      questions about the result are answered afterwards.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Read — asking questions</h2>
+  <p>Both of these work on stored data, whether it arrived a second ago or a year
+  ago.</p>
+
+  <div class="cards">
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>Time windows, all ten aggregations, epoch-aligned buckets, limits, and the
+      hourly rollup fast path. Includes exactly when a query is refused for being
+      too large, and what to do about it.</p>
+      <p class="tradeoff"><b>Exact, never approximate.</b> A rollup answer is the
+      same average, computed from sufficient statistics.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>Every runnable script in the repository — monitoring, alerting, retention,
+      high-rate ingest, health checks — plus the four canonical questions worked
+      through with real calls.</p>
+      <p class="tradeoff"><b>These are real scripts</b> and the test suite runs
+      them, so a sample that breaks cannot sit here quietly.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Watch — the present</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>ZeroMQ SUB, the <code>/ws/subscribe</code> WebSocket, and the bundled
+      Client. Boundary-aware topic matching, per-subscriber bounded queues, and what
+      a slow client costs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>The live page the service serves at <code>/dashboard</code>: health, ingest
+      and query rates, every connection, every topic, storage size. Pushed second by
+      second, no polling.</p>
+      <p class="tradeoff"><b>A view, not the source of truth.</b> Monitor with
+      <code>health</code> and <code>stats</code>, not by scraping a page.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Keep — running it for years</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="backup.html">Backup, restore, vacuum</a></h4>
+      <p>Why <code>VACUUM INTO</code> is not the same as copying the file, the
+      four-step restore, and the restore test people skip. Retention is covered too,
+      since it decides what you need to keep at all.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>Generate a hardened unit, per-user or system-wide, with a dedicated data
+      directory. Every hardening directive explained, and how to prove the service
+      comes back after a failure.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Look up — the exact surface</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every HTTP route with its parameters and status codes, all three
+      WebSocket protocols, the nine admin commands, the wire format, the embedded
+      Python API, the CLI, and every error code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>The schema, the write path, the query path and the rollup, the
+      concurrency model, and the reasoning behind each choice. Read it before you
+      change a bound.</p>
+    </div>
+    <div class="card">
+      <h4><a href="codebase-guide.html">Codebase Guide</a></h4>
+      <p>Every module in <code>src/sqtseries/</code>, what it owns, and the order
+      to read them in if you are about to change something.</p>
+    </div>
+    <div class="card">
+      <h4><a href="benchmarks.md">Benchmarks</a></h4>
+      <p>Measured throughput and latency from the development machine, with the
+      script that reproduces each number.</p>
+    </div>
+  </div>
+</section>

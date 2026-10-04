@@ -1,0 +1,397 @@
+<section>
+  <h2>What to back up, and how</h2>
+  <p class="lede">The whole database is one file, so backing it up feels trivial. It is
+  nearly trivial — but the obvious way of doing it, copying the file, quietly loses
+  the most recent writes.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>WAL</strong> — SQLite's write-ahead log. A second file holding
+    committed pages not yet merged into the main database.<br>
+    <strong>Shared-memory file</strong> — the third file WAL mode creates, coordinating
+    readers against the WAL.<br>
+    <strong>Snapshot</strong> — a <code>VACUUM INTO</code> result: one complete,
+    consistent, self-contained file.<br>
+    <strong>Partition</strong> — one monthly table, <code>measurements_YYYY_MM</code>.<br>
+    <strong>Retention</strong> — the policy that drops whole partitions past their
+    time to live, rollup rows included.<br>
+    <strong>Vacuum</strong> — rewriting the file to reclaim free pages. Not a backup.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">1</div><div class="l">File to keep</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Files on disk while running</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Downtime to snapshot</div></div>
+    <div class="stat"><div class="n">24h</div><div class="l">Default snapshot interval</div></div>
+    <div class="stat"><div class="n">30d</div><div class="l">Default retention</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Why you cannot just copy the file</h2>
+  <p>In WAL mode a live database is <strong>three</strong> files: the main
+  database, the write-ahead log, and the shared-memory file. Only the main file is
+  what most people think of as "the database".</p>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 300" role="img" aria-label="Backup comparison: copying the main SQLite file while the service runs captures only pages already merged from the WAL, so recently committed rows are missing; VACUUM INTO instead walks a consistent snapshot and writes one complete self-contained file including the schema, series table, monthly partitions and rollup rows, without needing the service to stop">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#a4262c"/>
+        </marker>
+        <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#046c4e"/>
+        </marker>
+        <style>
+          .lane{fill:#f1f6f8;stroke:#d5e0e6;stroke-width:1}
+          .laneT{font:600 10px ui-monospace,Menlo,monospace;fill:#8fa4b4;letter-spacing:.14em}
+          .file{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .ok{fill:#e9f7f1;stroke:#046c4e;stroke-width:1.6}
+          .bad{fill:#fdefef;stroke:#a4262c;stroke-width:1.6}
+          .n{font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .g{font:600 10.5px ui-monospace,Menlo,monospace;fill:#046c4e}
+          .r{font:600 10.5px ui-monospace,Menlo,monospace;fill:#a4262c}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .gLn{fill:none;stroke:#046c4e;stroke-width:1.8;marker-end:url(#ah3)}
+          .rLn{fill:none;stroke:#a4262c;stroke-width:1.8;marker-end:url(#ah2)}
+          .lnr{fill:none;stroke:#94a3b8;stroke-width:1.3;stroke-dasharray:4 3;marker-end:url(#ah1)}
+        </style>
+      </defs>
+
+      <rect class="lane" x="8" y="8" width="964" height="132" rx="7"/>
+      <text class="laneT" x="22" y="26">COPY THE FILE  ·  the obvious approach, and what it misses</text>
+
+      <rect class="file" x="26" y="42" width="212" height="82" rx="6"/>
+      <text class="n" x="42" y="66">db.sqlite</text>
+      <text class="a" x="42" y="86">main database</text>
+      <text class="s" x="42" y="104">merged pages only</text>
+
+      <rect class="file" x="26" y="42" width="0" height="0" rx="0"/>
+
+      <rect class="file" x="272" y="42" width="230" height="82" rx="6"/>
+      <text class="n" x="288" y="66">db.sqlite-wal</text>
+      <text class="a" x="288" y="86">committed, not yet merged</text>
+      <text class="s" x="288" y="104">the last ~64 MiB of writes</text>
+
+      <rect class="file" x="536" y="42" width="212" height="82" rx="6"/>
+      <text class="n" x="552" y="66">db.sqlite-shm</text>
+      <text class="a" x="552" y="86">reader coordination</text>
+      <text class="s" x="552" y="104">rebuilt on open</text>
+
+      <rect class="bad" x="784" y="42" width="172" height="82" rx="6"/>
+      <text class="n" x="800" y="66">copy db.sqlite</text>
+      <text class="r" x="800" y="86">rows missing</text>
+      <text class="s" x="800" y="104">silently</text>
+
+      <path class="ln" d="M238,83 L272,83"/>
+      <path class="ln" d="M502,83 L784,83"/>
+      <path class="lnr" d="M748,83 L238,83"/>
+
+      <rect class="lane" x="8" y="152" width="964" height="140" rx="7"/>
+      <text class="laneT" x="22" y="170">VACUUM INTO  ·  the correct approach</text>
+
+      <rect class="ok" x="26" y="186" width="300" height="90" rx="6"/>
+      <text class="n" x="42" y="210">VACUUM INTO 'backup.db'</text>
+      <text class="g" x="42" y="230">reads a consistent snapshot</text>
+      <text class="s" x="42" y="250">one pass, while writes continue;</text>
+      <text class="s" x="42" y="266">the service does not stop</text>
+
+      <rect class="ok" x="390" y="186" width="300" height="90" rx="6"/>
+      <text class="n" x="406" y="210">one self-contained file</text>
+      <text class="s" x="406" y="230">schema, series table,</text>
+      <text class="s" x="406" y="246">monthly partitions,</text>
+      <text class="s" x="406" y="262">rollup rows for all of them</text>
+
+      <rect class="ok" x="726" y="186" width="230" height="90" rx="6"/>
+      <text class="n" x="742" y="210">sqtseries-20260930-172525.db</text>
+      <text class="g" x="742" y="230">restorable as-is</text>
+      <text class="s" x="742" y="250">no WAL, no -shm,</text>
+      <text class="s" x="742" y="266">no catch-up needed</text>
+
+      <path class="gLn" d="M326,231 L390,231"/>
+      <path class="gLn" d="M690,231 L726,231"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — one file, or three.</strong> Copying
+  <code>db.sqlite</code> on its own gives you a database missing every write that is
+  still sitting in the WAL. It opens fine, it passes a quick check, and it is missing
+  recent data — which is the worst combination, because nothing tells you. Copying all
+  three files while writes are in flight is no safer. <code>VACUUM INTO</code> reads a
+  consistent snapshot through SQLite's own machinery and writes one complete file, so
+  there is nothing to reassemble at restore time.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Taking a snapshot</h2>
+
+  <h3>From the command line</h3>
+  <p>One command. It is safe against a running service.</p>
+
+<pre><span class="p">$</span> sqtseries <span class="o">backup</span>
+backup written to /home/iam/.sqtseries/backups/sqtseries-20260930-172525.db
+
+<span class="c"># against a different database, with no config file</span>
+<span class="p">$</span> sqtseries <span class="o">--db</span> /path/to/other.sqlite <span class="o">backup</span></pre>
+
+  <h3>Over the admin socket</h3>
+  <p>Same operation, no client library, usable from any language over ZeroMQ:</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> <span class="f">from</span> sqtseries <span class="f">import</span> Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"backup"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'path'</span>: <span class="v">'/home/iam/.sqtseries/backups/sqtseries-20260930-173012.db'</span>}</pre>
+
+  <div class="box warn">
+    <span class="lbl">The admin command pauses ingest while it runs</span>
+    <p><code>VACUUM INTO</code> needs to read the database, and the admin handler runs
+    on the service's single SQLite writer. The admin socket has no handler timeout —
+    a large snapshot legitimately takes a while — but ingest is paused for the
+    duration.</p>
+    <p>For anything large, stop the service and use the offline
+    <code class="nb">sqtseries backup</code> instead. The command-line path is also the
+    one to put in a <code>cron</code> job.</p>
+  </div>
+
+  <h3>Automatically</h3>
+  <p>On by default. The service takes one snapshot at first start, then one every
+  <code>backup.interval</code> — every 24 hours out of the box.</p>
+
+<pre><span class="c"># config.toml</span>
+[backup]
+enabled  = <span class="v">true</span>
+interval = <span class="v">"24h"</span>
+path     = <span class="v">"/mnt/backups/sqtseries/"</span>   <span class="c"># any writable path</span></pre>
+
+  <p>A pass that finds a snapshot younger than the interval counts the run and writes
+  nothing — so restarting the service repeatedly cannot produce a stack of copies in
+  the same second. Watch <code>backups_created</code> and <code>backup_runs</code> on
+  the admin socket: if runs climb but creations do not, a snapshot is already
+  fresh.</p>
+
+  <h3>What the files are called</h3>
+  <p><code>sqtseries-YYYYmmdd-HHMMSS.db</code> under <code>backup.path</code>. A name
+  that already exists is <strong>kept, never overwritten</strong> — a same-second
+  retry after a restart is skipped rather than raising. Sorted by name, the newest is
+  last, which is how <code>backup_latest</code> finds it.</p>
+</section>
+
+<section>
+  <h2>Restoring</h2>
+  <p>Four steps. The fourth is the one people skip, and skipping it is how a backup
+  turns out to have been useless six months later when it was needed.</p>
+
+  <ol class="steps">
+    <li><b>Stop the service</b><span>Leave the original database alone — you want it
+    still there if the snapshot turns out to be wrong. Do not delete or move it
+    until the restore has been verified.</span></li>
+    <li><b>Put the snapshot where the config expects it</b><span>Keep the old file
+    under a different name rather than overwriting it, so the two can be compared.
+    Remember the <code>-wal</code> and <code>-shm</code> files belong to the
+    <em>old</em> database and must not be left beside the new one.</span></li>
+    <li><b>Start the service</b><span>It recovers any uncommitted WAL frames, runs the
+    schema migration and the integrity check, and creates the current month's
+    partition if needed.</span></li>
+    <li><b>Verify — do not skip this</b><span>Check the database is sound and that the
+    data is actually there. An unrestored backup is a guess.</span></li>
+  </ol>
+
+<pre><span class="c"># 1. stop</span>
+<span class="p">$</span> sqtseries <span class="o">stop</span>
+Sent SIGTERM to pid 178445
+
+<span class="c"># 2. move the old one aside, put the snapshot in place</span>
+<span class="p">$</span> cd ~/.sqtseries/data
+<span class="p">$</span> mv db.sqlite db.sqlite.before-restore
+<span class="p">$</span> rm -f db.sqlite-wal db.sqlite-shm     <span class="c"># belongs to the OLD file</span>
+<span class="p">$</span> cp ~/.sqtseries/backups/sqtseries-20260930-172525.db db.sqlite
+
+<span class="c"># 3. start</span>
+<span class="p">$</span> sqtseries <span class="o">run</span>
+
+<span class="c"># 4. verify — from another terminal</span>
+<span class="p">$</span> sqtseries <span class="o">health</span>
+<span class="ok">ok</span>
+<span class="p">$</span> sqtseries <span class="o">stats</span>
+metrics: <span class="v">3</span>
+series:  <span class="v">12</span>
+
+<span class="c"># and read something you know was stored before the snapshot</span>
+<span class="p">$</span> curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,min,max,count"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:0.54,<span class="v">"min"</span>:0.42,<span class="v">"max"</span>:0.77,<span class="v">"count"</span>:3.0}}</pre>
+
+  <div class="box warn">
+    <span class="lbl">Restore into a scratch path first</span>
+    <p>Before you touch the live database, prove the snapshot opens and answers. This
+    needs no service and no risk:</p>
+<pre><span class="p">$</span> sqtseries <span class="o">--db</span> /tmp/restore-test.sqlite <span class="o">health</span>
+<span class="ok">ok</span>
+<span class="p">$</span> sqtseries <span class="o">--db</span> /tmp/restore-test.sqlite <span class="o">stats</span>
+metrics: <span class="v">3</span>
+series:  <span class="v">12</span>
+
+<span class="c"># or read it with sqlite3 directly</span>
+<span class="p">$</span> sqlite3 /tmp/restore-test.sqlite <span class="v">"PRAGMA integrity_check; SELECT COUNT(*) FROM series;"</span>
+ok
+<span class="v">12</span></pre>
+    <p>Copy the snapshot to the scratch path first — <code>--db</code> will create and
+    migrate a fresh empty file if the path does not exist, which would "verify" nothing
+    at all.</p>
+  </div>
+
+  <div class="box">
+    <span class="lbl">The restored database answers historical queries identically</span>
+    <p>A snapshot contains the schema, the series table, every partition inside the
+    retention window, and the hourly rollup rows for those partitions. So a restored
+    service answers questions about last month exactly as before, and does not have to
+    wait for the rollup to catch up over the next <code>rollup.interval</code>.</p>
+    <p>The current partial hour is the exception: the snapshot was taken at a moment,
+    and writes after it are of course not in it. That is the expected cost of a
+    point-in-time backup, and it is why the interval is a choice.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Vacuum is a different job</h2>
+  <p>Reclaiming disk space is not the same activity as protecting data, and the two are
+  easy to confuse.</p>
+
+  <table>
+    <thead><tr><th></th><th>Backup</th><th>Vacuum</th></tr></thead>
+    <tbody>
+      <tr><td>What it does</td><td>copies the database elsewhere</td>
+        <td>rewrites the database in place</td></tr>
+      <tr><td>Protects data</td><td><strong>yes</strong></td><td class="muted">no</td></tr>
+      <tr><td>Reclaims space</td><td class="muted">no</td><td><strong>yes</strong></td></tr>
+      <tr><td>Needs the service stopped</td><td class="muted">no</td>
+        <td>yes, for anything large</td></tr>
+      <tr><td>Blocks ingest</td><td>not meaningfully</td>
+        <td>yes, for its whole duration</td></tr>
+    </tbody>
+  </table>
+
+<pre><span class="c"># reclaim space: stop the service first for anything big</span>
+<span class="p">$</span> sqtseries <span class="o">stop</span>
+<span class="p">$</span> sqtseries <span class="o">vacuum</span>
+<span class="ok">VACUUM complete</span>
+<span class="p">$</span> sqtseries <span class="o">run</span></pre>
+
+  <p>Over the admin socket there is a <code>vacuum</code> command too, and it will
+  refuse politely if the database is in use:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"vacuum"</span>)
+{<span class="v">'status'</span>: <span class="v">'error'</span>, <span class="v">'error'</span>: {<span class="v">'code'</span>: <span class="v">'VACUUM_BUSY'</span>,
+ <span class="v">'message'</span>: <span class="v">'vacuum failed while running; stop the service and use `sqtseries vacuum`: …'</span>}}</pre>
+
+  <p>You rarely need to. SQLite reuses free pages internally, so the file only grows
+  when there is genuinely more data. A file that keeps growing under
+  <code>retention.enabled = true</code> is worth investigating — it usually means
+  partitions are not being dropped.</p>
+</section>
+
+<section>
+  <h2>How much to keep</h2>
+  <p>Retention already bounds the database, so the backup question is smaller than it
+  looks. Choose a retention window that matches what you actually need, and a backup
+  interval that matches how much you would have to re-enter.</p>
+
+  <table>
+    <thead><tr><th>Goal</th><th>Setting</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Bound the file size</td><td><code>retention.default_ttl</code></td>
+        <td>Partitions past the TTL are dropped whole, rollup rows included, so
+        deleted data leaves no aggregate trace.</td></tr>
+      <tr><td>Bound re-entry work</td><td><code>backup.interval</code></td>
+        <td>Worst-case loss is one interval, plus the partial hour at the
+        snapshot moment.</td></tr>
+      <tr><td>Keep history cheap</td><td><code>rollup.enabled</code></td>
+        <td>On, so wide queries read summary rows instead of scanning raw
+        points.</td></tr>
+    </tbody>
+  </table>
+
+<pre><span class="c"># a year of history, snapshotted daily</span>
+[retention]
+default_ttl = <span class="v">"365d"</span>
+check_interval = <span class="v">"1h"</span>
+
+[backup]
+enabled  = <span class="v">true</span>
+interval = <span class="v">"24h"</span>
+path     = <span class="v">"/mnt/backups/sqtseries/"</span></pre>
+
+  <p class="small muted"><code>365d</code>, not <code>12m</code> — <code>m</code>
+  means <strong>minutes</strong>. See
+  <a href="configuration.html">Configuration</a> for both duration syntaxes.</p>
+
+  <div class="box">
+    <span class="lbl">A snapshot is a full database, so they add up</span>
+    <p>Each one is the whole thing, not an increment. Twenty daily snapshots of a 2 GB
+    database is 40 GB. If that matters, keep fewer, keep them compressed, or take
+    snapshots less often and accept a larger worst-case loss. This is the trade the
+    <code>VACUUM INTO</code> approach makes deliberately: a snapshot you can restore
+    without a second tool is worth more than one that is a third of the size.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Checking on it</h2>
+  <p>Two counters, on the admin socket or the dashboard:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> st = c.admin(<span class="v">"stats"</span>)
+<span class="p">&gt;&gt;&gt;</span> st[<span class="v">"backup_runs"</span>], st[<span class="v">"backups_created"</span>], st[<span class="v">"last_backup"</span>]
+(<span class="v">3</span>, <span class="v">3</span>, <span class="v">'/home/iam/.sqtseries/backups/sqtseries-20260930-172525.db'</span>)</pre>
+
+  <p><code>backup_runs</code> counts passes; <code>backups_created</code> counts files
+  actually written. Equal numbers mean every pass wrote something. Runs climbing while
+  creations stay flat means a recent snapshot was found and kept — normal, and the
+  reason a restart loop cannot fill the disk.</p>
+
+  <pre><span class="c"># the files on disk</span>
+<span class="p">$</span> ls -laht ~/.sqtseries/backups/ | head
+<span class="c"># and the newest one</span>
+<span class="p">$</span> ls -t ~/.sqtseries/backups/sqtseries-*.db | head -1</pre>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every backup and retention setting with its real default, and the two
+      duration syntaxes.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>Automating the snapshot on a timer, and where a service unit puts its
+      backup directory.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The <code>backup</code> and <code>vacuum</code> admin commands, and every
+      counter the stats reply carries.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>How retention drops a partition, and why that is cheaper than deleting
+      rows.</p>
+    </div>
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>If you would rather see the service running before thinking about
+      disaster recovery.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p><code>last_backup</code> and <code>backups_created</code> on screen, updating
+      once a second.</p>
+    </div>
+  </div>
+</section>

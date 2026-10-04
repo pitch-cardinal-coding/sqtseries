@@ -174,7 +174,7 @@ class TestCORS:
 
 
 class TestSecurityHeaders:
-    """COMPLIANCE.md Security Headers — every HTTP response carries them."""
+    """Security headers — every HTTP response carries them."""
 
     REQUIRED: ClassVar[dict[str, str]] = {
         "x-frame-options": "DENY",
@@ -196,6 +196,37 @@ class TestSecurityHeaders:
         r = client.post("/api/v1/write", json={"value": 1})
         assert r.status_code == 400
         assert r.headers.get("x-content-type-options") == "nosniff"
+
+    def test_docs_pages_allow_inline_styles(self, client):
+        """/docs inlines its stylesheet per page, so style-src must allow it.
+
+        Without the relaxation the browser falls back to default-src and
+        discards the block outright, which renders the pages unstyled with no
+        error anywhere to explain it.
+        """
+        r = client.get("/docs/index.html")
+        assert r.status_code == 200
+        csp = r.headers["content-security-policy"]
+        assert "style-src 'self' 'unsafe-inline'" in csp
+        assert "script-src" not in csp
+
+    def test_docs_relaxation_is_scoped(self, client):
+        """A path that merely starts with the same characters is not /docs.
+
+        The boundary is the mount point, not a string prefix: `/docsfoo` is not
+        a documentation page and must keep the strict default. A plain
+        `startswith("/docs")` match would have handed it the relaxation.
+        """
+        r = client.get("/docsfoo")
+        assert r.headers["content-security-policy"] == (
+            "default-src 'self'; img-src 'self' data:"
+        )
+        assert "unsafe-inline" not in r.headers["content-security-policy"]
+
+    def test_api_keeps_strict_default(self, client):
+        """The relaxation never leaks onto the JSON API."""
+        r = client.get("/api/v1/health")
+        assert "unsafe-inline" not in r.headers["content-security-policy"]
 
 
 class TestStats:

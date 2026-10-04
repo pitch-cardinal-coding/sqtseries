@@ -3,237 +3,681 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>sqtseries — a time-series database for your own projects</title>
+<title>sqtseries — the runbook index: every page in one place</title>
+<meta name="description" content="Every sqtseries page in one place: install, configure, ingest, query, stream, back up, and serve. Each page is self-contained.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a class="here" href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>What is sqtseries?</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>sqtseries is a program that lets you record measurements — temperature,
-CPU usage, website visits, stock prices, energy use, anything that changes
-over time — and later ask questions like "what was the average this last
-hour?", "what is the latest reading?", or "how did it change day by day?".
-The answers come back in milliseconds, and stay fast even after you have
-stored millions of numbers.</p>
-
-<p>It is designed for your own projects rather than big shared services. You
-do not install a separate database server: <code>sqtseries run</code> starts
-the service, its data lives in a single SQLite file on your machine
-(<code>~/.sqtseries/data/db.sqlite</code> by default), and you can copy, back
-up, or delete that file like any other. It also ships a ZeroMQ message bus
-and an HTTP gateway, so programs written in other languages can send it data
-and read results too.</p>
-
-<p>Behind the scenes, the engine keeps your questions fast without you doing
-anything: measurements are stored in monthly partitions, and a background
-task pre-aggregates every completed hour into a summary table. A query about
-months of history reads a handful of summary rows instead of every stored
-point, so wide queries stay fast as the data grows.</p>
-
-<p>Every accepted measurement is also republished live: a browser dashboard
-can watch readings arrive over a WebSocket, or a backend service can
-subscribe over ZeroMQ with topic filtering. The service tracks every
-subscriber exactly (its streaming socket sees joins and leaves on the
-wire), so you always know who is connected — ask <code>connections</code>,
-<code>conncheck</code>, or <code>subscribers</code> on the admin port, or
-watch connect/disconnect events on the stats socket.</p>
-
-<p>Repeated questions are served from a short-lived result cache, old data
-is dropped automatically when it passes retention, and the service can run
-as a hardened systemd unit. Install it, start it, and ask questions.</p>
-
-<div class="cards">
-  <div class="card">
-    <h3>One file database</h3>
-    <p>Everything lives in one SQLite file in WAL mode, split into monthly
-    partitions. Consistent backups are one command away.</p>
+<header class="masthead">
+  <div class="eyebrow">Index</div>
+  <h1>Every page</h1>
+  <p class="tagline">Fifteen pages, grouped by what you are trying to do. Each one stands on its own: every setting, every option, every command, and the numbers behind the claims.</p>
+  <div class="meta">
+    <span><b>Pages</b> 15, all self-contained</span>
+    <span><b>Start with</b> Quick Start for the whole cycle</span>
+    <span><b>Storage</b> one SQLite file, WAL, monthly partitions</span>
+    <span><b>Transports</b> ZMQ and HTTP, one wire format</span>
+    <span><b>Python</b> 3.14+, <code>pip install sqtseries</code></span>
   </div>
-  <div class="card">
-    <h3>Fast, crash-safe writes</h3>
-    <p>Incoming points are drained in bursts and committed in one transaction
-    per burst — high throughput with nothing buffered: a burst commits
-    atomically or not at all. SQLite's WAL journal makes every write
-    crash-safe.</p>
-  </div>
-  <div class="card">
-    <h3>Fast reads</h3>
-    <p>Queries draw on a built-in hourly summary table, so a question about
-    months of data reads a handful of rows instead of every stored point.
-    Repeated questions are served from a short-lived result cache.</p>
-  </div>
-  <div class="card">
-    <h3>Live subscriptions</h3>
-    <p>Every accepted measurement is republished instantly over ZeroMQ and
-    WebSocket with topic filtering — dashboards update as data arrives.</p>
-  </div>
-  <div class="card">
-    <h3>Know who's connected</h3>
-    <p>Subscriber joins and leaves are tracked exactly on the wire. Query
-    active connections anytime, or stream connect events to a monitor.</p>
-  </div>
-  <div class="card">
-    <h3>Two ways to talk</h3>
-    <p>ZeroMQ (a message bus) and HTTP (web requests). The bundled Python
-    client (<code>sqtseries.Client</code>) talks ZeroMQ; plain HTTP works
-    from any tool.</p>
-  </div>
-</div>
+</header>
 
-<h2>Try it</h2>
-<p>Install sqtseries and start the service, then send and read back some
-data. The whole loop is a few commands:</p>
+<main>
+<section>
+  <h2>What this is</h2>
+  <p class="lede">sqtseries stores numbers that change over time and answers questions
+  about them in milliseconds. You give it measurements as they happen — CPU load,
+  room temperature, visitor counts, prices, meter readings — and it keeps them in
+  one SQLite file on your own machine. There is no server to provision and no
+  schema to design.</p>
 
-<pre><code>pip install sqtseries
-sqtseries run</code></pre>
+  <p>Two things happen behind the scenes so your questions stay fast without you
+  doing anything. Measurements are stored in monthly partitions, so old data can be
+  dropped whole instead of row by row. And a background task summarises every
+  finished hour into count, sum, minimum and maximum, so a query about last month
+  reads a few dozen summary rows instead of millions of stored points. Because the
+  summary keeps the count and the sum, the average it produces is the real average,
+  not an estimate of one.</p>
 
-<p>In another terminal, send a measurement and read it back:</p>
-
-<pre><code>from sqtseries import Client
-
-c = Client()
-c.write("cpu.usage", 0.72, {"host": "web1"})
-
-rows = c.query("cpu.usage", aggregation="avg", interval="1m")
-print(rows)</code></pre>
-
-<p>You can also use plain HTTP from any tool that speaks it:</p>
-
-<pre><code>curl -X POST http://127.0.0.1:12505/api/v1/write \
-  -H "Content-Type: application/json" \
-  -d '{"metric":"cpu.usage","value":0.72}'
-curl "http://127.0.0.1:12505/api/v1/read?metric=cpu.usage&amp;limit=5"</code></pre>
-
-<h2>Camera analytics</h2>
-<p>A camera with edge analytics streams JSON over a WebSocket — people and
-vehicle counts, battery and CPU telemetry, every quarter second. sqtseries
-stores each number as a flat measurement tagged with the camera ID, and
-then answers the questions that matter: busiest hour, footfall trend,
-battery drain rate and time-to-empty, CPU/thermal profile, feed uptime,
-and more.</p>
-<p>The repo ships a self-contained demo: <code>examples/camera/overlay_server.py</code>
-simulates the camera feed on a random port and serves a live dashboard page,
-<code>examples/camera/camera_feed.py</code> pumps it into sqtseries over plain HTTP
-(no sqtseries installed needed — just <code>websockets</code>), and
-<code>camera/camera_feed.py --ask</code> answers 17 questions from the
-stored data. One command — <code>examples/camera/sqtcam.sh</code> — starts
-sqtseries, the simulator, and the feed in a tmux session so you can leave it
-collecting data overnight.
-See <a href="camera.html">Camera analytics</a> for the full
-walkthrough.</p>
-
-<h2>Ports</h2>
-<p>The service is configured to listen on these six local ports
-(defaults; note the ingest port is auto-detected from 12500 when
-<code>ports.auto_detect</code> is on, so it is usually 12500, not 12501):</p><div class="table-wrap"><table>
-  <tr><th>Port</th><th>Purpose</th><th>Protocol</th><th>Doc</th></tr>
-  <tr><td>12501</td><td>Ingestion</td><td>ZMQ PULL</td><td><a href="ingestion.html">Ingestion</a></td></tr>
-  <tr><td>12502</td><td>Queries</td><td>ZMQ REP</td><td><a href="queries.html">Queries</a></td></tr>
-  <tr><td>12503</td><td>Live streaming</td><td>ZMQ XPUB</td><td><a href="streaming.html">Streaming</a></td></tr>
-  <tr><td>12504</td><td>Admin commands</td><td>ZMQ REP</td><td><a href="api.html#admin">Admin</a></td></tr>
-  <tr><td>12505</td><td>HTTP gateway</td><td>HTTP + WebSocket</td><td><a href="api.html#http">HTTP API</a></td></tr>
-  <tr><td>12506</td><td>Stats events</td><td>ZMQ PUB</td><td><a href="api.html#stats">Stats events</a></td></tr>
-</table></div>
-<p>The ZeroMQ sockets are local only (bound to 127.0.0.1); the HTTP gateway
-binds every interface by default (configure <code>[http] host</code>). Of the six, only the
-ingest port is auto-detected: <code>run</code> scans the port range (default
-12500–12700, plus <code>ports.port_offset</code>) for the first free port,
-skipping the query/streaming/admin/http/stats ports it is told to avoid
-(<code>ports.auto_detect</code>). The other five ports are fixed — if one of
-them is already bound, startup fails so you can fix the conflict. The active
-ports are shown by <code>sqtseries ports</code> and stored in
-<code>runtime.json</code> next to the database.</p>
-
-<h2>Documentation</h2>
-<div class="table-wrap"><table>
-  <tr><th>Page</th><th>What it covers</th></tr>
-  <tr><td><a href="quickstart.html">Quick Start</a></td><td>End to end: install, run, send, query, subscribe, run as a service.</td></tr>
-  <tr><td><a href="configuration.html">Configuration</a></td><td>Every setting, config file, environment variables, port rules.</td></tr>
-  <tr><td><a href="ingestion.html">Ingestion</a></td><td>How data gets in over HTTP, ZMQ, and the client; format rules and limits.</td></tr>
-  <tr><td><a href="queries.html">Queries</a></td><td>Time ranges, aggregations, intervals, and examples.</td></tr>
-  <tr><td><a href="streaming.html">Streaming</a></td><td>Live data over ZMQ SUB, WebSocket, and the client.</td></tr>
-  <tr><td><a href="dashboard.html">Dashboard</a></td><td>Live admin page: service health, rates, connections, topics, storage.</td></tr>
-  <tr><td><a href="camera.html">Camera</a></td><td>Pump a camera metrics feed into sqtseries and answer 17 questions about it.</td></tr>
-  <tr><td><a href="clients.html">Client Libraries</a></td><td>Code samples for Python, Go, Rust, PHP, and Node.js.</td></tr>
-  <tr><td><a href="systemd.html">Systemd</a></td><td>Run sqtseries as a hardened service that stays up.</td></tr>
-  <tr><td><a href="api.html">API Reference</a></td><td>The programmer-facing details on one page.</td></tr>
-  <tr><td><a href="architecture.html">Architecture</a></td><td>How the engine, storage, and background tasks fit together.</td></tr>
-  <tr><td><a href="codebase-guide.html">Codebase Guide</a></td><td>Every source file, class, function, constant, and example explained.</td></tr>
-  <tr><td><a href="backup.html">Backup &amp; Restore</a></td><td>What to back up, how to restore, and how vacuum works.</td></tr>
-  <tr><td><a href="examples.html">Examples</a></td><td>Real-world scenarios with complete code.</td></tr>
-  <tr><td><a href="../api-docs" target="_blank" rel="noopener">API Specs</a></td><td>Try every REST endpoint live: Swagger UI and ReDoc on your running service (plus <a href="../openapi.json" target="_blank" rel="noopener">openapi.json</a>).</td></tr>
-</table></div>
-
-<div class="cards">
-  <div class="card">
-    <h3><a href="quickstart.html">Quick Start</a></h3>
-    <p>From install to data in, step by step.</p>
+  <div class="box key">
+    <span class="lbl">The fifteen pages</span>
+    <p><strong>Metric</strong> — the name of something you measure, like
+    <code>cpu.load</code>.<br>
+    <strong>Measurement</strong>, or <strong>point</strong> — one value for one
+    metric at one moment, with optional tags.<br>
+    <strong>Tag</strong> — a label that splits a metric into dimensions, like
+    <code>host=web1</code>. A series is a metric plus its tags.<br>
+    <strong>Series</strong> — one metric with one exact set of tags. Every stored
+    measurement belongs to exactly one.<br>
+    <strong>Partition</strong> — one table per month, named
+    <code>measurements_YYYY_MM</code>.<br>
+    <strong>Rollup</strong> — the hourly summary table, <code>rollup_hourly</code>.<br>
+    <strong>Query window</strong> — the <code>start</code> and <code>end</code> you ask
+    over.<br>
+    <strong>Port</strong> — one of six TCP ports. Five are fixed; the ingest port is
+    chosen at start-up.<br>
+    <strong>Client</strong> — the bundled Python <code>Client</code>, or any code that
+    speaks the same JSON.<br>
+    <strong>WAL</strong> — SQLite's write-ahead log, which makes every commit
+    crash-atomic.<br>
+    <strong>HWM</strong> — high-water mark: a socket queue limit. Reaching it is how
+    backpressure starts.<br>
+    <strong>pts/s</strong> — points per second, the unit of ingest rate.</p>
   </div>
-  <div class="card">
-    <h3><a href="configuration.html">Configuration</a></h3>
-    <p>How to change ports, the database location, logging, and more.</p>
-  </div>
-  <div class="card">
-    <h3><a href="ingestion.html">Ingestion</a></h3>
-    <p>How data gets in, and the (few) rules its format follows.</p>
-  </div>
-  <div class="card">
-    <h3><a href="queries.html">Queries</a></h3>
-    <p>How to ask questions of the data, with examples.</p>
-  </div>
-  <div class="card">
-    <h3><a href="streaming.html">Streaming</a></h3>
-    <p>How to get data live as it arrives.</p>
-  </div>
-  <div class="card">
-    <h3><a href="dashboard.html">Dashboard</a></h3>
-    <p>Watch the service live: health, rates, connections, and storage.</p>
-  </div>
-  <div class="card">
-    <h3><a href="clients.html">Client Libraries</a></h3>
-    <p>Code samples for Python, Go, Rust, PHP, and Node.js.</p>
-  </div>
-  <div class="card">
-    <h3><a href="systemd.html">Systemd</a></h3>
-    <p>Run sqtseries as a service that always stays up.</p>
-  </div>
-  <div class="card">
-    <h3><a href="api.html">API Reference</a></h3>
-    <p>The programmer-facing details, in one page.</p>
-  </div>
-  <div class="card">
-    <h3><a href="architecture.html">Architecture</a></h3>
-    <p>The big picture if you are curious how it is put together.</p>
-  </div>
-  <div class="card">
-    <h3><a href="examples.html">Examples</a></h3>
-    <p>Real-world scenarios with complete code: monitoring, dashboards,
-    alerting, sensor logging, and more.</p>
-  </div>
-</div>
 
-
+  <div class="stats four">
+    <div class="stat"><div class="n">6</div><div class="l">TCP ports</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">SQLite file</div></div>
+    <div class="stat"><div class="n">10</div><div class="l">Aggregations</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">Process, no server</div></div>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</section>
+
+<section>
+  <h2>How a measurement travels</h2>
+  <p>One shape, three ways in, one place it lands. ZeroMQ is the high-rate path and
+  is fire-and-forget. HTTP is the path for scripts, browsers and languages with no
+  ZMQ binding. The WebSocket exists for watching, not for writing. A single Python
+  process can skip all of it and open the engine directly.</p>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 400" role="img" aria-label="sqtseries data flow: three ways in — a ZeroMQ PUSH socket on the auto-detected port, an HTTP POST to the gateway, or a Python Client — all converge on the ingress pipeline, which validates and batches into a bounded queue drained by a persister task; the persister commits one transaction per batch into monthly SQLite partitions and then republishes to the XPUB stream, the WebSocket fan-out and the stats socket, while the query facade answers from the hourly rollup plus the raw partition edges">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0b6e8c"/>
+        </marker>
+        <style>
+          .lane{fill:#f1f6f8;stroke:#d5e0e6;stroke-width:1}
+          .laneT{font:600 10px ui-monospace,Menlo,monospace;fill:#8fa4b4;letter-spacing:.14em}
+          .ext{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .cont{fill:#fff;stroke:#0d4f60;stroke-width:1.6}
+          .store{fill:#f4f9fa;stroke:#475569;stroke-width:1.6}
+          .bound{fill:#fdefef;stroke:#a4262c;stroke-width:1.4;stroke-dasharray:5 3}
+          .n{font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .p{font:600 10.5px ui-monospace,Menlo,monospace;fill:#0d4f60}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .t{font:600 10px ui-monospace,Menlo,monospace;fill:#0b6e8c}
+          .w{font:600 10px ui-monospace,Menlo,monospace;fill:#a4262c}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .lne{fill:none;stroke:#0b6e8c;stroke-width:1.8;marker-end:url(#ah2)}
+          .lnd{fill:none;stroke:#94a3b8;stroke-width:1.3;stroke-dasharray:4 3;marker-end:url(#ah1)}
+        </style>
+      </defs>
+
+      <rect class="lane" x="8" y="8" width="964" height="200" rx="7"/>
+      <text class="laneT" x="22" y="26">WRITE PATH  ·  three ways in, one shape</text>
+
+      <rect class="ext" x="26" y="44" width="200" height="72" rx="6"/>
+      <text class="n" x="42" y="68">ZeroMQ PUSH</text>
+      <text class="a" x="42" y="86">tcp://127.0.0.1:12500+</text>
+      <text class="s" x="42" y="104">one JSON object per frame</text>
+
+      <rect class="ext" x="26" y="126" width="200" height="72" rx="6"/>
+      <text class="n" x="42" y="150">HTTP POST</text>
+      <text class="a" x="42" y="168">/api/v1/write</text>
+      <text class="s" x="42" y="186">one object, or an array</text>
+
+      <rect class="ext" x="26" y="208" width="200" height="72" rx="6"/>
+      <text class="n" x="42" y="232">Python Client</text>
+      <text class="a" x="42" y="250">c.write(metric, value)</text>
+      <text class="s" x="42" y="268">wraps the PUSH socket</text>
+
+      <rect class="cont" x="286" y="98" width="188" height="112" rx="6"/>
+      <text class="n" x="302" y="122">ingress</text>
+      <text class="p" x="302" y="142">validate, then batch</text>
+      <text class="s" x="302" y="162">never awaits the commit,</text>
+      <text class="s" x="302" y="178">so a slow disk cannot</text>
+      <text class="s" x="302" y="194">throttle reception</text>
+
+      <rect class="bound" x="286" y="222" width="188" height="58" rx="6"/>
+      <text class="n" x="302" y="246">bounded queue</text>
+      <text class="w" x="302" y="264">pending_max = 100 batches</text>
+
+      <rect class="cont" x="536" y="98" width="188" height="182" rx="6"/>
+      <text class="n" x="552" y="122">persister task</text>
+      <text class="p" x="552" y="142">BEGIN IMMEDIATE,</text>
+      <text class="p" x="552" y="158">one commit per batch</text>
+      <text class="s" x="552" y="182">publishes only after</text>
+      <text class="s" x="552" y="198">the commit succeeds,</text>
+      <text class="s" x="552" y="214">so a subscriber can</text>
+      <text class="s" x="552" y="230">never see a lost point</text>
+      <text class="s" x="552" y="252">a failed batch is dropped</text>
+      <text class="s" x="552" y="268">whole and counted</text>
+
+      <rect class="store" x="786" y="98" width="170" height="182" rx="6"/>
+      <text class="n" x="802" y="122">SQLite</text>
+      <text class="p" x="802" y="142">WAL, one file</text>
+      <text class="s" x="802" y="166">measurements_YYYY_MM</text>
+      <text class="s" x="802" y="182">WITHOUT ROWID, clustered</text>
+      <text class="s" x="802" y="198">on (series_id, ts)</text>
+      <text class="s" x="802" y="222">rollup_hourly</text>
+      <text class="s" x="802" y="238">count, sum, min, max</text>
+      <text class="s" x="802" y="262">retention drops a whole</text>
+      <text class="s" x="802" y="278">partition, not rows</text>
+
+      <path class="ln" d="M226,80 L286,140"/>
+      <path class="ln" d="M226,162 L286,158"/>
+      <path class="ln" d="M226,244 L286,176"/>
+      <path class="ln" d="M474,154 L536,154"/>
+      <path class="ln" d="M724,166 L786,166"/>
+
+      <rect class="lane" x="8" y="300" width="964" height="92" rx="7"/>
+      <text class="laneT" x="22" y="318">READ AND WATCH  ·  what the commit feeds</text>
+
+      <rect class="cont" x="26" y="330" width="204" height="52" rx="6"/>
+      <text class="n" x="42" y="352">query facade</text>
+      <text class="s" x="42" y="370">ROUTER 12502, HTTP /read, /aggregate</text>
+
+      <rect class="cont" x="272" y="330" width="204" height="52" rx="6"/>
+      <text class="n" x="288" y="352">XPUB stream</text>
+      <text class="s" x="288" y="370">12503, and /ws/subscribe</text>
+
+      <rect class="cont" x="518" y="330" width="204" height="52" rx="6"/>
+      <text class="n" x="534" y="352">stats socket</text>
+      <text class="s" x="534" y="370">12506, connect and sub events</text>
+
+      <rect class="cont" x="764" y="330" width="194" height="52" rx="6"/>
+      <text class="n" x="780" y="352">admin socket</text>
+      <text class="s" x="780" y="370">12504, health and stats</text>
+
+      <path class="lne" d="M828,280 L128,330"/>
+      <path class="lne" d="M840,280 L374,330"/>
+      <path class="lne" d="M852,280 L620,330"/>
+      <path class="lnd" d="M864,280 L861,330"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — one shape, three doors.</strong> The two
+  decisions that matter are on this diagram. First, the receive loop never awaits a
+  commit, so ingest rate is not capped at the disk's write rate; the cost is a
+  bounded queue, and when that queue is full the socket HWM takes over and senders
+  block. Second, publishing happens <em>after</em> the commit, which is what makes
+  the live stream trustworthy: a subscriber can never observe a point that later
+  failed to land.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Pick the page that matches what you are doing</h2>
+  <p>Fifteen pages. Three are reference — read them when you need to look something
+  up. The rest are runbooks, each one answering one job from start to finish.</p>
+
+  <div class="toc">
+    <h5>Contents</h5>
+    <div class="tocgrid">
+      <a href="quickstart.html"><span class="n">01</span>Quick Start</a>
+      <a href="ingestion.html"><span class="n">02</span>Ingestion</a>
+      <a href="queries.html"><span class="n">03</span>Queries</a>
+      <a href="streaming.html"><span class="n">04</span>Streaming</a>
+      <a href="configuration.html"><span class="n">05</span>Configuration</a>
+      <a href="clients.html"><span class="n">06</span>Client Libraries</a>
+      <a href="dashboard.html"><span class="n">07</span>Dashboard</a>
+      <a href="camera.html"><span class="n">08</span>Camera analytics</a>
+      <a href="backup.html"><span class="n">09</span>Backup and restore</a>
+      <a href="systemd.html"><span class="n">10</span>Systemd</a>
+      <a href="api.html"><span class="n">11</span>API Reference</a>
+      <a href="examples.html"><span class="n">12</span>Examples</a>
+      <a href="architecture.html"><span class="n">13</span>Architecture</a>
+      <a href="codebase-guide.html"><span class="n">14</span>Codebase Guide</a>
+      <a href="benchmarks.md"><span class="n">15</span>Benchmarks</a>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>The whole cycle on one page: install, run, write a measurement, read it
+      back, subscribe live, check status, and install as a service. Start here if
+      this is your first time.</p>
+      <p class="tradeoff"><b>Read this first</b> if you have not run sqtseries
+      before. Every other page assumes the chain, the ports and the units it
+      sets out.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting, with its environment variable, its real default, and the
+      validation rule that refuses a bad value. Includes the two different duration
+      syntaxes, which is where most mistakes live.</p>
+      <p class="tradeoff"><b>Read before changing a port.</b> The ingest port is not
+      the one you configure.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Write — getting numbers in</h2>
+  <p>Each of these turns a source of numbers into stored measurements. They are
+  otherwise interchangeable: pick whichever matches the language and rate you
+  already have.</p>
+
+  <div class="cards">
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>ZeroMQ PUSH, HTTP <code>POST</code>, or the bundled Python Client — the
+      identical JSON shape. What a tag really is, how timestamps behave, the
+      clock-skew guard, and what happens when a producer outruns the disk.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>Python, Go, Rust, PHP, Node.js and the shell. There is no client library
+      to install and nothing to generate — if your language can send JSON, it
+      already speaks sqtseries.</p>
+      <p class="tradeoff"><b>One rule causes most bugs:</b> seconds over HTTP,
+      nanoseconds over ZeroMQ.</p>
+    </div>
+    <div class="card">
+      <h4><a href="camera.html">Camera analytics</a></h4>
+      <p>A complete worked example. A script pumps realistic camera metrics in over
+      HTTP, a live page watches them arrive over a WebSocket, and seventeen
+      questions about the result are answered afterwards.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Read — asking questions</h2>
+  <p>Both of these work on stored data, whether it arrived a second ago or a year
+  ago.</p>
+
+  <div class="cards">
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>Time windows, all ten aggregations, epoch-aligned buckets, limits, and the
+      hourly rollup fast path. Includes exactly when a query is refused for being
+      too large, and what to do about it.</p>
+      <p class="tradeoff"><b>Exact, never approximate.</b> A rollup answer is the
+      same average, computed from sufficient statistics.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>Every runnable script in the repository — monitoring, alerting, retention,
+      high-rate ingest, health checks — plus the four canonical questions worked
+      through with real calls.</p>
+      <p class="tradeoff"><b>These are real scripts</b> and the test suite runs
+      them, so a sample that breaks cannot sit here quietly.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Watch — the present</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>ZeroMQ SUB, the <code>/ws/subscribe</code> WebSocket, and the bundled
+      Client. Boundary-aware topic matching, per-subscriber bounded queues, and what
+      a slow client costs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>The live page the service serves at <code>/dashboard</code>: health, ingest
+      and query rates, every connection, every topic, storage size. Pushed second by
+      second, no polling.</p>
+      <p class="tradeoff"><b>A view, not the source of truth.</b> Monitor with
+      <code>health</code> and <code>stats</code>, not by scraping a page.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Keep — running it for years</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="backup.html">Backup, restore, vacuum</a></h4>
+      <p>Why <code>VACUUM INTO</code> is not the same as copying the file, the
+      four-step restore, and the restore test people skip. Retention is covered too,
+      since it decides what you need to keep at all.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>Generate a hardened unit, per-user or system-wide, with a dedicated data
+      directory. Every hardening directive explained, and how to prove the service
+      comes back after a failure.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Look up — the exact surface</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every HTTP route with its parameters and status codes, all three
+      WebSocket protocols, the nine admin commands, the wire format, the embedded
+      Python API, the CLI, and every error code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>The schema, the write path, the query path and the rollup, the
+      concurrency model, and the reasoning behind each choice. Read it before you
+      change a bound.</p>
+    </div>
+    <div class="card">
+      <h4><a href="codebase-guide.html">Codebase Guide</a></h4>
+      <p>Every module in <code>src/sqtseries/</code>, what it owns, and the order
+      to read them in if you are about to change something.</p>
+    </div>
+    <div class="card">
+      <h4><a href="benchmarks.md">Benchmarks</a></h4>
+      <p>Measured throughput and latency from the development machine, with the
+      script that reproduces each number.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>New to sqtseries?</h5>
+      <p>
+            Read <a href="quickstart.html">Quick Start</a> first. It walks the
+            whole cycle — install, run, write, query, subscribe, and put the
+            service under systemd — and every other page assumes it.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>What do you want to do?</h5>
+      <p>
+            Sending numbers in: <a href="ingestion.html">Ingestion</a>. Asking
+            questions of the past: <a href="queries.html">Queries</a>. Watching
+            values arrive: <a href="streaming.html">Streaming</a> and
+            <a href="dashboard.html">Dashboard</a>.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Talking to it from code</h5>
+      <p>
+            The wire format is identical on every transport, so there is no client
+            library to install. Copy-paste samples for Python, Go, Rust, PHP,
+            Node.js and the shell are on
+            <a href="clients.html">Client Libraries</a>; the exact shapes are on
+            <a href="api.html">API Reference</a>.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Before you change anything</h5>
+      <p>
+            <a href="configuration.html">Configuration</a> lists every setting,
+            every environment variable, and every validation rule that can stop
+            the service from starting. Read it before editing a port.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>When it is not working</h5>
+      <p>
+            <a href="api.html#admin">Admin commands</a> answer over the admin
+            socket without a client library: <code>health</code>,
+            <code>stats</code>, <code>connections</code>,
+            <code>conncheck</code>, <code>subscribers</code>.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>These pages are generated</h5>
+      <p>
+            Do not edit the HTML in <code>dist/docs/</code>. Edit the body source
+            and rebuild — see <code>scripts/docs-build/README.md</code>.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — fifteen pages, every option, every argument.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+

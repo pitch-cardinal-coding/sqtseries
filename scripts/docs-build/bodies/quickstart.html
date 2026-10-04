@@ -1,0 +1,382 @@
+<section>
+  <h2>What you are about to do</h2>
+  <p class="lede">Install the package, start the service, store one measurement, read
+  it back, watch one arrive live, and then leave it running under systemd. Every
+  command on this page was run as written, and the output shown is the real
+  output.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Service</strong> — the running <code>sqtseries run</code> process. It
+    owns the database and all six ports.<br>
+    <strong>Measurement</strong>, or <strong>point</strong> — one value for one metric
+    at one moment.<br>
+    <strong>Metric</strong> — the name of the thing measured, like
+    <code>cpu.load</code>.<br>
+    <strong>Tag</strong> — a label that splits a metric into dimensions, like
+    <code>host=web1</code>.<br>
+    <strong>Series</strong> — one metric with one exact set of tags.<br>
+    <strong>Port</strong> — one of six TCP ports. Five are fixed; the sixth, ingest, is
+    chosen at start-up.<br>
+    <strong>Runtime file</strong> — <code>runtime.json</code>, written next to the
+    database, recording the pid and the ports actually bound.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">2</div><div class="l">Commands to start</div></div>
+    <div class="stat"><div class="n">12505</div><div class="l">HTTP port</div></div>
+    <div class="stat"><div class="n">12500</div><div class="l">Ingest, auto-detected</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">SQLite file</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Servers to provision</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Before you start</h2>
+  <p>Two things must be true. Python 3.14 or newer, and the <code>sqtseries</code>
+  package installed. If you use the project virtual environment, point
+  <code>PY</code> at it once and reuse it for every command on this page.</p>
+
+<pre><span class="p">$</span> PY=/home/iam/devcode/.env/sqtseries/bin/python3
+<span class="p">$</span> $PY --version
+<span class="c"># Python 3.14.4 or newer</span>
+
+<span class="p">$</span> $PY -m pip install sqtseries
+<span class="p">$</span> $PY -m sqtseries --version
+<span class="ok">sqtseries, version 0.1.0</span></pre>
+
+  <p>Check the command list. This is the whole surface — eleven commands, and two
+  global flags:</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries --help
+<span class="c">Usage: python -m sqtseries [OPTIONS] COMMAND [ARGS]...</span>
+
+  sqtseries — embedded time-series database on SQLite + ZeroMQ.
+
+Options:
+  --version      Show the version and exit.
+  --config FILE  Path to config file (TOML/YAML/JSON).
+  --db FILE      Database file to use (overrides config file and env vars).
+  --help         Show this message and exit.
+
+Commands:
+  backup     Create a consistent VACUUM INTO backup.
+  health     Health check (read-only DB probe).
+  install    Install the systemd service unit.
+  optimize   Optimize query-planner statistics.
+  ports      Show active ports.
+  run        Start the sqtseries service (foreground).
+  stats      Show database statistics.
+  status     Show service status.
+  stop       Stop the sqtseries service.
+  uninstall  Remove the systemd service unit.
+  vacuum     Database maintenance: full VACUUM.</pre>
+
+  <div class="box warn">
+    <span class="lbl">Global flags come first</span>
+    <p><code>--config</code> and <code>--db</code> belong to the command group, not to
+    a subcommand, so they must come <strong>before</strong> the subcommand name:</p>
+<pre>$PY -m sqtseries <span class="o">--config</span> c.toml <span class="o">run</span>   <span class="c"># correct</span>
+$PY -m sqtseries <span class="o">run</span> <span class="o">--config</span> c.toml      <span class="c"># wrong: no such option</span></pre>
+  </div>
+</section>
+
+<section>
+  <h2>1 · Start the service</h2>
+  <p>One command. It creates the database, binds all six ports, starts the
+  background tasks, and prints where everything lives.</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries run
+Serving /home/iam/.sqtseries/data/db.sqlite
+  dashboard: http://127.0.0.1:12505/dashboard
+  docs:      http://127.0.0.1:12505/docs
+  health:    http://127.0.0.1:12505/api/v1/health
+  help:      sqtseries --help, sqtseries &lt;cmd&gt; --help
+2026-09-30T17:00:43.577719Z [info     ] quick_check passed
+2026-09-30T17:00:43.579947Z [info     ] pubsub listening (xpub)        endpoint=tcp://127.0.0.1:12503
+2026-09-30T17:00:43.580730Z [info     ] ingress listening              endpoint=tcp://127.0.0.1:12500
+2026-09-30T17:00:43.581208Z [info     ] query broker listening         endpoint=tcp://127.0.0.1:12502
+2026-09-30T17:00:43.581597Z [info     ] query broker listening         endpoint=tcp://127.0.0.1:12504
+2026-09-30T17:00:43.582016Z [info     ] stats publisher started        endpoint=tcp://127.0.0.1:12506
+2026-09-30T17:00:43.890792Z [info     ] rollup complete                partition=measurements_2026_09 rows=0
+2026-09-30T17:00:43.892709Z [info     ] rollup advanced                rows=0 watermark=1790784000000000000
+Started server process [178445]
+Waiting for application startup.
+Application startup complete.
+Uvicorn running on http://0.0.0.0:12505 (Press CTRL+C to quit)
+2026-09-30T17:00:43.936772Z [info     ] service started                ports={'ingest': 12500, 'query': 12502}</pre>
+
+  <p class="small muted">Leave that terminal running. Every step from here needs it.
+  To prove it is alive without disturbing it, open a second terminal.</p>
+
+  <div class="box warn">
+    <span class="lbl">Look at the ingest port</span>
+    <p>The log says <code>ingress listening … 12500</code>, even though the
+    configured value is <code>ingestion.port = 12501</code>. With the default
+    <code>ports.auto_detect = true</code>, the ingest port is the <strong>first free
+    port in the 12500–12700 range</strong>, so it is 12500 and 12501 is never used.
+    The five fixed ports keep their configured values.</p>
+<pre>$PY -m sqtseries <span class="o">ports</span>
+ingest: <span class="v">12500</span>
+query: 12502
+stream: 12503
+admin:  12504
+http:   12505
+stats:  12506</pre>
+    <p>Read the ingest port from here, not from your config file. If you would
+    rather it used a fixed port, set <code>ports.auto_detect = false</code> — see
+    <a href="configuration.html">Configuration</a>.</p>
+  </div>
+</section>
+
+<section>
+  <h2>2 · Store a measurement</h2>
+  <p>Over HTTP, from the shell. A measurement needs a metric name and a value;
+  tags are optional.</p>
+
+<pre><span class="p">$</span> curl -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">'{"metric":"cpu.load","value":0.42,"tags":{"host":"web1"}}'</span>
+<span class="ok">{"status":"ok","written":1}</span></pre>
+
+  <p>You can send many in one request. The whole array is validated before any of it
+  is stored, so one bad item rejects the batch instead of leaving a half-written
+  one:</p>
+
+<pre><span class="p">$</span> curl -X POST http://127.0.0.1:12505/api/v1/write \
+    -H <span class="v">"Content-Type: application/json"</span> \
+    -d <span class="v">'[{"metric":"cpu.load","value":0.51,"tags":{"host":"web1"}},
+         {"metric":"cpu.load","value":0.63,"tags":{"host":"web1"}},
+         {"metric":"mem.used","value":3.2,"tags":{"host":"web1"}}]'</span>
+<span class="ok">{"status":"ok","written":3}</span></pre>
+
+  <p>Or from Python, over ZeroMQ. The <code>Client</code> is bundled, so there is
+  nothing to install and no URL to configure:</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> from sqtseries import Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> c.write(<span class="v">"cpu.load"</span>, 0.77, {<span class="v">"host"</span>: <span class="v">"web1"</span>})
+<span class="p">&gt;&gt;&gt;</span> c.close()</pre>
+
+  <p class="small muted">The default <code>Client</code> ports match the defaults in
+  the table above. If your service moved ports, pass them:
+  <code>Client(ports={"write": …, "query": …, "subscribe": …, "admin": …})</code>.</p>
+</section>
+
+<section>
+  <h2>3 · Read it back</h2>
+  <p>Read every stored point for a metric:</p>
+
+<pre><span class="p">$</span> curl <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load"</span>
+<span class="ok">{"status":"ok","data":[{"timestamp":1790786862.8571439,"value":0.42},
+ {"timestamp":1790786862.8774092,"value":0.51},
+ {"timestamp":1790786862.8774092,"value":0.63}]}</span></pre>
+
+  <p>Note the timestamps: about <code>1.79e9</code>. That is <strong>epoch
+  seconds</strong>, even though they are stored as nanoseconds. Over HTTP both the
+  request and the response use seconds — the conversion is the gateway's job.</p>
+
+  <p>Aggregate a whole window in one call:</p>
+
+<pre><span class="p">$</span> curl <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,min,max,count"</span>
+<span class="ok">{"status":"ok","aggregations":{"avg":0.54,"min":0.42,"max":0.77,"count":3.0}}</span></pre>
+
+  <p>And from Python, over ZeroMQ. Here the request takes
+  <strong>nanoseconds</strong> and the reply comes back in seconds:</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> from sqtseries import Client
+<span class="p">&gt;&gt;&gt;</span> import time
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> now = time.time_ns()
+<span class="p">&gt;&gt;&gt;</span> rows = c.query(<span class="v">"cpu.load"</span>, start=now - <span class="v">3600</span>*10**<span class="v">9</span>, end=now)
+<span class="p">&gt;&gt;&gt;</span> rows
+<span class="p">[{'timestamp': 1790786862.8571439, 'value': 0.42}, …]</span>
+<span class="p">&gt;&gt;&gt;</span> c.aggregate(<span class="v">"cpu.load"</span>, start=now - <span class="v">3600</span>*10**<span class="v">9</span>)
+<span class="p">{'avg': 0.54}</span>
+<span class="p">&gt;&gt;&gt;</span> c.close()</pre>
+
+  <div class="box warn">
+    <span class="lbl">The units, in one box</span>
+    <p>This is the mistake that produces an empty result instead of an error, so it
+    is worth stating flatly.</p>
+    <table>
+      <thead><tr><th>Where</th><th>Request <code>start</code> / <code>end</code></th><th>Response <code>timestamp</code></th></tr></thead>
+      <tbody>
+        <tr><td>HTTP <code>/read</code>, <code>/aggregate</code></td>
+          <td><strong>seconds</strong>, or an ISO-8601 string</td>
+          <td><strong>seconds</strong></td></tr>
+        <tr><td>ZMQ query socket, <code>Client.query</code></td>
+          <td><strong>nanoseconds</strong> as an integer, or an ISO-8601 string</td>
+          <td><strong>seconds</strong></td></tr>
+      </tbody>
+    </table>
+    <p>Sending seconds where nanoseconds are expected asks for a window in 1970 and
+    returns nothing at all — no error, no warning, just an empty list.</p>
+  </div>
+</section>
+
+<section>
+  <h2>4 · Watch values arrive live</h2>
+  <p>Subscribe over ZeroMQ. The iterator yields one dict per measurement, and
+  <code>None</code> as a heartbeat whenever the socket is quiet, so your loop never
+  blocks forever.</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> from sqtseries import Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> for payload in c.subscribe(<span class="v">"cpu."</span>, timeout=<span class="v">1.0</span>):
+<span class="p">... </span>    if payload is None:
+<span class="p">... </span>        print(<span class="v">"(idle)"</span>)
+<span class="p">... </span>        continue
+<span class="p">... </span>    print(payload)
+<span class="p">...</span>
+<span class="p">&gt;&gt;&gt;&gt;&gt;&gt;&gt;</span> <span class="c"># Ctrl-C to stop</span>
+{'metric': 'cpu.load', 'tags': {'host': 'web1'}, 'value': 0.81}
+(idle)</pre>
+
+  <p>From a browser, open the same stream over a WebSocket. <code>*</code> takes
+  everything:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> <span class="c"># in a browser console, on the host running the service</span>
+<span class="p">&gt;&gt;&gt;</span> ws = <span class="v">new WebSocket("ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>)
+<span class="p">&gt;&gt;&gt;</span> ws.onmessage = e =&gt; console.log(e.data)
+<span class="p">&gt;&gt;&gt;</span> ws.onmessage = e =&gt; console.log(JSON.parse(e.data))
+<span class="p">&gt;&gt;&gt;</span></pre>
+
+  <p>The full protocol, including the topic-matching rules and the keepalive
+  frame, is on <a href="streaming.html">Streaming</a>.</p>
+</section>
+
+<section>
+  <h2>5 · Check on it</h2>
+  <p>From a second terminal. These work whether or not the service is running, and
+  none of them need a client library.</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">status</span>
+Service: running (pid 178445)
+Version:  0.1.0
+DB:       /home/iam/.sqtseries/data/db.sqlite
+  ingest: 12500
+  query: 12502
+  stream: 12503
+  admin: 12504
+  http: 12505
+  stats: 12506
+  dashboard: http://127.0.0.1:12505/dashboard
+  docs:      http://127.0.0.1:12505/docs
+  health:    http://127.0.0.1:12505/api/v1/health
+  help:      sqtseries --help, sqtseries &lt;cmd&gt; --help
+
+<span class="p">$</span> $PY -m sqtseries <span class="o">stats</span>
+metrics: <span class="v">2</span>
+series:  <span class="v">2</span>
+
+<span class="p">$</span> $PY -m sqtseries <span class="o">health</span>
+<span class="ok">ok</span></pre>
+
+  <p><code>health</code> exits <code>0</code> when the database is sound and
+  <code>1</code> when it is not, so it works as a load-balancer check:</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">health</span> &amp;&amp; echo <span class="v">"ready"</span> || echo <span class="v">"not ready"</span></pre>
+
+  <p>Or over HTTP, from anything:</p>
+
+<pre><span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/health
+<span class="ok">{"status":"ok","version":"0.1.0"}</span>
+
+<span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/stats
+<span class="ok">{"status":"ok","metrics":2,"series":2}</span></pre>
+
+  <p>And the live page, which shows rates, connections, topics and storage pushing
+  second by second: <strong>http://127.0.0.1:12505/dashboard</strong></p>
+</section>
+
+<section>
+  <h2>6 · Stop it, and start it for real</h2>
+  <p><code>run</code> runs in the foreground, so it stops when you press Ctrl-C.
+  <code>stop</code> does the same thing from another terminal, and additionally
+  waits until the process has actually gone — which matters when something is
+  about to rebind the ports.</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">stop</span>
+Sent SIGTERM to pid 178445</pre>
+
+  <p>For a machine that stays on, install a unit. Generate it with the same config
+  you actually want, so the service does not come back on the defaults after a
+  reboot:</p>
+
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">--config</span> ~/sqtseries.toml <span class="o">install</span>
+systemd unit installed
+
+<span class="p">$</span> systemctl --user daemon-reload
+<span class="p">$</span> systemctl --user enable --now sqtseries
+<span class="p">$</span> systemctl --user status sqtseries --no-pager</pre>
+
+  <div class="box">
+    <span class="lbl">Running two instances</span>
+    <p>Give the second one its own database and its own ports. Use
+    <code>--db</code> for the file and a config file for the ports:</p>
+<pre>[database]
+path = <span class="v">"~/.sqtseries/data/second.sqlite"</span>
+
+[ports]
+auto_detect  = false
+port_offset  = <span class="v">100</span>
+
+[ingestion]
+port = 12601
+[query]
+port = 12602
+[streaming]
+port = 12603
+[admin]
+port = 12604
+[http]
+port = 12605
+host = <span class="v">"127.0.0.1"</span>
+[stats]
+port = 12606</pre>
+<pre><span class="p">$</span> $PY -m sqtseries <span class="o">--config</span> second.toml <span class="o">run</span></pre>
+    <p><code>run</code> refuses to start over a database another live instance is
+    serving, and <code>stop</code> refuses to stop an instance whose database is not
+    the one it resolves. Those two refusals are what stop a restart script from
+    killing the wrong process.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>All three transports in depth, the wire format, tags as dimensions, the
+      clock-skew guard, and what happens when a producer outruns the disk.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>All ten aggregations, epoch-aligned buckets, the hourly rollup fast path,
+      and when a query is refused for being too large.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting with its environment variable and real default, the two
+      duration syntaxes, and every validation rule.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every route, every parameter, every admin command and every error code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>A system-level unit, a dedicated user, every hardening directive explained,
+      and how to prove the service restarts.</p>
+    </div>
+    <div class="card">
+      <h4><a href="backup.html">Backup and restore</a></h4>
+      <p>Consistent snapshots while the service is running, the restore procedure,
+      and the restore test worth doing once.</p>
+    </div>
+  </div>
+</section>

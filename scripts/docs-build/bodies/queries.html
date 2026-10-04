@@ -1,0 +1,530 @@
+<section>
+  <h2>Asking questions of the past</h2>
+  <p class="lede">Read a metric over a window — raw, aggregated over the whole window,
+  or bucketed by the hour. Every answer is exact. A query that would be too large is
+  refused with a reason, never quietly shortened.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Window</strong> — the <code>start</code> and <code>end</code> you ask
+    over. End is inclusive.<br>
+    <strong>Bucket</strong> — one slice of the window, aligned to the epoch, not to
+    your first sample.<br>
+    <strong>Raw</strong> — the stored points, unmodified.<br>
+    <strong>Rollup</strong> — the hourly summary table the fast path reads.<br>
+    <strong>Watermark</strong> — the next hour the rollup will process.<br>
+    <strong><code>max_rows</code></strong> — the cap on raw rows one query may
+    materialise.<br>
+    <strong>Backfill</strong> — a write whose timestamp is older than the newest
+    stored data.<br>
+    <strong>NaN</strong> — "no value". JSON has no NaN, so it arrives as
+    <code>null</code>.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">10</div><div class="l">Aggregations, all exact</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">Served from the rollup</div></div>
+    <div class="stat"><div class="n">10,000</div><div class="l">Default row cap</div></div>
+    <div class="stat"><div class="n">1 h</div><div class="l">Rollup granularity</div></div>
+    <div class="stat"><div class="n">5 s</div><div class="l">Result cache TTL</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Three shapes of question</h2>
+  <p>The same two parameters give you three different answers, and it is worth being
+  precise about which is which.</p>
+
+  <ol class="steps">
+    <li><b>Raw — no <code>aggregation</code></b><span>You get the stored points, in
+    timestamp order. This is the only shape that returns individual
+    measurements.</span></li>
+    <li><b>Whole window — <code>aggregation</code>, no <code>interval</code></b><span>You
+    get <strong>one value</strong> for the entire window, anchored at the oldest
+    sample inside it.</span></li>
+    <li><b>Bucketed — <code>aggregation</code> <em>and</em> <code>interval</code></b><span>You
+    get <strong>one value per bucket</strong>, each anchored at its bucket
+    start.</span></li>
+  </ol>
+
+  <pre><span class="c"># 1. raw</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;limit=3&amp;order=desc"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"data"</span>:[
+  {<span class="v">"timestamp"</span>:<span class="v">1790793328.2546144</span>,<span class="v">"value"</span>:<span class="v">31.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790793250.3138034</span>,<span class="v">"value"</span>:<span class="v">31.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790793028.2546144</span>,<span class="v">"value"</span>:<span class="v">24.0</span>}]}
+
+<span class="c"># 2. whole window, every function at once</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=avg,sum,min,max,count,first,last,median,p95,p99"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:<span class="v">59.25</span>,<span class="v">"sum"</span>:<span class="v">12798.0</span>,<span class="v">"min"</span>:<span class="v">20.0</span>,
+ <span class="v">"max"</span>:<span class="v">100.0</span>,<span class="v">"count"</span>:<span class="v">216.0</span>,<span class="v">"first"</span>:<span class="v">20.0</span>,<span class="v">"last"</span>:<span class="v">31.0</span>,
+ <span class="v">"median"</span>:<span class="v">59.0</span>,<span class="v">"p95"</span>:<span class="v">97.0</span>,<span class="v">"p99"</span>:<span class="v">99.85</span>}}
+
+<span class="c"># 3. bucketed by the hour</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;aggregation=avg&amp;interval=1h"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"data"</span>:[
+  {<span class="v">"timestamp"</span>:<span class="v">1790769600.0</span>,<span class="v">"value"</span>:<span class="v">34.46666666666667</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790773200.0</span>,<span class="v">"value"</span>:<span class="v">59.75</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790776800.0</span>,<span class="v">"value"</span>:<span class="v">62.75</span>}, …]}</pre>
+
+  <div class="box">
+    <span class="lbl">Why the hour buckets start on the hour</span>
+    <p>A bucket is <code>timestamp // interval</code>, so it is aligned to the epoch and
+    not to your first sample. With <code>interval=1h</code> the buckets are 00:00,
+    01:00, 02:00 — whatever time you happened to ask from.</p>
+    <p>This is what makes two overlapping queries agree. If buckets started at the first
+    sample, asking for 09:30–10:30 and 10:15–11:15 would produce buckets on completely
+    different boundaries, and neither could be compared with the other or with a chart
+    someone else produced.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The ten aggregations</h2>
+  <p>All ten are exact. None of them is an estimate, and none is approximate even when
+  it is computed from the hourly summary rather than from raw rows.</p>
+
+{{agg_table}}
+
+  <p class="small muted">On an empty window <code>sum</code> and <code>count</code> are
+  <code>0.0</code> and the rest have no value. JSON cannot carry <code>NaN</code>, so
+  it arrives as <code>null</code>:</p>
+
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=does.not.exist&amp;funcs=avg,sum,count,median"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:<span class="v">null</span>,<span class="v">"sum"</span>:<span class="v">0.0</span>,<span class="v">"count"</span>:<span class="v">0.0</span>,<span class="v">"median"</span>:<span class="v">null</span>}}</pre>
+
+  <p>So a client must treat <code>null</code> as "no data" rather than as zero.
+  <code>sum = 0.0</code> is the mathematically honest answer for an empty set;
+  <code>avg = null</code> is the honest answer for an average of nothing.</p>
+
+  <h3>What the percentiles actually do</h3>
+  <p><code>p95</code> and <code>p99</code> sort the values, take
+  <code>rank = (n - 1) × q</code>, and interpolate linearly between the two nearest
+  ranks. With six values, <code>p99</code> gives
+  <code>50 × 0.05 + 99 × 0.95 = 96.55</code>.</p>
+
+  <p>That is a choice, and it is the same one <code>numpy.percentile</code> makes by
+  default. It is worth knowing before you compare a number from here with one from a
+  tool that uses nearest-rank instead — the two will differ slightly on small samples
+  and agree closely on large ones.</p>
+</section>
+
+<section>
+  <h2>Intervals</h2>
+  <p>A number and a unit, with no spaces and no separators: <code>30s</code>,
+  <code>5m</code>, <code>1h</code>, <code>1d</code>. There is no week and no month
+  unit.</p>
+
+  <pre><span class="c"># fine granularity, for a chart</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load&amp;aggregation=avg&amp;interval=5m"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"data"</span>:[
+  {<span class="v">"timestamp"</span>:<span class="v">1790771400.0</span>,<span class="v">"value"</span>:<span class="v">20.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790771700.0</span>,<span class="v">"value"</span>:<span class="v">27.0</span>},
+  {<span class="v">"timestamp"</span>:<span class="v">1790772000.0</span>,<span class="v">"value"</span>:<span class="v">34.0</span>}, …]}</pre>
+
+  <div class="box warn">
+    <span class="lbl">Intervals that are not a whole number of hours cannot use the rollup</span>
+    <p><code>5m</code> and <code>30m</code> are answered by grouping inside SQLite —
+  fast, and it never materialises a raw row in Python. But they are <em>not</em> served
+  from the hourly summary, because the summary stores one row per hour and cannot
+  answer a question about five of those minutes.</p>
+    <p>This is a speed difference only. The values are identical either way.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Limits, order, and the row cap</h2>
+
+  <h3><code>limit</code></h3>
+  <p>Which end it takes from depends on <code>order</code>:</p>
+
+<pre><span class="c"># the newest N points — the usual "current value" query</span>
+curl -s <span class="v">"…/api/v1/read?metric=cpu.load&amp;limit=1&amp;order=desc"</span>
+
+<span class="c"># the oldest N</span>
+curl -s <span class="v">"…/api/v1/read?metric=cpu.load&amp;limit=10&amp;order=asc"</span></pre>
+
+  <p><code>limit</code> must be between 1 and 100,000. Outside that you get
+  <code>422</code> — the value is checked before the handler runs:</p>
+
+<pre>curl -s -w <span class="v">" [%{http_code}]\n"</span> <span class="v">"…/api/v1/read?metric=cpu.load&amp;limit=0"</span>
+{<span class="v">"detail"</span>:[{<span class="v">"type"</span>:<span class="v">"greater_than_equal"</span>,<span class="v">"loc"</span>:[<span class="v">"query"</span>,<span class="v">"limit"</span>],
+  <span class="v">"msg"</span>:<span class="v">"Input should be greater than or equal to 1"</span>,<span class="v">"ctx"</span>:{<span class="v">"ge"</span>:<span class="v">1</span>}}]} <span class="c"># 422</span></pre>
+
+  <div class="box">
+    <span class="lbl"><code>limit</code> means different things with and without an aggregation</span>
+    <p>On a <strong>raw read</strong> it bounds the SQL fetch, so a limit of 1 with
+    <code>order=desc</code> reads exactly one row. On an <strong>aggregated</strong>
+    query it bounds the number of <em>result</em> rows — the buckets — because the
+    transform still needs every raw row in the window to compute them.</p>
+    <p>So <code>limit=1</code> on a raw read is cheap, and on a bucketed query it means
+    "one bucket", not "one input row".</p>
+  </div>
+
+  <h3>The row cap, and why it errors instead of truncating</h3>
+  <p>A query that would materialise more than <code>query.max_rows</code> raw rows
+  (10,000 by default) is <strong>refused</strong>. It is not shortened, because a
+  silently truncated answer is indistinguishable from a correct one — and you would
+  draw conclusions from data that was never returned.</p>
+
+<pre>$ curl -s -w <span class="v">" [%{http_code}]\n"</span> \
+    <span class="v">"http://127.0.0.1:12505/api/v1/read?metric=cpu.load"</span>
+{<span class="v">"detail"</span>:<span class="v">"query would materialize more than max_rows=10000 raw rows; narrow the time
+ window, use an aggregation+interval, or raise query.max_rows"</span>} <span class="c"># 413</span></pre>
+
+  <p>Three ways out, and only three:</p>
+  <table>
+    <thead><tr><th>Fix</th><th>Example</th><th>Trade</th></tr></thead>
+    <tbody>
+      <tr><td>Narrow the window</td><td>add <code>start</code> and <code>end</code></td>
+        <td>none, if you only needed part of the range</td></tr>
+      <tr><td>Aggregate</td><td><code>aggregation=avg</code> or an
+        <code>interval</code></td>
+        <td>you lose individual points — which is what you wanted anyway</td></tr>
+      <tr><td>Raise the cap</td><td><code>query.max_rows = 100000</code></td>
+        <td>more memory per query; this is the cap that bounds it</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">The cap is checked with a <code>COUNT(*)</code> <em>before</em>
+  the fetch, so a refused query never pays for the rows it will not get. It applies
+  identically to the raw path and to the hourly-rollup fast path — the cap is a
+  property of the query, not of the route it takes.</p>
+
+  <h3><code>order</code></h3>
+  <p><code>asc</code> (the default) or <code>desc</code>. Anything else is
+  <code>422</code>, also checked before the handler.</p>
+</section>
+
+<section>
+  <h2>Where a query is answered from</h2>
+  <p>Three routes, chosen automatically. You do not pick, and the answer is the same
+  whichever one runs.</p>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 300" role="img" aria-label="Query routing: a query with an aggregation in the rollup-eligible set, an interval that is a whole number of hours, a window inside the rolled region and spanning at least two hours, takes the rollup path and reads the hourly summary plus raw partition edges; a bucketed query with avg, sum, min, max or count is grouped inside SQLite and never materialises a raw row in Python; everything else, including raw reads, median, p95, p99, first, last and gap filling, scans the raw partitions">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0b6e8c"/>
+        </marker>
+        <style>
+          .q{fill:#fff;stroke:#0d4f60;stroke-width:1.8}
+          .roll{fill:#e6f6fb;stroke:#0b6e8c;stroke-width:1.8}
+          .sql{fill:#e9f7f1;stroke:#046c4e;stroke-width:1.8}
+          .raw{fill:#fdf6ec;stroke:#b45309;stroke-width:1.8}
+          .n{font:600 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .b{font:600 10.5px ui-monospace,Menlo,monospace;fill:#0b6e8c}
+          .g{font:600 10.5px ui-monospace,Menlo,monospace;fill:#046c4e}
+          .a{font:600 10.5px ui-monospace,Menlo,monospace;fill:#b45309}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .bLn{fill:none;stroke:#0b6e8c;stroke-width:1.8;marker-end:url(#ah2)}
+          .gLn{fill:none;stroke:#046c4e;stroke-width:1.8;marker-end:url(#ah2)}
+        </style>
+      </defs>
+
+      <rect class="q" x="20" y="112" width="150" height="66" rx="6"/>
+      <text class="n" x="36" y="138">your query</text>
+      <text class="s" x="36" y="156">metric, window,</text>
+      <text class="s" x="36" y="170">aggregation, interval</text>
+
+      <rect class="roll" x="248" y="30" width="300" height="86" rx="6"/>
+      <text class="n" x="264" y="54">rollup_hourly</text>
+      <text class="b" x="264" y="74">avg, sum, min, max, count</text>
+      <text class="s" x="264" y="92">interval a whole number of hours</text>
+      <text class="s" x="264" y="108">window inside the rolled region</text>
+
+      <rect class="sql" x="248" y="128" width="300" height="76" rx="6"/>
+      <text class="n" x="264" y="152">SQLite groups per bucket</text>
+      <text class="g" x="264" y="172">avg, sum, min, max, count</text>
+      <text class="s" x="264" y="190">any interval — no raw row in Python</text>
+
+      <rect class="raw" x="248" y="216" width="300" height="72" rx="6"/>
+      <text class="n" x="264" y="240">raw partition scan</text>
+      <text class="a" x="264" y="260">raw reads, median, p95, p99, first, last,</text>
+      <text class="a" x="264" y="276">gap filling</text>
+
+      <rect class="q" x="700" y="112" width="260" height="66" rx="6"/>
+      <text class="n" x="716" y="138">the same answer</text>
+      <text class="s" x="716" y="156">exact on all three routes</text>
+      <text class="s" x="716" y="170">the cap applies to all three</text>
+
+      <path class="bLn" d="M170,132 L248,74"/>
+      <path class="gLn" d="M170,145 L248,166"/>
+      <path class="ln" d="M170,158 L248,252"/>
+      <path class="ln" d="M548,74 L700,132"/>
+      <path class="ln" d="M548,166 L700,145"/>
+      <path class="ln" d="M548,252 L700,158"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — three routes, one answer.</strong> The
+  distinction that matters in practice is the middle row: <code>avg</code>,
+  <code>sum</code>, <code>min</code>, <code>max</code> and <code>count</code> can be
+  grouped inside SQLite, so a five-minute bucket over a week returns a few hundred
+  partials and never loads a raw row. Everything else must read the rows. The values
+  are identical either way, so the only thing to take away is which of your
+  dashboards will scale and which will not.</figcaption>
+  </figure>
+
+  <h3>When the rollup is used</h3>
+  <p>All four must hold:</p>
+  <ul>
+    <li>the aggregation is one of <code>avg</code>, <code>sum</code>,
+      <code>min</code>, <code>max</code>, <code>count</code>;</li>
+    <li>any <code>interval</code> is a whole number of hours;</li>
+    <li>the window ends at or before the rollup watermark;</li>
+    <li>the window spans at least two hours.</li>
+  </ul>
+
+  <p>That last one is not a limitation — it is an optimisation working. For a window
+  under two hours the raw path is genuinely faster: one partition, one index, no
+  merge. The eligibility test exists so the fast path is used where it wins.</p>
+
+  <h3>Why the rollup answer is exact</h3>
+  <p>The summary stores count, sum, min and max per series per hour. An average over
+  any number of hours is <code>sum of sums / sum of counts</code> — the same average a
+  full scan produces, computed from sufficient statistics.</p>
+
+  <p>The window is split into <strong>disjoint</strong> sources: the first partial hour
+  and the last partial hour from the raw partitions, every fully-inside hour from the
+  rollup. Disjoint is the load-bearing word. If they overlapped, every point in the
+  overlap would be counted twice and the average would be quietly wrong.</p>
+
+  <h3>The current hour is always read live</h3>
+  <p>An hour is summarised only after the clock passes it, and then only after waiting
+  the client clock-skew window — so a late write can never land in an hour already
+  summarised. The consequence is that the current, unfinished hour is never in the
+  rollup, and is read from the raw partition instead. That is why results are never
+  stale, and why a dashboard showing "now" is always right.</p>
+</section>
+
+<section>
+  <h2>Backfills are picked up</h2>
+  <p>A write whose timestamp is older than the newest data — a backfill — is the one
+  case where the rollup needs help, because the hour it lands in may already have been
+  summarised.</p>
+
+  <p>When that happens the write path <strong>rewinds the rollup watermark</strong> to
+  the backfilled hour, inside the same transaction as the insert. The next rollup pass
+  re-aggregates from there. Re-aggregation is idempotent, so re-rolling a range is
+  safe and costs only the hours actually touched.</p>
+
+<pre><span class="c"># six points spread across five already-rolled hours</span>
+<span class="c"># then, without any manual step:</span>
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=spread.test&amp;funcs=count,sum"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"count"</span>:<span class="v">6.0</span>,<span class="v">"sum"</span>:<span class="v">249.0</span>}}</pre>
+
+  <div class="box ok">
+    <span class="lbl">Why this matters more than it looks</span>
+    <p>Before the rewind, a backfilled point was <strong>accepted, reported as stored,
+    and then silently omitted from every rollup-served answer</strong> — while a raw
+    read still showed it. That combination is the worst kind of bug: the write
+    reported success, the data was on disk, and only the aggregate was wrong. Nothing
+    in the API response hinted at it.</p>
+    <p>Watermarks only ever move forward, so an hour that had been passed was never
+    revisited. Rewinding on write is what makes the rollup self-healing instead of
+    requiring a manual partition rebuild.</p>
+  </div>
+
+  <p class="small muted">The one thing still required of you: the write must be
+  <em>accepted</em> in the first place. The default clock-skew guard refuses a
+  timestamp more than 300 s from the server clock, so a genuine multi-day backfill
+  needs <code>ingestion.reject_client_timestamp_skew_s = 0</code>. See
+  <a href="ingestion.html">Ingestion</a>.</p>
+</section>
+
+<section>
+  <h2>Results are cached briefly</h2>
+  <p>Identical queries inside a 5-second window are served from a bounded cache, which
+  is what makes a dashboard polling the same metric every second cheap rather than
+  quadratic.</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> st = c.admin(<span class="v">"stats"</span>)
+<span class="p">&gt;&gt;&gt;</span> st[<span class="v">"query_cache_size"</span>], st[<span class="v">"query_cache_hits"</span>], st[<span class="v">"query_cache_misses"</span>]
+(<span class="v">2</span>, <span class="v">14</span>, <span class="v">6</span>)</pre>
+
+  <p>A low hit rate on a busy dashboard usually means the polling interval is longer
+  than the cache TTL, so every poll misses. Poll faster, or ask for more per
+  request.</p>
+
+  <p>The cache is bounded twice over — by entry count (512) and by total rows across
+  all entries (200,000) — and a single result larger than that budget is never cached
+  at all, so one huge query cannot flush everything or pin memory here.</p>
+</section>
+
+<section>
+  <h2>Querying from Python</h2>
+  <p>Over ZeroMQ, and remember the units: nanoseconds in the request, seconds in the
+  reply.</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> <span class="f">import</span> time
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+<span class="p">&gt;&gt;&gt;</span> now = time.time_ns()
+
+<span class="c"># raw — nanoseconds in</span>
+<span class="p">&gt;&gt;&gt;</span> rows = c.query(<span class="v">"cpu.load"</span>, start=now - <span class="v">3600</span>*10**<span class="v">9</span>, end=now, limit=<span class="v">5</span>, order=<span class="v">"desc"</span>)
+<span class="p">&gt;&gt;&gt;</span> rows
+[{<span class="v">'timestamp'</span>: <span class="v">1790793328.2546144</span>, <span class="v">'value'</span>: <span class="v">31.0</span>}, …]   <span class="c"># SECONDS out</span>
+
+<span class="c"># several aggregates in one pass</span>
+<span class="p">&gt;&gt;&gt;</span> c.aggregate(<span class="v">"cpu.load"</span>, start=now - <span class="v">7</span>*<span class="v">24</span>*<span class="v">3600</span>*10**<span class="v">9</span>, funcs=[<span class="v">"avg"</span>,<span class="v">"p95"</span>,<span class="v">"p99"</span>])
+{<span class="v">'avg'</span>: <span class="v">59.25</span>, <span class="v">'p95'</span>: <span class="v">97.0</span>, <span class="v">'p99'</span>: <span class="v">99.85</span>}
+
+<span class="p">&gt;&gt;&gt;</span> c.close()</pre>
+
+  <h3>Embedded, without a service</h3>
+  <p>The same query code, in-process, with no ports. The one difference is that
+  <code>query</code> returns <strong>nanoseconds</strong>, because there is no gateway
+  converting them.</p>
+
+<pre><span class="f">from</span> sqtseries.engine <span class="f">import</span> StorageEngine, create_sqlite_engine
+<span class="f">from</span> sqtseries <span class="f">import</span> TimeSeriesDB
+
+engine = create_sqlite_engine(<span class="v">"/tmp/embedded.sqlite"</span>)
+db = TimeSeriesDB(StorageEngine(engine), max_rows=<span class="v">10000</span>)
+
+<span class="c"># raw</span>
+rows = db.query(<span class="v">"cpu.load"</span>, start=None, end=None, limit=<span class="v">10</span>)
+<span class="c"># [(timestamp_ns, value), ...]</span>
+
+<span class="c"># whole window</span>
+db.aggregate(<span class="v">"cpu.load"</span>, funcs=[<span class="v">"avg"</span>, <span class="v">"max"</span>])
+<span class="c"># {"avg": 59.25, "max": 100.0}</span>
+
+<span class="c"># bucketed</span>
+db.query(<span class="v">"cpu.load"</span>, aggregation=<span class="v">"avg"</span>, interval=<span class="v">"1h"</span>)
+
+<span class="c"># stream without materialising — bounded memory over a huge window</span>
+<span class="f">for</span> ts_ns, value <span class="f">in</span> db.query_stream(<span class="v">"cpu.load"</span>):
+    ...
+
+<span class="c"># fill gaps up to 5 minutes by linear interpolation</span>
+<span class="c"># (embedded API only — there is no wire parameter for it)</span>
+rows = db.query(<span class="v">"cpu.load"</span>, fill_gaps_ns=<span class="v">5</span> * <span class="v">60</span> * <span class="v">10</span>**<span class="v">9</span>)
+
+db.close(); engine.dispose()</pre>
+
+  <div class="box">
+    <span class="lbl">Gap filling is embedded-only, on purpose</span>
+    <p><code>fill_gaps_ns</code> inserts an interpolated midpoint across gaps no larger
+    than the value you give. It is not on the wire because it changes the
+    <em>meaning</em> of a result: a row you interpolated is not a row anybody measured,
+    and a client that cannot tell the difference will average it in as though it were.
+    Keeping it in the Python API means the caller is a programmer who can choose to
+    use it deliberately.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The four canonical questions</h2>
+  <p>These are the questions people actually ask, with the exact calls. All four
+  outputs below are real, from the seeded example data.</p>
+
+  <h3>1 · What was the average CPU load over the last hour?</h3>
+<pre>st, en = time.time() - <span class="v">3600</span>, time.time()
+curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;start=$st&amp;end=$en&amp;funcs=avg"</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>,<span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:<span class="v">62.27</span>}}</pre>
+  <p>One call. The window is one hour wide, so this uses the raw path — which is the
+  faster route at that width.</p>
+
+  <h3>2 · What was the peak temperature yesterday?</h3>
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=temp.celsius&amp;funcs=max&amp;start=…&amp;end=…"</span>
+<span class="c"># ANSWER: peak_temp_yesterday = 24.49</span></pre>
+  <p><code>max</code> is rollup-eligible, so a whole-day window is answered from hourly
+  summary rows rather than from every reading.</p>
+
+  <h3>3 · Show me the 99th percentile response time for the past week</h3>
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=latency.web&amp;funcs=p99&amp;start=…&amp;end=…"</span>
+<span class="c"># ANSWER: p99_latency_week = 108.00</span></pre>
+  <div class="box warn">
+    <span class="lbl">This one reads every raw row</span>
+    <p><code>p99</code> cannot be derived from count, sum, min and max, so a week of
+    latency data is scanned in full. That is why the row cap applies here more readily
+    than to an average — and why, if you need a rolling p99 dashboard over months, you
+    should either widen the cap deliberately or store hourly percentiles yourself as
+    a separate metric.</p>
+    <p>This is the practical cost of the model, and it is worth knowing before you
+    build a percentile dashboard rather than after.</p>
+  </div>
+
+  <h3>4 · How many measurements did I record today?</h3>
+<pre>curl -s <span class="v">"http://127.0.0.1:12505/api/v1/aggregate?metric=cpu.load&amp;funcs=count&amp;start=…&amp;end=…"</span>
+<span class="c"># ANSWER: count_today = 37</span></pre>
+  <p>Note the trap: <code>count</code> is <strong>per metric</strong>. To count
+  everything recorded today, ask each metric and add the results — there is no
+  cross-metric count, and a series is per metric and tag set.</p>
+</section>
+
+<section>
+  <h2>Troubleshooting</h2>
+  <table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Empty result over ZMQ, works over HTTP</td>
+        <td>seconds sent where nanoseconds were expected</td>
+        <td>the request asks for 1970 — see
+        <a href="clients.html">Client Libraries</a></td></tr>
+      <tr><td><code>413</code></td><td>the result would exceed
+        <code>query.max_rows</code></td>
+        <td>narrow the window, aggregate, or raise the cap</td></tr>
+      <tr><td><code>504</code></td><td>the query exceeded
+        <code>query.timeout_s</code></td>
+        <td>same three options, or raise the timeout</td></tr>
+      <tr><td><code>422</code> on <code>limit</code> or <code>order</code></td>
+        <td>outside the accepted range or pattern</td>
+        <td><code>limit</code> is 1–100000; <code>order</code> is
+        <code>asc</code> or <code>desc</code></td></tr>
+      <tr><td><code>400 unsupported aggregation</code></td><td>a typo in the function
+        name</td><td>the ten names are in the table above</td></tr>
+      <tr><td><code>null</code> where a number was expected</td>
+        <td>an empty window, for every function except sum and count</td>
+        <td>treat <code>null</code> as no data, not as zero</td></tr>
+      <tr><td>Fewer buckets than expected</td>
+        <td>buckets with no data in them are omitted, not emitted empty</td>
+        <td>fill them client-side from the bucket interval</td></tr>
+      <tr><td>An aggregate disagrees with a raw read</td>
+        <td class="muted">should be impossible — please report it</td>
+        <td>the equivalence is covered by the test suite</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every query parameter with its type, default and accepted range, and every
+      status code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>Timestamps, the clock-skew guard, and how to seed historical data without
+      fighting it.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>Watching values live, and reading back anything a slow subscriber
+      missed.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p><code>max_rows</code>, <code>timeout_s</code>, <code>rollup.interval</code> and
+      every other bound on this page.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>The runnable question catalogue, with the skew-guard setting it
+      needs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>How the hourly summary is built, and why merging disjoint sources is
+      what makes it exact.</p>
+    </div>
+  </div>
+</section>

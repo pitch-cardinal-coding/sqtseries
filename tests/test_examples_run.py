@@ -9,12 +9,16 @@ processes can never break the run.
 """
 
 import asyncio
+import importlib.util
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
+import zmq
 
 from sqtseries.config import Settings
 from sqtseries.service import Service
@@ -277,3 +281,66 @@ class TestOtherExamples:
         assert "stop:    ok" in res.stdout
         # runtime file is removed on graceful stop
         assert not (tmp_path / "custom" / "runtime.json").exists()
+
+
+def _load_example(name: str):
+    """Import an example script by path — they are scripts, not a package."""
+    spec = importlib.util.spec_from_file_location(
+        f"_example_{Path(name).stem}", EXAMPLES / name
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestExampleWaitUntilPing:
+    """wait_until_ping must survive the service missing the first poll.
+
+    A REQ socket is strictly lockstep: when poll() expires the socket stays in
+    the 'awaiting reply' state and the next send raises EFSM. An example that
+    reuses that socket spins on EFSM until its deadline and then reports
+    "service did not come up" even though the service is up and answering.
+    That is what made test_run_custom_lifecycle fail intermittently under
+    full-suite load, where the first poll loses its race against start-up.
+    """
+
+    @pytest.mark.parametrize("script", ["run_custom.py", "run_all_examples.py"])
+    def test_recovers_when_service_appears_late(self, free_ports, script):
+        port = free_ports["admin"]
+        bound = threading.Event()
+        stop = threading.Event()
+
+        def late_rep() -> None:
+            ctx = zmq.Context()
+            sock = ctx.socket(zmq.REP)
+            sock.setsockopt(zmq.LINGER, 0)
+            sock.bind(f"tcp://127.0.0.1:{port}")
+            bound.set()
+            # Stay silent past the waiter's first 1 s poll so it expires.
+            if stop.wait(2.0):
+                sock.close(0)
+                ctx.term()
+                return
+            while not stop.is_set():
+                try:
+                    if sock.poll(200) & zmq.POLLIN:
+                        sock.recv()
+                        sock.send(b'{"pong": true}')
+                except zmq.ZMQError:
+                    break
+            sock.close(0)
+            ctx.term()
+
+        server = threading.Thread(target=late_rep, daemon=True)
+        server.start()
+        try:
+            assert bound.wait(10), "REP server never bound"
+            waiter = _load_example(script).wait_until_ping
+            started = time.monotonic()
+            ok = waiter(port, 20.0)
+            elapsed = time.monotonic() - started
+            assert ok is True, f"{script} never recovered (waited {elapsed:.1f}s)"
+            assert elapsed < 15.0, f"recovery took {elapsed:.1f}s"
+        finally:
+            stop.set()
+            server.join(timeout=10)

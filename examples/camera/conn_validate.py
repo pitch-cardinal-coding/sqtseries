@@ -58,9 +58,7 @@ async def validate(args) -> None:
             snap = await next_msg(mon, timeout=10)
             assert snap["type"] == "snapshot", snap
             baseline_ids = {c["id"] for c in snap.get("connections", [])}
-            baseline_zmq = {
-                s["topic"]: s["subscribers"] for s in snap.get("subscriptions", [])
-            }
+            baseline_zmq = {s["topic"]: s["subscribers"] for s in snap["topics"]}
             print(
                 f"snapshot: ws_connections={snap['ws_connections']} "
                 f"zmq_subscribers={snap['zmq_subscribers']} "
@@ -128,7 +126,7 @@ async def validate(args) -> None:
             )
             assert len(new_conns) == args.clients, new_conns
             assert names == [f"v{i}." for i in range(args.clients)], names
-            for s in subs["subscriptions"]:
+            for s in subs["topics"]:
                 if s["topic"] in sub_topics and s["subscribers"]:
                     sub_topics[s["topic"]] = s["subscribers"]
             assert all(n == 1 for n in sub_topics.values()), sub_topics
@@ -194,14 +192,17 @@ async def validate(args) -> None:
                 conns = c.get(f"{base}/api/v1/connections").json()["data"]
                 subs = c.get(f"{base}/api/v1/subscribers").json()
             present_ids = {e["id"] for e in conns}
-            zmq_topics = {s["topic"] for s in subs["subscriptions"]}
             print(
                 f"final: ws_connections={len(conns)} "
                 f"(baseline {len(baseline_ids)}) "
                 f"zmq={subs['zmq_subscribers']} (baseline {sum(baseline_zmq.values())})"
             )
             assert present_ids == baseline_ids, (present_ids, baseline_ids)
-            assert not zmq_topics & set(sub_topics), zmq_topics
+            idle = {s["topic"]: s["subscribers"] for s in subs["topics"]}
+            remaining = {t: idle.get(t, 0) for t in sub_topics}
+            assert all(n == 0 for n in remaining.values()), (
+                f"subscribers left behind: {remaining}"
+            )
             assert subs["zmq_subscribers"] == sum(baseline_zmq.values()), subs
     finally:
         for ws in wss:

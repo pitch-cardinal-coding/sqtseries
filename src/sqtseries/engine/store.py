@@ -202,7 +202,7 @@ class StorageEngine:
                     conn.execute(measurements_index_ddl(year, month))
 
             for pname, part_rows in by_partition.items():
-                # Validates the name before it is used in DDL interpolation
+                # Validates the name before it is used in SQL interpolation
 
                 parse_partition_name(pname)
                 sql = f"INSERT INTO {pname}(series_id, timestamp_ns, value) VALUES (?, ?, ?)"  # noqa: S608 - pname validated above
@@ -212,6 +212,14 @@ class StorageEngine:
                     [(sid, ts, v) for sid, ts, v in part_rows],
                 )
                 inserted += res.rowcount if res.rowcount >= 0 else len(part_rows)
+
+            # A row landing in an hour the rollup has already passed would be
+            # accepted, reported as stored, and then omitted from every
+            # rollup-served answer. Rewind inside this transaction so the
+            # watermark and the data move together.
+            from ..partition.rollup import rewind_watermark
+
+            rewind_watermark(conn, min(ts_ns for _, _, _, ts_ns in rows))
 
         if auto_create_partition:
             self.invalidate_partitions()

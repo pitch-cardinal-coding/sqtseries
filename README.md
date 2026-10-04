@@ -4,7 +4,7 @@ A time-series database that runs on your machine, keeps everything in one file,
 and answers questions about the past in milliseconds — no matter how many
 millions of readings you have stored.
 
-**8,413 lines** of Python · 58 classes · 385 functions · **766 tests passing**
+**8,805 lines** of Python · 58 classes · 393 functions · **821 tests**
 · `pip install`, no compiler, no separate server, Python 3.14+.
 
 ## What it does
@@ -148,7 +148,7 @@ The current hour is always read live so results are never stale.
 **Two transports, same wire format.** ZeroMQ handles high-throughput ingestion
 and live streaming (ingest frames are batch-drained behind a bounded queue
 and committed one transaction per batch — a sustained 10,000 pts/s pump
-persisted 700,223 of 700,223 points under concurrent query load, 0 dropped,
+persisted 700,198 of 700,198 points under concurrent query load, 0 dropped,
 0 unaccounted). HTTP handles
 one-off scripts, dashboards, and languages without ZMQ bindings. Both speak
 the same JSON shapes. Choose whichever fits, or use both.

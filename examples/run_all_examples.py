@@ -42,25 +42,29 @@ def free_ports() -> dict[str, int]:
 
 
 def wait_until_ping(port: int, timeout_s: float = 30.0) -> bool:
-    ctx = zmq.Context()
-    sock = ctx.socket(zmq.REQ)
-    sock.setsockopt(zmq.LINGER, 500)
-    sock.setsockopt(zmq.RCVTIMEO, 1000)
-    sock.connect(f"tcp://127.0.0.1:{port}")
+    """One fresh REQ socket per attempt — see run_custom.wait_until_ping.
+
+    A REQ socket is lockstep: a poll that expires leaves it 'awaiting reply',
+    the next send raises EFSM, and retrying that same socket spins until the
+    deadline even though the service is up and answering.
+    """
     deadline = time.monotonic() + timeout_s
-    try:
-        while time.monotonic() < deadline:
-            try:
-                sock.send_json({"cmd": "ping"})
-                if sock.poll(1000) & zmq.POLLIN:
-                    reply = sock.recv_json()
-                    if reply.get("pong"):
-                        return True
-            except zmq.ZMQError:
-                time.sleep(0.1)
-    finally:
-        sock.close(linger=0)
-        ctx.term()
+    while time.monotonic() < deadline:
+        ctx = zmq.Context()
+        sock = ctx.socket(zmq.REQ)
+        sock.setsockopt(zmq.LINGER, 0)
+        sock.setsockopt(zmq.RCVTIMEO, 1000)
+        sock.connect(f"tcp://127.0.0.1:{port}")
+        try:
+            sock.send_json({"cmd": "ping"})
+            if sock.poll(1000) & zmq.POLLIN and sock.recv_json().get("pong"):
+                return True
+        except zmq.ZMQError:
+            pass
+        finally:
+            sock.close(0)
+            ctx.term()
+        time.sleep(0.1)
     return False
 
 
@@ -105,6 +109,10 @@ path = "{db_path}"
 
 [ingestion]
 port = {ports["ingest"]}
+# The question examples seed 6 hours to 8 days of history. The default 300 s
+# clock-skew guard refuses every one of those writes, so they would silently
+# answer "no data" while still exiting 0.
+reject_client_timestamp_skew_s = 0
 
 [query]
 port = {ports["query"]}

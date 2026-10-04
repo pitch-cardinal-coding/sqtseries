@@ -1,0 +1,452 @@
+<section>
+  <h2>Watching values arrive</h2>
+  <p class="lede">Three live paths carry measurements as they land: a ZeroMQ SUB
+  socket, the <code>/ws/subscribe</code> WebSocket, and the bundled Python
+  <code>Client</code>. A fourth carries connection events instead of data, which is
+  how you answer "who is watching what" without polling.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Topic</strong> — the metric name on the wire. Publishing and subscribing
+    both use it, and it is what a subscription pattern is matched against.<br>
+    <strong>Frame</strong> — on the stream socket, two parts: the topic, then the JSON
+    payload.<br>
+    <strong>XPUB</strong> — a publish socket that also <em>receives</em> subscribe and
+    unsubscribe events. This is why the counts are exact.<br>
+    <strong>Keepalive</strong> — a frame sent when the stream is idle, so a client can
+    tell "nothing happening" from "connection dead".<br>
+    <strong>Fan-out hub</strong> — the in-process path that hands each frame to WebSocket
+    subscribers, with a bounded queue per subscriber.<br>
+    <strong>Drop</strong> — a frame deliberately not delivered to one slow subscriber,
+    and counted. Not the same as an error.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">3</div><div class="l">Live paths</div></div>
+    <div class="stat"><div class="n">256 KiB</div><div class="l">Per-subscriber queue</div></div>
+    <div class="stat"><div class="n">30 s</div><div class="l">Idle keepalive</div></div>
+    <div class="stat"><div class="n">exact</div><div class="l">Subscriber counts</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Blocking on a slow client</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>The guarantee that matters</h2>
+  <div class="box ok">
+    <span class="lbl">You will never see a point that was not stored</span>
+    <p>Publishing happens strictly <em>after</em> the commit succeeds. If the insert
+    fails, nothing is published for that batch. So the live stream and the stored data
+    never disagree in the direction that matters — you cannot be alerted on a value
+    that turns out not to have been recorded.</p>
+    <p>The ordering is deliberate and it is the opposite of the obvious choice. It
+    would be simpler to publish as soon as a frame parses, before the commit. That
+    would let a subscriber act on a point which a moment later failed to persist.</p>
+  </div>
+
+  <p>Two things reach a subscriber, then. The measurement itself, and — after 30
+  seconds of silence — a keepalive:</p>
+
+<pre><span class="c">// a measurement, as one WebSocket text frame</span>
+{<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>}, <span class="v">"value"</span>: <span class="v">0.42</span>}
+
+<span class="c">// the keepalive, after 30 s with nothing to send</span>
+{<span class="v">"type"</span>: <span class="v">"ping"</span>}</pre>
+</section>
+
+<section>
+  <h2>Over ZeroMQ SUB</h2>
+  <p>Connect to port 12503, subscribe with a topic pattern, and read two-part frames.
+  The topic is frame 0 and the JSON is frame 1 — the split is what makes prefix
+  filtering happen in the socket rather than in your loop.</p>
+
+<pre><span class="p">$</span> $PY
+<span class="p">&gt;&gt;&gt;</span> <span class="f">import</span> zmq, orjson
+<span class="p">&gt;&gt;&gt;</span> ctx = zmq.Context()
+<span class="p">&gt;&gt;&gt;</span> sub = ctx.socket(zmq.SUB)
+<span class="p">&gt;&gt;&gt;</span> sub.setsockopt(zmq.SUBSCRIBE, <span class="v">b"cpu."</span>)   <span class="c"># empty bytes = every topic</span>
+<span class="p">&gt;&gt;&gt;</span> sub.connect(<span class="v">"tcp://127.0.0.1:12503"</span>)
+<span class="p">&gt;&gt;&gt;</span> <span class="f">while</span> True:
+<span class="p">... </span>    topic, payload = sub.recv_multipart()
+<span class="p">... </span>    print(topic.decode(), orjson.loads(payload))
+<span class="p">...</span>
+<span class="p">cpu.load</span> {<span class="v">'metric'</span>: <span class="v">'cpu.load'</span>, <span class="v">'tags'</span>: {<span class="v">'host'</span>: <span class="v">'web1'</span>}, <span class="v">'value'</span>: <span class="v">0.42</span>}
+cpu.load {<span class="v">'metric'</span>: <span class="v">'cpu.load'</span>, <span class="v">'tags'</span>: {<span class="v">'host'</span>: <span class="v">'web1'</span>}, <span class="v">'value'</span>: <span class="v">0.51</span>}</pre>
+
+  <p>The bundled <code>Client</code> does the same thing with the two details that
+  usually go wrong handled for you:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> <span class="f">for</span> payload <span class="f">in</span> c.subscribe(<span class="v">"cpu."</span>, timeout=<span class="v">0.5</span>):
+<span class="p">... </span>    <span class="f">if</span> payload <span class="f">is None</span>:
+<span class="p">... </span>        <span class="c"># idle, or the client is closing — not an error</span>
+<span class="p">... </span>        <span class="c"># this is the heartbeat: your loop never blocks forever</span>
+<span class="p">... </span>        <span class="f">continue</span>
+<span class="p">... </span>    print(payload)</pre>
+
+  <div class="box">
+    <span class="lbl">Why the iterator yields None</span>
+    <p>It polls with a timeout instead of blocking in <code>recv()</code>. That gives
+    you two things: a periodic wake-up so a shutdown flag can be honoured, and a clean
+    exit when <code>close()</code> is called from another thread — a
+    <code>recv()</code> interrupted by context teardown raises, and turning that into
+    a plain <code>return</code> is the difference between a cooperative stop and a
+    crash in someone else's teardown path.</p>
+    <p>Every <code>resync_interval_s</code> (30 s by default) the client compares the
+    server's uptime against the last one it saw. A lower value means the server
+    restarted, so it rebuilds the socket and re-subscribes. ZeroMQ's own reconnect
+    does not reliably re-deliver subscriptions after a server bounce — a session can
+    re-handshake and still stay invisible indefinitely — so without this a subscriber
+    can go quiet after a restart and never notice.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Over a WebSocket</h2>
+  <p>Same data, same topics, no library. One query parameter selects the topic.</p>
+
+<pre><span class="c"># every topic</span>
+ws = <span class="f">new</span> WebSocket(<span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=*"</span>)
+
+<span class="c"># one topic</span>
+ws = <span class="f">new</span> WebSocket(<span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=cpu.load"</span>)
+
+<span class="c"># a prefix</span>
+ws = <span class="f">new</span> WebSocket(<span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>)
+
+ws.onmessage = e =&gt; console.log(e.data)</pre>
+
+  <pre><span class="c">// in Python, with websockets (no extra dependency)</span>
+<span class="p">&gt;&gt;&gt;</span> <span class="f">import</span> asyncio, json, websockets
+
+<span class="p">&gt;&gt;&gt;</span> <span class="f">async def</span> watch():
+<span class="p">...</span>     uri = <span class="v">"ws://127.0.0.1:12505/ws/subscribe?metric=cpu."</span>
+<span class="p">...</span>     <span class="f">async with</span> websockets.connect(uri) <span class="f">as</span> ws:
+<span class="p">...</span>         <span class="f">async for</span> frame <span class="f">in</span> ws:
+<span class="p">...</span>             msg = json.loads(frame)
+<span class="p">...</span>             <span class="f">if</span> msg.get(<span class="v">"type"</span>) == <span class="v">"ping"</span>:
+<span class="p">...</span>                 <span class="c"># idle keepalive; the stream is alive</span>
+<span class="p">...</span>                 <span class="f">continue</span>
+<span class="p">...</span>             print(msg)
+
+<span class="p">&gt;&gt;&gt;</span> asyncio.run(watch())</pre>
+
+  <table>
+    <thead><tr><th>Close code</th><th>Meaning</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td><code>1008</code></td><td>streaming or the registry is unavailable —
+        the service is running without a bus or a tracker</td>
+        <td>Check the service, not your client.</td></tr>
+      <tr><td><code>1009</code></td><td>an inbound frame exceeded 16 MiB</td>
+        <td>You are sending to a push-only socket. Do not.</td></tr>
+      <tr><td><code>1011</code></td><td>the fan-out hub is missing, or the client was
+        too slow to flush a frame within 30 s</td>
+        <td>Read faster, or reconnect.</td></tr>
+      <tr><td><code>1013</code></td><td>the connection budget
+        (<code>http.max_websocket_connections</code>) is exhausted</td>
+        <td>Back off and retry. Do not reconnect in a tight loop.</td></tr>
+    </tbody>
+  </table>
+
+  <p>The subscribe socket is <strong>push only</strong>. Inbound frames are consumed
+  and ignored, but they still reset the activity clock — which is deliberate, because
+  consuming them is what makes a disconnect surface immediately instead of up to 30
+  seconds later on the next send.</p>
+</section>
+
+<section>
+  <h2>How a topic pattern is matched</h2>
+  <p>Three rules, and the third one is the one that surprises people. Matching is
+  boundary-aware, so a filter cannot accidentally fan one topic out to its
+  neighbours.</p>
+
+  <table>
+    <thead><tr><th>Pattern</th><th>Matches</th><th>Rule</th></tr></thead>
+    <tbody>
+      <tr><td><code>*</code></td><td>everything</td><td>the wildcard</td></tr>
+      <tr><td><code>cpu.</code></td><td><code>cpu.load</code>,
+        <code>cpu.temp</code></td><td>trailing dot = plain prefix, kept for
+        compatibility</td></tr>
+      <tr><td><code>cpu</code></td><td><code>cpu</code>, <code>cpu.load</code></td>
+        <td>the topic itself and its dot-delimited children</td></tr>
+      <tr><td><code>cpu</code></td><td class="muted"><strong>not</strong>
+        <code>cpu10</code>, <code>cpuspeed</code></td><td>no match across a boundary,
+        so a shared textual prefix is not enough</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <span class="lbl">Why the boundary check exists</span>
+    <p>Plain <code>str.startswith()</code> matching meant that a subscription of
+    <code>stress.m1</code> also received <code>stress.m10</code>,
+    <code>stress.m11</code>, <code>stress.m100</code> and the rest. Under a stress
+    test that is ten machines' worth of traffic delivered to one client that asked for
+    one — measured at roughly <strong>7× delivery amplification</strong>.</p>
+    <p>The boundary rule fixes it: a dot-less pattern matches only the exact topic and
+    names that continue with a dot. If you genuinely want a shared textual prefix, say
+    so with the trailing dot.</p>
+  </div>
+</section>
+
+<section>
+  <h2>A slow subscriber costs only itself</h2>
+  <p>Every WebSocket subscriber gets its own queue, bounded in <strong>bytes</strong>
+  rather than in message count. Bytes, because what costs memory is payload size, not
+  the number of frames.</p>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 240" role="img" aria-label="Bounded fan-out: publish hands each frame in-process to a hub which enqueues it on every matching subscriber's byte-bounded queue; a subscriber that keeps up drains its queue and a slow subscriber's queue overflows, in which case the newest frame is dropped for that subscriber only and counted, while the publisher never blocks">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0b6e8c"/>
+        </marker>
+        <style>
+          .ext{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .cont{fill:#fff;stroke:#0d4f60;stroke-width:1.6}
+          .bound{fill:#fdefef;stroke:#a4262c;stroke-width:1.5;stroke-dasharray:5 3}
+          .ok{fill:#e9f7f1;stroke:#046c4e;stroke-width:1.6}
+          .n{font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .p{font:600 10.5px ui-monospace,Menlo,monospace;fill:#0d4f60}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .w{font:600 10px ui-monospace,Menlo,monospace;fill:#a4262c}
+          .g{font:600 10px ui-monospace,Menlo,monospace;fill:#046c4e}
+          .ln{fill:none;stroke:#0b6e8c;stroke-width:1.7;marker-end:url(#ah2)}
+          .bad{fill:none;stroke:#a4262c;stroke-width:1.6;stroke-dasharray:6 4;marker-end:url(#ah1)}
+        </style>
+      </defs>
+
+      <rect class="cont" x="20" y="86" width="146" height="66" rx="6"/>
+      <text class="n" x="36" y="112">publish()</text>
+      <text class="p" x="36" y="130">after commit</text>
+      <text class="s" x="36" y="146">never awaits</text>
+
+      <rect class="cont" x="204" y="86" width="150" height="66" rx="6"/>
+      <text class="n" x="220" y="112">fan-out hub</text>
+      <text class="s" x="220" y="130">in-process,</text>
+      <text class="s" x="220" y="146">no socket per client</text>
+
+      <rect class="ok" x="404" y="40" width="230" height="76" rx="6"/>
+      <text class="n" x="420" y="66">fast subscriber</text>
+      <text class="g" x="420" y="86">queue drains</text>
+      <text class="s" x="420" y="104">every frame delivered,</text>
+      <text class="s" x="420" y="118">nothing dropped</text>
+
+      <rect class="bound" x="404" y="132" width="230" height="76" rx="6"/>
+      <text class="n" x="420" y="158">slow subscriber</text>
+      <text class="w" x="420" y="178">queue over 256 KiB</text>
+      <text class="s" x="420" y="196">newest frame dropped,</text>
+      <text class="s" x="420" y="210">counted — keeps its history</text>
+
+      <rect class="ext" x="700" y="40" width="260" height="66" rx="6"/>
+      <text class="n" x="716" y="66">XPUB socket, port 12503</text>
+      <text class="a" x="716" y="86">the same frames, for non-WS</text>
+      <text class="s" x="716" y="102">ZeroMQ subscribers</text>
+
+      <rect class="cont" x="700" y="132" width="260" height="76" rx="6"/>
+      <text class="n" x="716" y="158">fanout_dropped counter</text>
+      <text class="s" x="716" y="178">on the stats socket and</text>
+      <text class="s" x="716" y="192">the admin dashboard</text>
+      <text class="s" x="716" y="208">alert on this</text>
+
+      <path class="ln" d="M166,119 L204,119"/>
+      <path class="ln" d="M354,110 L404,82"/>
+      <path class="bad" d="M354,130 L404,168"/>
+      <path class="ln" d="M634,78 L700,78"/>
+      <path class="ln" d="M634,170 L700,168"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — one slow client, isolated.</strong> The rule is
+  drop-newest and it is the opposite of drop-oldest on purpose. The queue already
+  holds that subscriber's recent history, so discarding the oldest would leave it with
+  a stale backlog and a gap; discarding the newest means a client that is briefly slow
+  resumes with contiguous history and simply misses the live tail while it catches
+  up. Either way it is counted, and the publisher is never blocked.</figcaption>
+  </figure>
+
+  <div class="box">
+    <span class="lbl">One exception, on purpose</span>
+    <p>A single frame larger than the whole byte budget is delivered anyway rather
+    than being permanently undeliverable. A client on an empty queue that cannot fit
+    one frame would otherwise never receive anything at all, and the queue would stay
+    empty forever. The bound is on backlog, not on message size.</p>
+  </div>
+
+  <h3>How to tell a drop from a gap in your data</h3>
+  <p>A dropped live frame was still <em>stored</em>. The live stream is lossy for slow
+  subscribers by design; the database is not lossy at all. So a value missing from a
+  live feed but present in a query is expected behaviour, and the fix is to read
+  history rather than to raise the budget.</p>
+
+  <p>Watch <code>fanout_dropped</code> on the admin socket. A non-zero value means at
+  least one subscriber cannot keep up. If it is your client, make it read faster or
+  subscribe to fewer topics.</p>
+</section>
+
+<section>
+  <h2>Watching the watchers</h2>
+  <p>Two endpoints report who is connected, and both push — neither polls.</p>
+
+  <h3><code>/ws/connections</code></h3>
+  <p>One snapshot on connect, then a frame per change. Three message types:</p>
+
+<pre><span class="c">// 1. on connect — everything, once</span>
+{<span class="v">"type"</span>: <span class="v">"snapshot"</span>,
+ <span class="v">"ws_connections"</span>: <span class="v">2</span>,
+ <span class="v">"zmq_subscribers"</span>: <span class="v">1</span>,
+ <span class="v">"connections"</span>: [
+   {<span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>,
+    <span class="v">"peer"</span>: <span class="v">"10.0.0.7:52344"</span>, <span class="v">"topic"</span>: <span class="v">"cpu."</span>}
+ ],
+ <span class="v">"topics"</span>: [
+   {<span class="v">"topic"</span>: <span class="v">"cpu.load"</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>, <span class="v">"first_seen"</span>: <span class="v">1790786862.85</span>}
+ ]}
+
+<span class="c">// 2. a client arrived or left</span>
+{<span class="v">"type"</span>: <span class="v">"conn"</span>, <span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>,
+ <span class="v">"peer"</span>: <span class="v">"10.0.0.7:52344"</span>, <span class="v">"topic"</span>: <span class="v">"cpu."</span>,
+ <span class="v">"connected"</span>: <span class="v">true</span>, <span class="v">"connected_at"</span>: <span class="v">1790786862.85</span>, <span class="v">"ttl"</span>: <span class="v">60</span>}
+
+{<span class="v">"type"</span>: <span class="v">"conn"</span>, <span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"connected"</span>: <span class="v">false</span>,
+ <span class="v">"connected_at"</span>: <span class="v">1790786862.85</span>, <span class="v">"left_at"</span>: <span class="v">1790787162.90</span>}
+
+<span class="c">// 3. a ZeroMQ subscriber joined or left a topic</span>
+{<span class="v">"type"</span>: <span class="v">"sub"</span>, <span class="v">"kind"</span>: <span class="v">"zmq"</span>, <span class="v">"topic"</span>: <span class="v">"cpu.load"</span>,
+ <span class="v">"subscribers"</span>: <span class="v">2</span>, <span class="v">"arrived_at"</span>: <span class="v">1790786900.1</span>, <span class="v">"ttl"</span>: <span class="v">30</span>}
+
+{<span class="v">"type"</span>: <span class="v">"sub"</span>, <span class="v">"topic"</span>: <span class="v">"cpu.load"</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>,
+ <span class="v">"left_at"</span>: <span class="v">1790786960.2</span>, <span class="v">"first_seen"</span>: <span class="v">1790786862.85</span>}</pre>
+
+  <p>A leave event carries both times, so a consumer can show how long the connection
+  lasted without keeping its own record.</p>
+
+  <h3><code>/ws/dashboard</code></h3>
+  <p>The admin dashboard feed: a full snapshot, then live events, then a counter tick
+  every second. The tick deliberately omits the two list-shaped keys — sending the
+  whole connection list every second would be waste when it already arrives as
+  events.</p>
+
+  <pre>{<span class="v">"type"</span>: <span class="v">"snapshot"</span>, <span class="v">"status"</span>: <span class="v">"ok"</span>, <span class="v">"server_time"</span>: <span class="v">1790786862.85</span>,
+ <span class="v">"uptime_s"</span>: <span class="v">412.7</span>, <span class="v">"ingested"</span>: <span class="v">40218</span>, <span class="v">"persisted"</span>: <span class="v">40218</span>,
+ <span class="v">"dropped"</span>: <span class="v">0</span>, <span class="v">"invalid"</span>: <span class="v">0</span>, <span class="v">"queries"</span>: <span class="v">88</span>,
+ <span class="v">"series"</span>: <span class="v">3</span>, <span class="v">"metrics"</span>: <span class="v">2</span>, <span class="v">"db_bytes"</span>: <span class="v">86016</span>,
+ <span class="v">"partitions"</span>: <span class="v">1</span>, <span class="v">"rollup_watermark"</span>: <span class="v">1790784000000000000</span>,
+ <span class="v">"ports"</span>: {<span class="v">"ingest"</span>: <span class="v">12500</span>, <span class="v">"query"</span>: <span class="v">12502</span>, <span class="v">"streaming"</span>: <span class="v">12503</span>,
+              <span class="v">"admin"</span>: <span class="v">12504</span>, <span class="v">"http"</span>: <span class="v">12505</span>, <span class="v">"stats"</span>: <span class="v">12506</span>},
+ <span class="v">"connections"</span>: [ … ], <span class="v">"topics"</span>: [ … ]}
+
+<span class="c">// one second later</span>
+{<span class="v">"type"</span>: <span class="v">"tick"</span>, <span class="v">"uptime_s"</span>: <span class="v">413.7</span>, <span class="v">"ingested"</span>: <span class="v">40318</span>,
+ <span class="v">"persisted"</span>: <span class="v">40318</span>, <span class="v">"queries"</span>: <span class="v">91</span>, <span class="v">"db_bytes"</span>: <span class="v">88128</span>, …}</pre>
+
+  <p><code>rollup_watermark</code> is the next hour the rollup will process, in
+  nanoseconds. It sitting still while <code>ingested</code> climbs is normal — the
+  current hour is never rolled.</p>
+
+  <p>Full field list on <a href="dashboard.html">Admin Dashboard</a>.</p>
+</section>
+
+<section>
+  <h2>The stats socket</h2>
+  <p>Port 12506 publishes the same events as a plain ZeroMQ PUB socket, for anything
+  that is not a browser. Subscribe with an empty prefix for everything, or with a
+  topic name to take one kind.</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> <span class="f">import</span> zmq, orjson
+<span class="p">&gt;&gt;&gt;</span> sub = ctx.socket(zmq.SUB)
+<span class="p">&gt;&gt;&gt;</span> sub.setsockopt(zmq.SUBSCRIBE, <span class="v">b""</span>)   <span class="c"># conn, sub and report</span>
+<span class="p">&gt;&gt;&gt;</span> sub.setsockopt(zmq.SUBSCRIBE, <span class="v">b"conn"</span>)
+<span class="p">&gt;&gt;&gt;</span> sub.connect(<span class="v">"tcp://127.0.0.1:12506"</span>)
+<span class="p">&gt;&gt;&gt;</span> <span class="f">while</span> True:
+<span class="p">... </span>    topic, payload = sub.recv_multipart()
+<span class="p">... </span>    print(topic.decode(), orjson.loads(payload))
+<span class="p">...</span>
+conn {<span class="v">'kind'</span>: <span class="v">'ws'</span>, <span class="v">'id'</span>: <span class="v">'a1b2c3d4e5f6'</span>, <span class="v">'connected'</span>: <span class="v">True</span>, …}
+sub  {<span class="v">'kind'</span>: <span class="v">'zmq'</span>, <span class="v">'topic'</span>: <span class="v">'cpu.load'</span>, <span class="v">'subscribers'</span>: <span class="v">1</span>, …}
+report {<span class="v">'uptime_s'</span>: <span class="v">420.1</span>, <span class="v">'ws_connections'</span>: <span class="v">2</span>,
+        <span class="v">'zmq_subscribers'</span>: <span class="v">1</span>, <span class="v">'active_topics'</span>: <span class="v">1</span>}</pre>
+
+  <div class="box">
+    <span class="lbl">Why the counts are exact</span>
+    <p>The stream socket is an <strong>XPUB</strong>, not a PUB, with
+    <code>XPUB_VERBOSER</code> on. That combination means the service receives an event
+    for <em>every</em> join and leave, rather than only when a topic is first heard
+    of. The default only reports the first subscriber to a topic, which would mean two
+    clients on one topic counted as one — verified on libzmq 4.3.5.</p>
+    <p>So <code>zmq_subscribers</code> is a real count taken from the wire, not an
+    estimate. There is no polling anywhere in this path.</p>
+  </div>
+
+  <p>Set <code>stats.enabled = false</code> and port 12506 is never bound, if you do
+  not want the surface at all.</p>
+</section>
+
+<section>
+  <h2>Asking after the fact</h2>
+  <p>Both endpoints have an HTTP equivalent, which is what you want from a script or a
+  monitoring check rather than a live subscription.</p>
+
+<pre><span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/connections
+<span class="ok">{"status":"ok","data":[]}</span>
+
+<span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/subscribers
+<span class="ok">{"status":"ok","zmq_subscribers":0,
+ "topics":[{"topic":"temp.outside","subscribers":0,"first_seen":null,"total":null}]}</span></pre>
+
+  <p>The <code>subscribers</code> list is the union of two sources: every topic the
+  registry has ever seen, and every metric currently stored. A stored metric nobody is
+  watching appears with <code>subscribers: 0</code>, which is how you tell "quiet"
+  apart from "unknown".</p>
+
+  <p>The same two are available over the admin socket, which needs no HTTP client:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"connections"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'data'</span>: []}
+
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"subscribers"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'zmq_subscribers'</span>: <span class="v">0</span>, <span class="v">'topics'</span>: [ … ]}
+
+<span class="c"># which of these ids are still connected?</span>
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"conncheck"</span>, ids=[<span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"deadbeef0000"</span>])
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'present'</span>: [<span class="v">'a1b2c3d4e5f6'</span>]}</pre>
+
+  <p><code>conncheck</code> is the one to use in a health check: it is a cheap
+  membership test against ids you recorded earlier, and it does not hand back the
+  whole connection list to parse.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>Every field the dashboard feed carries, what each counter means, and which
+      two you should alert on.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>Where the values you are watching came from, and the guarantee that a
+      published point was already committed.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>Reading back what a live feed dropped, since the database kept everything.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Exact frame shapes for all three WebSocket endpoints, every close code, and
+      the admin commands.</p>
+    </div>
+    <div class="card">
+      <h4><a href="camera.html">Camera analytics</a></h4>
+      <p>A second live page built on <code>/ws/subscribe</code>, showing data rather
+      than service health.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>The same subscription from Go, Rust, PHP, Node.js and the shell.</p>
+    </div>
+  </div>
+</section>

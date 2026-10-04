@@ -1,0 +1,502 @@
+<section>
+  <h2>Everything the service exposes</h2>
+  <p class="lede">Seven REST routes, three WebSockets, the admin socket, the ZeroMQ
+  wire format, the embedded Python API and the CLI — with the exact parameter names,
+  the accepted ranges, and the error code each failure returns.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Status envelope</strong> — the <code>{"status":"ok", …}</code> or
+    <code>{"status":"error","error":{…}}</code> wrapper every reply uses.<br>
+    <strong>Error code</strong> — a stable machine-readable string. Match on this, never
+    on the message.<br>
+    <strong>Frame</strong> — one ZeroMQ message. Ingest and query are one part; the
+    stream and stats sockets are two (<code>[topic, json]</code>).<br>
+    <strong>Registry</strong> — the service's record of connections and
+    subscriptions.<br>
+    <strong>Snapshot</strong> — full state, once, on connect.<br>
+    <strong>Tick</strong> — counters only, on a timer.<br>
+    <strong>OpenAPI</strong> — <code>/openapi.json</code>, generated from the route
+    definitions.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">7</div><div class="l">REST routes</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">WebSocket endpoints</div></div>
+    <div class="stat"><div class="n">9</div><div class="l">Admin commands</div></div>
+    <div class="stat"><div class="n">29</div><div class="l">Fields in <code>stats</code></div></div>
+    <div class="stat"><div class="n">12</div><div class="l">Error codes</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>The routes</h2>
+  <p>Seven REST routes under <code>/api/v1</code>, plus the pages and the WebSockets.
+  All of it is declared in the OpenAPI schema, so a generated client cannot drift from
+  it.</p>
+
+{{routes_table}}
+
+  <pre><span class="c"># the generated schema, straight from the route definitions</span>
+$ curl -s http://127.0.0.1:12505/openapi.json | python3 -m json.tool | head -20
+{
+  <span class="v">"openapi"</span>: <span class="v">"3.1.0"</span>,
+  <span class="v">"info"</span>: { <span class="v">"title"</span>: <span class="v">"sqtseries"</span>, <span class="v">"version"</span>: <span class="v">"0.1.0"</span> },
+  <span class="v">"paths"</span>: {
+    <span class="v">"/api/v1/aggregate"</span>:  { … },
+    <span class="v">"/api/v1/connections"</span>: { … },
+    <span class="v">"/api/v1/health"</span>:     { … },
+    <span class="v">"/api/v1/read"</span>:        { … },
+    <span class="v">"/api/v1/stats"</span>:       { … },
+    <span class="v">"/api/v1/subscribers"</span>: { … },
+    <span class="v">"/api/v1/write"</span>:       { … }
+  }
+}</pre>
+
+  <p>FastAPI's stock <code>/docs</code> page is <strong>off</strong>, because
+  <code>/docs</code> serves this documentation instead and the gateway's
+  Content-Security-Policy forbids the CDN the stock page loads from. The self-hosted
+  equivalents are <code>/api-docs</code> (Swagger UI) and <code>/redoc</code>, both
+  reading the same <code>/openapi.json</code> from vendored assets.</p>
+</section>
+
+<section>
+  <h2>Every parameter, in one place</h2>
+  <table>
+    <thead><tr><th>Parameter</th><th>Where</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">metric</td><td>query</td><td>string</td>
+        <td class="muted">required</td><td>Metric name. Non-empty.</td></tr>
+      <tr><td class="opt">start</td><td>query</td><td>number or string</td>
+        <td class="def">null</td>
+        <td>Epoch <strong>seconds</strong> over HTTP, or an ISO-8601 string. A bare
+        numeric string is parsed as a number first.</td></tr>
+      <tr><td class="opt">end</td><td>query</td><td>number or string</td>
+        <td class="def">null</td><td>Inclusive.</td></tr>
+      <tr><td class="opt">aggregation</td><td>query</td><td>string</td>
+        <td class="def">null</td><td>One of ten names. Unset returns raw rows.</td></tr>
+      <tr><td class="opt">interval</td><td>query</td><td>string</td>
+        <td class="def">null</td><td><code>Ns/Nm/Nh/Nd</code>. Needs
+        <code>aggregation</code>.</td></tr>
+      <tr><td class="opt">funcs</td><td>query</td><td>string</td>
+        <td class="def">avg</td><td>Comma-separated, on <code>/aggregate</code> only.
+        Spaces are trimmed; empty entries dropped.</td></tr>
+      <tr><td class="opt">limit</td><td>query</td><td>integer</td>
+        <td class="def">null</td>
+        <td><strong>1–100000.</strong> Outside that is <code>422</code>, checked
+        before the handler.</td></tr>
+      <tr><td class="opt">order</td><td>query</td><td>string</td>
+        <td class="def">asc</td>
+        <td><code>asc</code> or <code>desc</code>. Anything else is
+        <code>422</code>.</td></tr>
+      <tr><td class="opt">payload</td><td>body</td><td>object or array</td>
+        <td class="muted">required</td>
+        <td>On <code>/write</code>. An object is one measurement; an array is a batch,
+        validated in full before any of it is stored.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <span class="lbl">Two different error codes for a bad parameter</span>
+    <p>It depends on <em>who</em> rejects it. A value the route signature declares —
+    <code>limit</code> out of range, <code>order</code> not matching its pattern — is
+    caught by the framework before the handler runs and comes back as
+    <strong><code>422</code></strong> with a structured <code>detail</code> array. A
+    value the handler checks — an unknown aggregation, a limit of 0 on the ZMQ path, an
+    unparseable timestamp — comes back as <strong><code>400</code></strong> with a
+    plain string in <code>detail</code>.</p>
+<pre><span class="c"># 422 — rejected by the route signature</span>
+curl -s <span class="v">"…/api/v1/read?metric=cpu.load&amp;limit=0"</span>
+{<span class="v">"detail"</span>:[{<span class="v">"type"</span>:<span class="v">"greater_than_equal"</span>,<span class="v">"loc"</span>:[<span class="v">"query"</span>,<span class="v">"limit"</span>],
+  <span class="v">"msg"</span>:<span class="v">"Input should be greater than or equal to 1"</span>,<span class="v">"ctx"</span>:{<span class="v">"ge"</span>:<span class="v">1</span>}}]}
+
+<span class="c"># 400 — rejected by the handler</span>
+curl -s <span class="v">"…/api/v1/read?metric=cpu.load&amp;aggregation=bogus"</span>
+{<span class="v">"detail"</span>:<span class="v">"unsupported aggregation: bogus"</span>}</pre>
+  </div>
+
+  <h3>Response shapes</h3>
+<pre><span class="c"># GET /api/v1/read</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>, <span class="v">"data"</span>:[{<span class="v">"timestamp"</span>:<span class="v">1790793328.2546144</span>, <span class="v">"value"</span>:<span class="v">31.0</span>}, …]}
+<span class="c">#   timestamp is EPOCH SECONDS even though it is stored as nanoseconds</span>
+
+<span class="c"># GET /api/v1/aggregate</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>, <span class="v">"aggregations"</span>:{<span class="v">"avg"</span>:<span class="v">62.27</span>, <span class="v">"p99"</span>:<span class="v">99.85</span>}}
+<span class="c">#   a function with no value is null, not 0</span>
+
+<span class="c"># POST /api/v1/write</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>, <span class="v">"written"</span>:<span class="v">3</span>}
+
+<span class="c"># GET /api/v1/health — never fails, so a load balancer can poll it</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>, <span class="v">"version"</span>:<span class="v">"0.1.0"</span>}
+{<span class="v">"status"</span>:<span class="v">"degraded"</span>, <span class="v">"version"</span>:<span class="v">"0.1.0"</span>}
+
+<span class="c"># GET /api/v1/stats</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>, <span class="v">"metrics"</span>:<span class="v">2</span>, <span class="v">"series"</span>:<span class="v">12</span>}
+
+<span class="c"># GET /api/v1/subscribers</span>
+{<span class="v">"status"</span>:<span class="v">"ok"</span>, <span class="v">"zmq_subscribers"</span>:<span class="v">0</span>, <span class="v">"topics"</span>:[
+  {<span class="v">"topic"</span>:<span class="v">"temp.outside"</span>, <span class="v">"subscribers"</span>:<span class="v">0</span>, <span class="v">"first_seen"</span>:<span class="v">null</span>, <span class="v">"total"</span>:<span class="v">null</span>}]}</pre>
+
+  <p class="small muted">A stored metric nobody subscribes to still appears in
+  <code>topics</code>, with <code>subscribers: 0</code>. That is deliberate: a zero row
+  and a missing row are different facts when you are working out whether a producer
+  stopped.</p>
+
+  <div class="box key">
+    <span class="lbl">The write body is validated as a unit</span>
+    <p>Send a JSON array and the whole array is checked before any of it is stored. One
+    bad item rejects the batch with <code>400</code> and nothing is written, so a retry
+    is safe — there is no half-applied batch to reconcile.</p>
+<pre>curl -X POST http://127.0.0.1:12505/api/v1/write \
+  -H <span class="v">"Content-Type: application/json"</span> \
+  -d <span class="v">'[{"metric":"cpu.load","value":0.42,"tags":{"host":"web1"}}]'</span>
+<span class="c"># the Content-Type header is required — see Client Libraries</span></pre>
+  </div>
+</section>
+
+<section>
+  <h2>Every error code</h2>
+  <p>Match on the <code>code</code>. A client that branches on the message text will
+  break the next time the wording improves.</p>
+
+{{error_codes}}
+
+  <h3>What each one looks like</h3>
+<pre><span class="c"># ZMQ — one-part reply, status envelope either way</span>
+{<span class="v">"status"</span>:<span class="v">"error"</span>, <span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"INVALID_QUERY"</span>, <span class="v">"message"</span>:<span class="v">"unsupported aggregation: bogus"</span>}}
+{<span class="v">"status"</span>:<span class="v">"error"</span>, <span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"INVALID_QUERY"</span>, <span class="v">"message"</span>:<span class="v">"limit must be a positive integer"</span>}}
+{<span class="v">"status"</span>:<span class="v">"error"</span>, <span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"INVALID_QUERY"</span>, <span class="v">"message"</span>:<span class="v">"either metric or series_ids required"</span>}}
+{<span class="v">"status"</span>:<span class="v">"error"</span>, <span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"INVALID_QUERY"</span>, <span class="v">"message"</span>:<span class="v">"timestamp not ISO-8601: 'not-a-time'"</span>}}
+{<span class="v">"status"</span>:<span class="v">"error"</span>, <span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"MAX_ROWS_EXCEEDED"</span>, <span class="v">"message"</span>:<span class="v">"query would materialize more than max_rows=10000 raw rows; …"</span>}}
+{<span class="v">"status"</span>:<span class="v">"error"</span>, <span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"INVALID_REQUEST"</span>, <span class="v">"message"</span>:<span class="v">"invalid JSON: unexpected character: line 1 column 2 (char 1)"</span>}}
+{<span class="v">"status"</span>:<span class="v">"error"</span>, <span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"INVALID_REQUEST"</span>, <span class="v">"message"</span>:<span class="v">"unknown admin command: nope"</span>}}
+
+<span class="c"># HTTP — detail is a string for handler errors, an array for schema errors</span>
+{<span class="v">"detail"</span>:<span class="v">"metric must be a non-empty string"</span>}                    <span class="c"># 400</span>
+{<span class="v">"detail"</span>:<span class="v">"tags must be string-&gt;string object"</span>}                 <span class="c"># 400</span>
+{<span class="v">"detail"</span>:<span class="v">"client timestamp skew exceeds 300.0s"</span>}                   <span class="c"># 400</span>
+{<span class="v">"detail"</span>:<span class="v">"query would materialize more than max_rows=10000 raw rows; …"</span>} <span class="c"># 413</span>
+{<span class="v">"detail"</span>:<span class="v">"query exceeded 30.0s"</span>}                                  <span class="c"># 504</span>
+{<span class="v">"detail"</span>:[{<span class="v">"type"</span>:<span class="v">"string_pattern_mismatch"</span>, …}]}                <span class="c"># 422</span>
+{<span class="v">"status"</span>:<span class="v">"error"</span>,<span class="v">"error"</span>:{<span class="v">"code"</span>:<span class="v">"RATE_LIMITED"</span>,…}}  <span class="c"># 429</span></pre>
+
+  <div class="box">
+    <span class="lbl">413 and 504 mean what they say here</span>
+    <p><code>413</code> is not "your payload was too large" — the request was valid and
+    it is the <em>result</em> that exceeds the bounded-work policy. <code>504</code> is
+    the query timeout, and the query keeps running in the background; its result is
+    discarded.</p>
+    <p>Both are the bounded-queue doctrine applied to reads: the cap exists so one
+    query cannot make the service's memory grow with the size of the database, and it
+    is better to refuse loudly than to answer with a plausible subset.</p>
+  </div>
+</section>
+
+<section>
+  <h2 id="admin">The admin socket</h2>
+  <p>Port 12504, one request and one reply. <code>{"cmd": "…"}</code> in, a status
+  envelope out. This is the surface to use from a monitoring script: it needs no HTTP
+  client and no WebSocket, and it answers operational questions the REST API does
+  not.</p>
+
+{{admin_table}}
+
+  <pre><span class="c"># every command, against a running service</span>
+$PY
+<span class="p">&gt;&gt;&gt;</span> <span class="f">from</span> sqtseries <span class="f">import</span> Client
+<span class="p">&gt;&gt;&gt;</span> c = Client()
+
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"ping"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'pong'</span>: <span class="v">True</span>}
+
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"health"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'version'</span>: <span class="v">'0.1.0'</span>, <span class="v">'uptime'</span>: <span class="v">222</span>, <span class="v">'database'</span>: <span class="v">True</span>}
+
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"connections"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'data'</span>: []}
+
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"subscribers"</span>)
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'zmq_subscribers'</span>: <span class="v">0</span>, <span class="v">'topics'</span>: []}
+
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"conncheck"</span>, ids=[<span class="v">"abc"</span>, <span class="v">"xyz"</span>])
+{<span class="v">'status'</span>: <span class="v">'ok'</span>, <span class="v">'present'</span>: []}   <span class="c"># neither id is connected</span>
+
+<span class="p">&gt;&gt;&gt;</span> c.admin(<span class="v">"nope"</span>)
+Traceback (most recent call last):
+  File <span class="v">"&lt;stdin&gt;"</span>, line 1, in &lt;module&gt
+sqtseries.client.ClientError: unknown admin command: nope</pre>
+
+  <p class="small muted">The bundled <code>Client</code> raises
+  <code>ClientError</code> with the message; over raw ZMQ you get the envelope and
+  check <code>status</code> yourself.</p>
+
+  <h3>What <code>stats</code> returns</h3>
+  <p>29 fields. Every one is a monotonic counter except the two that are gauges, and
+  the two you should alert on are <code>dropped</code> and <code>invalid</code>.</p>
+
+{{admin_stats_fields}}
+
+  <p class="small muted">Measured keys from a live service:
+  <code>status</code>, <code>uptime_s</code>, <code>ingested</code>,
+  <code>invalid</code>, <code>ingest_errors</code>, <code>persisted</code>,
+  <code>dropped</code>, <code>queries</code>, <code>query_errors</code>,
+  <code>queries_shed</code>, <code>replies_dropped</code>,
+  <code>admin_requests</code>, <code>wal_bytes</code>,
+  <code>checkpoint_busy_runs</code>, <code>checkpoints</code>,
+  <code>analyze_runs</code>, <code>retention_runs</code>,
+  <code>partitions_dropped</code>, <code>backup_runs</code>,
+  <code>backups_created</code>, <code>published</code>, <code>subscribers</code>,
+  <code>series</code>, <code>metrics</code>, <code>query_cache_size</code>,
+  <code>query_cache_hits</code>, <code>query_cache_misses</code>.
+  <code>last_backup</code> appears once the first snapshot has run.</p>
+</section>
+
+<section>
+  <h2>The WebSocket protocols</h2>
+
+  <h3><code>/ws/subscribe?metric=…</code></h3>
+  <p>Live measurements for one topic pattern. Push only: inbound frames are consumed
+  and ignored, but consuming them is what makes a disconnect surface at once instead of
+  at the next send.</p>
+
+<pre>{<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>}, <span class="v">"value"</span>: <span class="v">0.42</span>}
+{<span class="v">"type"</span>: <span class="v">"ping"</span>}   <span class="c"># after 30 s of silence — the stream is alive, there is just no data</span></pre>
+
+  <p>Pattern matching is boundary aware: <code>*</code> takes everything,
+  <code>cpu.</code> is a plain prefix, and <code>cpu</code> matches <code>cpu.load</code>
+  but <strong>not</strong> <code>cpu10</code>. Full rules on
+  <a href="streaming.html">Streaming</a>.</p>
+
+  <h3><code>/ws/connections</code></h3>
+  <p>One snapshot, then a frame per change. Event-driven, with no polling.</p>
+
+<pre>{<span class="v">"type"</span>: <span class="v">"snapshot"</span>, <span class="v">"ws_connections"</span>: <span class="v">2</span>, <span class="v">"zmq_subscribers"</span>: <span class="v">1</span>,
+ <span class="v">"connections"</span>: [{<span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>, <span class="v">"peer"</span>: <span class="v">"10.0.0.7:52344"</span>, <span class="v">"topic"</span>: <span class="v">"cpu."</span>}],
+ <span class="v">"topics"</span>: [{<span class="v">"topic"</span>: <span class="v">"cpu.load"</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>, <span class="v">"first_seen"</span>: <span class="v">1790786862.85</span>}]}
+
+{<span class="v">"type"</span>: <span class="v">"conn"</span>, <span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>, <span class="v">"peer"</span>: <span class="v">"10.0.0.7:52344"</span>,
+ <span class="v">"topic"</span>: <span class="v">"cpu."</span>, <span class="v">"connected"</span>: <span class="v">true</span>, <span class="v">"connected_at"</span>: <span class="v">1790786862.85</span>, <span class="v">"ttl"</span>: <span class="v">60</span>}
+
+{<span class="v">"type"</span>: <span class="v">"conn"</span>, <span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"connected"</span>: <span class="v">false</span>,
+ <span class="v">"connected_at"</span>: <span class="v">1790786862.85</span>, <span class="v">"left_at"</span>: <span class="v">1790787162.90</span>}
+
+{<span class="v">"type"</span>: <span class="v">"sub"</span>, <span class="v">"kind"</span>: <span class="v">"zmq"</span>, <span class="v">"topic"</span>: <span class="v">"cpu.load"</span>,
+ <span class="v">"subscribers"</span>: <span class="v">2</span>, <span class="v">"arrived_at"</span>: <span class="v">1790786900.1</span>, <span class="v">"ttl"</span>: <span class="v">30</span>}
+
+{<span class="v">"type"</span>: <span class="v">"sub"</span>, <span class="v">"topic"</span>: <span class="v">"cpu.load"</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>,
+ <span class="v">"left_at"</span>: <span class="v">1790786960.2</span>, <span class="v">"first_seen"</span>: <span class="v">1790786862.85</span>}</pre>
+
+  <h3><code>/ws/dashboard</code></h3>
+  <p>Snapshot, live events, then a counter tick every second. The tick omits the
+  list-shaped keys, because every change in those lists already arrives as an
+  event.</p>
+
+<pre>{<span class="v">"type"</span>: <span class="v">"snapshot"</span>, <span class="v">"status"</span>: <span class="v">"ok"</span>, <span class="v">"uptime_s"</span>: <span class="v">412.7</span>, <span class="v">"ingested"</span>: <span class="v">40218</span>,
+ <span class="v">"persisted"</span>: <span class="v">40218</span>, <span class="v">"dropped"</span>: <span class="v">0</span>, <span class="v">"invalid"</span>: <span class="v">0</span>, <span class="v">"series"</span>: <span class="v">3</span>,
+ <span class="v">"db_bytes"</span>: <span class="v">86016</span>, <span class="v">"partitions"</span>: <span class="v">1</span>, <span class="v">"rollup_watermark"</span>: <span class="v">1790784000000000000</span>,
+ <span class="v">"ports"</span>: {<span class="v">"ingest"</span>: <span class="v">12500</span>, <span class="v">"query"</span>: <span class="v">12502</span>, <span class="v">"streaming"</span>: <span class="v">12503</span>,
+              <span class="v">"admin"</span>: <span class="v">12504</span>, <span class="v">"http"</span>: <span class="v">12505</span>, <span class="v">"stats"</span>: <span class="v">12506</span>},
+ <span class="v">"connections"</span>: [ … ], <span class="v">"topics"</span>: [ … ]}
+
+{<span class="v">"type"</span>: <span class="v">"tick"</span>, <span class="v">"uptime_s"</span>: <span class="v">413.7</span>, <span class="v">"ingested"</span>: <span class="v">40318</span>,
+ <span class="v">"persisted"</span>: <span class="v">40318</span>, <span class="v">"queries"</span>: <span class="v">91</span>, <span class="v">"db_bytes"</span>: <span class="v">88128</span>, …}</pre>
+
+  <h3>Close codes</h3>
+  <table>
+    <thead><tr><th>Code</th><th>Meaning</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">1008</td><td>streaming or the registry is unavailable</td>
+        <td>check the service, not the client</td></tr>
+      <tr><td class="opt">1009</td><td>an inbound frame exceeded 16 MiB</td>
+        <td>you are sending to a push-only socket</td></tr>
+      <tr><td class="opt">1011</td><td>fan-out unavailable, or the client was too
+        slow to flush a frame within 30 s</td><td>read faster, or reconnect</td></tr>
+      <tr><td class="opt">1013</td><td>the connection budget is exhausted</td>
+        <td>back off; do not reconnect in a tight loop</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>The ZeroMQ wire format</h2>
+  <p>One shape, three transports. Ingest and query are single-part frames; the stream
+  and stats sockets are two-part, <code>[topic, json]</code>, so a subscription filter
+  works in the socket rather than in your loop.</p>
+
+  <h3>Ingest</h3>
+{{wire_ingest}}
+
+  <h3>Query</h3>
+{{wire_query}}
+
+  <div class="box warn">
+    <span class="lbl">The units difference, one last time</span>
+    <p>Over ZMQ the query message takes <strong>epoch nanoseconds</strong> as an
+    integer. Over HTTP the same field takes <strong>epoch seconds</strong>. Both
+    return seconds. Getting it wrong yields an empty result with no error, so it is
+    worth stating plainly even though it is the third time on these pages.</p>
+  </div>
+
+  <h3>Admin</h3>
+  <p><code>{"cmd": "…"}</code> in, the same status envelope out. All nine commands
+  are in the table above.</p>
+
+  <h3>Stream and stats</h3>
+<pre><span class="c"># stream, port 12503 — two-part frames</span>
+topic   = <span class="v">b"cpu.load"</span>
+payload = {<span class="v">"metric"</span>: <span class="v">"cpu.load"</span>, <span class="v">"tags"</span>: {<span class="v">"host"</span>: <span class="v">"web1"</span>}, <span class="v">"value"</span>: <span class="v">0.42</span>}
+
+<span class="c"># stats, port 12506 — topic is conn | sub | report</span>
+topic   = <span class="v">b"conn"</span>
+payload = {<span class="v">"kind"</span>: <span class="v">"ws"</span>, <span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"connected"</span>: <span class="v">True</span>, <span class="v">"peer"</span>: <span class="v">"10.0.0.7:52344"</span>, …}
+
+topic   = <span class="v">b"report"</span>
+payload = {<span class="v">"uptime_s"</span>: <span class="v">420.1</span>, <span class="v">"ws_connections"</span>: <span class="v">2</span>, <span class="v">"zmq_subscribers"</span>: <span class="v">1</span>, <span class="v">"active_topics"</span>: <span class="v">1</span>}</pre>
+</section>
+
+<section>
+  <h2 id="embedded">The embedded Python API</h2>
+  <p>No sockets, no ports, no service. The same query code the service itself uses,
+  with a store and a facade constructed in-process.</p>
+
+<pre><span class="k">from</span> sqtseries.engine <span class="k">import</span> StorageEngine, create_sqlite_engine, run_migrations
+<span class="k">from</span> sqtseries <span class="k">import</span> TimeSeriesDB
+<span class="k">import</span> time
+
+engine = create_sqlite_engine(<span class="v">"/tmp/embedded.sqlite"</span>)
+run_migrations(engine)                       <span class="c"># create the schema if new</span>
+db = TimeSeriesDB(StorageEngine(engine), max_rows=<span class="v">10000</span>)</pre>
+
+  <table>
+    <thead><tr><th>Method</th><th>Arguments</th><th>Returns</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">insert</td><td><code>metric, value, tags=None, timestamp_ns=None</code></td>
+        <td>rows inserted</td></tr>
+      <tr><td class="opt">query</td>
+        <td><code>metric=None, series_ids=None, start=None, end=None, *, aggregation=None, interval=None, limit=None, order="asc", fill_gaps_ns=None</code></td>
+        <td><code>[(timestamp_ns, value), …]</code></td></tr>
+      <tr><td class="opt">query_stream</td><td><code>metric, start=None, end=None, *, order="asc"</code></td>
+        <td>an iterator — bounded memory over any window</td></tr>
+      <tr><td class="opt">aggregate</td><td><code>metric, start=None, end=None, *, funcs=None</code></td>
+        <td><code>{func: value}</code></td></tr>
+      <tr><td class="opt">downsample</td><td><code>metric, start=None, end=None, *, interval="5m", aggregation="avg"</code></td>
+        <td><code>[(timestamp_ns, value), …]</code></td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted"><code>start</code> and <code>end</code> accept nanoseconds or
+  an ISO-8601 string. Returns are <strong>nanoseconds</strong> — there is no gateway
+  here to convert them.</p>
+
+  <h3>Two things only the embedded API can do</h3>
+  <ul>
+    <li><code>query_stream</code> — yields rows without ever holding the whole result
+    in memory, so a month-long scan costs one row of memory.</li>
+    <li><code>fill_gaps_ns</code> — inserts an interpolated midpoint across gaps no
+    larger than the given size. It is not on the wire because a row you interpolated
+    is not a row anybody measured.</li>
+  </ul>
+
+  <p>To query by series identity rather than by metric name, resolve the ids first —
+  useful when a metric has many tag sets and you want one of them:</p>
+
+<pre><span class="p">&gt;&gt;&gt;</span> store = StorageEngine(engine)
+<span class="p">&gt;&gt;&gt;</span> sids = store.series_ids_for_metric(<span class="v">"cpu.load"</span>)
+<span class="p">&gt;&gt;&gt;</span> db.query(series_ids=[sids[<span class="v">0</span>]], limit=<span class="v">5</span>)</pre>
+</section>
+
+<section>
+  <h2>The CLI</h2>
+  <p>Eleven commands and two global flags. The full table, with what each needs, is
+  on <a href="configuration.html">Configuration</a>; this is the shape of it.</p>
+
+<pre>$ sqtseries <span class="o">--config</span> PATH <span class="o">--db</span> PATH COMMAND
+
+<span class="c"># lifecycle</span>
+sqtseries run                 <span class="c"># foreground; prints the links</span>
+sqtseries stop                <span class="c"># SIGTERM, then wait for exit</span>
+
+<span class="c"># inspection</span>
+sqtseries status              <span class="c"># pid, version, real ports, links</span>
+sqtseries ports               <span class="c"># the ports actually bound</span>
+sqtseries health              <span class="c"># quick_check; exit 0 or 1</span>
+sqtseries stats               <span class="c"># metric and series counts</span>
+
+<span class="c"># maintenance</span>
+sqtseries backup              <span class="c"># VACUUM INTO snapshot</span>
+sqtseries optimize            <span class="c"># PRAGMA optimize</span>
+sqtseries vacuum              <span class="c"># full VACUUM; stop the service first</span>
+
+<span class="c"># service unit</span>
+sqtseries install             <span class="c"># add --system for a root unit</span>
+sqtseries uninstall</pre>
+
+  <div class="box warn">
+    <span class="lbl">Global flags come before the subcommand</span>
+    <p>They belong to the command group, not to a command, so
+    <code class="nb">sqtseries --config c.toml run</code> is correct and
+    <code class="nb">sqtseries run --config c.toml</code> is an error.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Response headers</h2>
+  <p>Set on every HTTP response, so a page served by the gateway inherits them:</p>
+  <table>
+    <thead><tr><th>Header</th><th>Value</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">X-Request-ID</td><td>your value, or 12 hex characters</td>
+        <td>correlate a client report with a log line</td></tr>
+      <tr><td class="opt">X-Frame-Options</td><td><code>DENY</code></td>
+        <td>the API cannot be framed</td></tr>
+      <tr><td class="opt">X-Content-Type-Options</td><td><code>nosniff</code></td>
+        <td>no content-type guessing</td></tr>
+      <tr><td class="opt">Referrer-Policy</td><td><code>strict-origin-when-cross-origin</code></td>
+        <td>no referrer leakage to third parties</td></tr>
+      <tr><td class="opt">Permissions-Policy</td>
+        <td>geolocation, microphone, camera, payment, usb all <code>()</code></td>
+        <td>the API needs none of them</td></tr>
+      <tr><td class="opt">Content-Security-Policy</td>
+        <td><code>default-src 'self'; img-src 'self' data:</code></td>
+        <td>no third-party origins at all</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">The <code>/docs</code> path is the one exception: it adds
+  <code>style-src 'self' 'unsafe-inline'</code> so the single-file pages, whose
+  stylesheet is inlined, render when copied elsewhere. <code>script-src</code> is not
+  relaxed anywhere, and the API keeps the strict default.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>What every parameter does in practice, the three routes, and the four canonical
+      questions.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>The write body in depth, batches, tags, and the clock-skew guard.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>Topic matching, keepalives, and what a slow subscriber costs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="clients.html">Client Libraries</a></h4>
+      <p>The same calls from six languages, with the units rule.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting behind every bound on this page, with its default and its
+      validation rule.</p>
+    </div>
+    <div class="card">
+      <h4><a href="dashboard.html">Admin Dashboard</a></h4>
+      <p>The 29 <code>stats</code> fields and the three WebSocket feeds, on screen.</p>
+    </div>
+  </div>
+</section>

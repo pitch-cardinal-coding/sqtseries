@@ -74,6 +74,12 @@ class StreamingSettings(BaseModel):
 
     port: int = 12503
     linger_seconds: float = 30.0
+    # Bounds the per-topic publish counter, which is incremented on the ingest
+    # hot path and would otherwise grow until OOM under high metric
+    # cardinality. Eviction is lossless for display: merge_topics unions this
+    # with an indexed DISTINCT scan of the series table, so an evicted topic
+    # still appears, its total just shown as unknown.
+    topic_totals_max: int = 10_000
 
 
 class StatsSettings(BaseModel):
@@ -377,6 +383,11 @@ def validate_settings(settings: Settings) -> list[str]:
     if settings.ingestion.pending_max < 1:
         errors.append(
             f"ingestion.pending_max must be >= 1, got {settings.ingestion.pending_max}"
+        )
+    if settings.streaming.topic_totals_max < 1:
+        errors.append(
+            "streaming.topic_totals_max must be >= 1, got "
+            f"{settings.streaming.topic_totals_max}"
         )
     if settings.query.max_rows < 0:
         errors.append(

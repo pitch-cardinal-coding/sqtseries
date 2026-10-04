@@ -6,6 +6,7 @@
 	run run-config \
 	install uninstall install-prod deploy deploy-no-build deploy-restart \
 	test test-fast test-camera run-all coverage coverage-html \
+	docs docs-check \
 	whl test-wheel \
 	lint fix style \
 	systemd-install systemd-uninstall systemd-status systemd-logs systemd-restart \
@@ -56,6 +57,8 @@ help:
 	@echo "  make coverage-html            HTML report in /tmp/sqtseries_htmlcov"
 	@echo "  make test-cache-health        Query cache + connection health tests"
 	@echo "  make test-docs                Documentation claims tests"
+	@echo "  make docs                     Rebuild dist/docs from scripts/docs-build/"
+	@echo "  make docs-check                Structural + code-to-docs cross-check"
 	@echo "  make test-resource-leaks      Resource leak / fd / thread tests"
 	@echo "  make test-concurrency         Concurrent writer tests"
 	@echo "  make test-async               Async cleanup tests"
@@ -164,6 +167,13 @@ test-cache-health:
 
 test-docs:
 	$(PY) -m pytest tests/test_docs_claims.py -v
+
+docs:
+	$(PY) scripts/docs-build/sqtseries_build.py
+
+docs-check:
+	$(PY) scripts/docs-build/sqtseries_check.py
+	$(PY) scripts/docs-build/verify_docs.py
 
 test-resource-leaks:
 	$(PY) -m pytest tests/test_resource_leaks.py -v

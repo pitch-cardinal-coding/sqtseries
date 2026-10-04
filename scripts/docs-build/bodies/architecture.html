@@ -1,0 +1,764 @@
+<section>
+  <h2>The shape of it</h2>
+  <p class="lede">One process, one SQLite file, six ports. A measurement arrives on a
+  socket, is committed in a batch, and is readable and streamable within
+  milliseconds. This page explains how, and why each piece is the way it is.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Ingress</strong> — the receive path: socket to validated rows.<br>
+    <strong>Persister</strong> — the task that commits batches.<br>
+    <strong>Partition</strong> — one monthly table, <code>measurements_YYYY_MM</code>.<br>
+    <strong>Series</strong> — one metric with one exact tag set.<br>
+    <strong>Rollup</strong> — the hourly summary, <code>rollup_hourly</code>.<br>
+    <strong>Watermark</strong> — the next hour the rollup will process.<br>
+    <strong>Broker</strong> — the socket that answers queries.<br>
+    <strong>Fan-out hub</strong> — the in-process path to WebSocket subscribers.<br>
+    <strong>Bounded queue</strong> — a limit with real backpressure behind it.<br>
+    <strong>HWM</strong> — a socket's high-water mark.<br>
+    <strong>WAL</strong> — SQLite's write-ahead log, which makes commits
+    crash-atomic.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">1</div><div class="l">Process</div></div>
+    <div class="stat"><div class="n">{{src_loc}}</div><div class="l">Lines of Python</div></div>
+    <div class="stat"><div class="n">6</div><div class="l">Ports</div></div>
+    <div class="stat"><div class="n">4</div><div class="l">Background tasks</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">SQLite file</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>One process, and why</h2>
+  <p>SQLite allows exactly one writer. Almost every design decision below follows
+  from taking that seriously rather than working around it.</p>
+
+  <p>The message layer, the query facade and the HTTP gateway all run in one process,
+  in one asyncio event loop, against one engine. That removes every question about
+  serialising across a process boundary, and it means a query can read the live
+  engine directly instead of asking another process for the answer and getting a
+  second copy of the truth back.</p>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 430" role="img" aria-label="Architecture: one asyncio process holding the ingress receive loop, a dedicated persister task, a query broker, the connection registry, the fan-out hub and the HTTP gateway. Ingress validates and hands batches through a bounded queue to the persister, which commits one transaction per batch into monthly SQLite partitions. The query facade answers from the hourly rollup plus raw partition edges. The HTTP gateway serves REST, three WebSockets, the dashboard and the docs, and reads the engine off the event loop. Four background tasks — rollup, retention, maintenance and backup — run on their own intervals">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0b6e8c"/>
+        </marker>
+        <style>
+          .proc{fill:#f4f9fa;stroke:#0d4f60;stroke-width:2}
+          .ext{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .cont{fill:#fff;stroke:#0d4f60;stroke-width:1.6}
+          .store{fill:#eaf4f6;stroke:#0d4f60;stroke-width:1.8}
+          .bound{fill:#fdefef;stroke:#a4262c;stroke-width:1.5;stroke-dasharray:5 3}
+          .task{fill:#e6f6fb;stroke:#0b6e8c;stroke-width:1.4}
+          .n{font:600 13px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .p{font:600 10.5px ui-monospace,Menlo,monospace;fill:#0d4f60}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .w{font:600 10px ui-monospace,Menlo,monospace;fill:#a4262c}
+          .procT{font:650 10px ui-monospace,Menlo,monospace;fill:#0d4f60;letter-spacing:.14em}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .lne{fill:none;stroke:#0b6e8c;stroke-width:1.7;marker-end:url(#ah2)}
+          .lnd{fill:none;stroke:#94a3b8;stroke-width:1.3;stroke-dasharray:4 3;marker-end:url(#ah1)}
+        </style>
+      </defs>
+
+      <rect class="ext" x="14" y="96" width="112" height="60" rx="6"/>
+      <text class="n" x="28" y="120">producers</text>
+      <text class="a" x="28" y="140">PUSH 12500</text>
+
+      <rect class="ext" x="14" y="228" width="112" height="60" rx="6"/>
+      <text class="n" x="28" y="252">HTTP clients</text>
+      <text class="a" x="28" y="272">12505</text>
+
+      <rect class="ext" x="14" y="320" width="112" height="60" rx="6"/>
+      <text class="n" x="28" y="344">subscribers</text>
+      <text class="a" x="28" y="364">SUB / WS</text>
+
+      <rect class="proc" x="150" y="14" width="816" height="400" rx="8"/>
+      <text class="procT" x="166" y="32">ONE PROCESS  ·  ONE ASYNCIO EVENT LOOP  ·  ONE SQLITE WRITER</text>
+
+      <rect class="cont" x="168" y="86" width="176" height="80" rx="6"/>
+      <text class="n" x="184" y="110">ingress</text>
+      <text class="s" x="184" y="130">PULL, parse, validate</text>
+      <text class="s" x="184" y="146">never awaits commit</text>
+      <text class="s" x="184" y="160">NOBLOCK drain</text>
+
+      <rect class="bound" x="168" y="180" width="176" height="60" rx="6"/>
+      <text class="n" x="184" y="204">bounded queue</text>
+      <text class="w" x="184" y="222">pending_max = 100</text>
+
+      <rect class="cont" x="168" y="256" width="176" height="80" rx="6"/>
+      <text class="n" x="184" y="280">persister</text>
+      <text class="s" x="184" y="300">one BEGIN IMMEDIATE</text>
+      <text class="s" x="184" y="316">per batch, off-loop</text>
+      <text class="s" x="184" y="330">publishes after commit</text>
+
+      <rect class="store" x="392" y="86" width="212" height="180" rx="6"/>
+      <text class="n" x="408" y="110">SQLite, WAL</text>
+      <text class="p" x="408" y="132">series (metric + tags)</text>
+      <text class="p" x="408" y="150">measurements_YYYY_MM</text>
+      <text class="s" x="408" y="166">WITHOUT ROWID, clustered on</text>
+      <text class="s" x="408" y="180">(series_id, timestamp_ns)</text>
+      <text class="p" x="408" y="204">rollup_hourly</text>
+      <text class="s" x="408" y="220">count, sum, min, max</text>
+      <text class="p" x="408" y="244">rollup_meta</text>
+      <text class="s" x="408" y="258">the watermark</text>
+
+      <rect class="cont" x="648" y="86" width="150" height="80" rx="6"/>
+      <text class="n" x="664" y="110">query facade</text>
+      <text class="s" x="664" y="130">rollup + raw</text>
+      <text class="s" x="664" y="146">partition edges</text>
+      <text class="s" x="664" y="160">merged per bucket</text>
+
+      <rect class="cont" x="648" y="180" width="150" height="76" rx="6"/>
+      <text class="n" x="664" y="204">query broker</text>
+      <text class="s" x="664" y="224">ROUTER 12502</text>
+      <text class="s" x="664" y="240">max_inflight = 64</text>
+      <text class="s" x="664" y="254">offloaded to a thread</text>
+
+      <rect class="cont" x="648" y="270" width="150" height="76" rx="6"/>
+      <text class="n" x="664" y="294">fan-out hub</text>
+      <text class="s" x="664" y="314">XPUB 12503</text>
+      <text class="s" x="664" y="330">256 KiB per client,</text>
+      <text class="s" x="664" y="344">drop-newest, counted</text>
+
+      <rect class="cont" x="392" y="286" width="212" height="80" rx="6"/>
+      <text class="n" x="408" y="310">HTTP gateway</text>
+      <text class="s" x="408" y="330">7 REST routes, 3 WS</text>
+      <text class="s" x="408" y="346">dashboard, docs, OpenAPI</text>
+      <text class="s" x="408" y="360">600 req/min per peer</text>
+
+      <rect class="cont" x="168" y="356" width="176" height="44" rx="6"/>
+      <text class="n" x="184" y="378">registry</text>
+      <text class="s" x="184" y="392">conn + sub, exact</text>
+
+      <rect class="task" x="648" y="362" width="290" height="38" rx="6"/>
+      <text class="n" x="664" y="380">background tasks</text>
+      <text class="s" x="664" y="394">rollup 5m · retention 1h · ANALYZE 1h · backup 24h</text>
+
+      <path class="ln" d="M126,126 L168,120"/>
+      <path class="lne" d="M344,126 L392,126"/>
+      <path class="lne" d="M344,326 L392,230"/>
+      <path class="lne" d="M604,150 L648,126"/>
+      <path class="lne" d="M604,180 L648,214"/>
+      <path class="lne" d="M604,300 L648,300"/>
+      <path class="lne" d="M722,256 L722,270"/>
+      <path class="ln" d="M344,378 L392,330"/>
+      <path class="lnd" d="M392,326 L280,326"/>
+      <path class="lnd" d="M540,366 L540,266"/>
+      <path class="ln" d="M126,258 L392,326"/>
+      <path class="lne" d="M126,350 L648,300"/>
+      <path class="ln" d="M256,86 L256,180"/>
+      <path class="ln" d="M256,240 L256,256"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 1 — the whole system on one page.</strong> Three
+  things are worth tracing. The vertical chain on the left is the write path, and the
+  gap between the receive loop and the persister is the bounded queue that keeps
+  ingest rate independent of disk latency. The fan-out hub sits <em>beside</em> the
+  XPUB socket rather than in front of it, so libzmq only ever sees the subscribers
+  an operator actually created. And the background tasks each hold their own database
+  handle, so none of them can block the write path.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>The schema</h2>
+  <p>Three tables, plus the schema version table that tracks migrations. That is the
+  whole thing.</p>
+
+<pre><span class="c">-- one row per (metric, tags) — the series identity</span>
+CREATE TABLE series (
+    series_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric     TEXT NOT NULL,
+    tags       TEXT,     <span class="c">-- JSON text, and CHECK (json_valid(tags))</span>
+
+    CONSTRAINT ck_tags_json CHECK (tags IS NULL OR json_valid(tags))
+);
+CREATE UNIQUE INDEX uq_series_metric_tags ON series(metric, tags);
+
+<span class="c">-- one per month, created on demand</span>
+CREATE TABLE measurements_2026_09 (
+    series_id    INTEGER NOT NULL,
+    timestamp_ns INTEGER NOT NULL,
+    value        REAL    NOT NULL,
+    PRIMARY KEY (series_id, timestamp_ns)
+) WITHOUT ROWID;
+CREATE INDEX ix_measurements_2026_09_ts ON measurements_2026_09 (timestamp_ns);
+
+<span class="c">-- the hourly summary the query fast path reads</span>
+CREATE TABLE rollup_hourly (
+    series_id    INTEGER NOT NULL,
+    hour_start_ns INTEGER NOT NULL,
+    count INTEGER NOT NULL,
+    sum   REAL    NOT NULL,
+    min   REAL    NOT NULL,
+    max   REAL    NOT NULL,
+    PRIMARY KEY (series_id, hour_start_ns)
+) WITHOUT ROWID;
+
+<span class="c">-- how far the rollup has advanced</span>
+CREATE TABLE rollup_meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL);</pre>
+
+  <div class="box key">
+    <span class="lbl">Why the tags are JSON in one column</span>
+    <p>A tag set is a dimension of arbitrary size. Storing it as JSON in one TEXT
+    column means a series is one row, the uniqueness constraint is
+    <code>(metric, tags)</code> on a real index, and there is no join to resolve
+    before a write. The cost is that you cannot query <em>by</em> tag on the SQL
+    path — which is the same trade the high-cardinality warning on
+    <a href="ingestion.html">Ingestion</a> exists to discourage.</p>
+    <p>The <code>CHECK</code> constraint is the backstop: even if validation were
+    bypassed entirely, a tag set that is not valid JSON cannot be stored.</p>
+  </div>
+
+  <h3>Why <code>WITHOUT ROWID</code></h3>
+  <p>The measurement table's primary key <em>is</em> its data. Storing it that way
+  removes the separate rowid index entirely — one B-tree instead of two, and no
+  indirection to follow. Because the key starts with <code>series_id</code>, all of
+    one series' points are physically adjacent, so a time-range read on one series is
+    a sequential scan of a contiguous range.</p>
+
+  <p>The secondary index on <code>timestamp_ns</code> alone covers the other access
+  pattern: cross-series time windows, and retention.</p>
+
+  <h3>Why monthly partitions</h3>
+  <p>Retention is the reason. Dropping data that is a month old is
+  <code>DROP TABLE</code> — instant, and it returns the pages to the file — rather
+  than a mass <code>DELETE</code> that rewrites indexes and leaves free pages
+  scattered. It also keeps each table small enough to stay in the page cache, so a
+  query against last month touches a small file rather than a huge one.</p>
+</section>
+
+<section>
+  <h2>The write path</h2>
+  <p>Four stages, and the order is the design.</p>
+
+  <ol class="steps">
+    <li><b>Receive</b><span>The PULL socket is drained in batches with
+    <code>NOBLOCK</code>. Each frame is parsed and validated. Invalid frames are
+    counted and dropped; they never reach the queue.</span></li>
+    <li><b>Enqueue</b><span>The batch is put on a queue bounded by a counting
+    semaphore with <code>pending_max</code> credits. When the credits run out the
+    receive loop suspends, and the socket's HWM takes over.</span></li>
+    <li><b>Persist</b><span>A dedicated task takes each batch and commits it in one
+    <code>BEGIN IMMEDIATE</code>, off the event loop in a worker thread. Rows are
+    grouped by partition, so a burst spanning a month boundary still commits
+    atomically.</span></li>
+    <li><b>Publish</b><span>Only after the commit succeeds, the batch is republished
+    to the stream. One task per burst, not one per point.</span></li>
+  </ol>
+
+  <div class="box key">
+    <span class="lbl">Why the receive loop never awaits the commit</span>
+    <p>Because the alternative caps ingest at the disk's write rate. Measured on
+    2026-09-09: awaiting commits inline held ingest to roughly <strong>1,650
+    points/second</strong> while the pump was offering 10,000. Decoupling the
+    receive from the commit is what closes that gap.</p>
+    <p>The danger of decoupling is an unbounded buffer, and that is what
+    <code>pending_max</code> prevents. The bound is explicit, the backpressure behind
+    it is real, and no data is dropped to keep up. The full ladder is on
+    <a href="ingestion.html">Ingestion</a>.</p>
+  </div>
+
+  <div class="box">
+    <span class="lbl">Why BEGIN IMMEDIATE and not BEGIN</span>
+    <p>A plain <code>BEGIN</code> is deferred: it takes a read snapshot, and the later
+    upgrade from a read lock to a write lock returns <code>SQLITE_BUSY</code>
+    <em>immediately</em> under WAL, because the busy handler is not consulted for a
+    lock upgrade. <code>BEGIN IMMEDIATE</code> takes the write lock up front, so
+    <code>busy_timeout</code> applies and writers queue properly.</p>
+  </div>
+
+  <h3>What happens when a batch fails</h3>
+  <p>The whole batch is dropped and its size added to <code>dropped</code>. The
+  worker survives. A PULL socket has no acknowledgements — the producer has already
+  sent and moved on — so the choice is between dropping and stalling. Dropping
+  visibly beats stalling invisibly, and <code>dropped</code> is on the admin socket
+  and the dashboard for exactly this reason.</p>
+
+  <p>The accounting identity holds: every accepted point lands in exactly one of
+  <em>persisted</em>, <em>dropped</em> or <em>invalid</em>. The test suite asserts
+  it.</p>
+</section>
+
+<section>
+  <h2>The query path</h2>
+  <p>Three routes, chosen by what the question needs.</p>
+
+  <table>
+    <thead><tr><th>Query shape</th><th>Route</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Whole-window aggregate, five of the ten functions, window
+        inside rolled hours</td><td><strong>rollup</strong></td>
+        <td>a few dozen summary rows instead of millions</td></tr>
+      <tr><td>Bucketed, and the function is one of avg/sum/min/max/count</td>
+        <td><strong>SQL</strong></td>
+        <td>SQLite groups per bucket, so Python never sees a raw row</td></tr>
+      <tr><td>Anything else — raw, or median/p95/p99/first/last, or gap
+        filling</td><td><strong>raw scan</strong></td>
+        <td>those functions cannot be derived from count/sum/min/max</td></tr>
+    </tbody>
+  </table>
+
+  <figure>
+    <div class="diagram">
+    <svg viewBox="0 0 980 280" role="img" aria-label="Query fast path: an eligible query splits its window into three disjoint sources — the first partial hour and the last partial hour from the raw partitions, and every fully-inside already-rolled hour from rollup_hourly — then merges the per-bucket partial aggregates so nothing is counted twice, and derives the requested function from the merged count, sum, min and max">
+      <defs>
+        <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+        </marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0b6e8c"/>
+        </marker>
+        <style>
+          .win{fill:#f1f6f8;stroke:#d5e0e6;stroke-width:1}
+          .raw{fill:#fdf6ec;stroke:#b45309;stroke-width:1.6}
+          .roll{fill:#e6f6fb;stroke:#0b6e8c;stroke-width:1.6}
+          .merge{fill:#e9f7f1;stroke:#046c4e;stroke-width:1.8}
+          .n{font:600 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:#0a1e28}
+          .s{font:400 10.5px ui-monospace,Menlo,monospace;fill:#4a6377}
+          .g{font:600 10.5px ui-monospace,Menlo,monospace;fill:#046c4e}
+          .a{font:600 10px ui-monospace,Menlo,monospace;fill:#b45309}
+          .b{font:600 10px ui-monospace,Menlo,monospace;fill:#0b6e8c}
+          .ln{fill:none;stroke:#64748b;stroke-width:1.5;marker-end:url(#ah1)}
+          .gLn{fill:none;stroke:#046c4e;stroke-width:1.8;marker-end:url(#ah2)}
+        </style>
+      </defs>
+
+      <rect class="win" x="20" y="60" width="360" height="56" rx="6"/>
+      <text class="n" x="36" y="84">the query window</text>
+      <text class="s" x="36" y="104">start … end</text>
+
+      <rect class="raw" x="20" y="140" width="150" height="86" rx="6"/>
+      <text class="n" x="36" y="164">first partial hour</text>
+      <text class="a" x="36" y="184">raw partition</text>
+      <text class="s" x="36" y="202">always raw — it may</text>
+      <text class="s" x="36" y="216">not be rolled yet</text>
+
+      <rect class="roll" x="196" y="140" width="220" height="86" rx="6"/>
+      <text class="n" x="212" y="164">fully-inside rolled hours</text>
+      <text class="b" x="212" y="184">rollup_hourly</text>
+      <text class="s" x="212" y="202">count, sum, min, max</text>
+      <text class="s" x="212" y="216">up to the watermark</text>
+
+      <rect class="raw" x="442" y="140" width="150" height="86" rx="6"/>
+      <text class="n" x="458" y="164">last partial hour</text>
+      <text class="a" x="458" y="184">raw partition</text>
+      <text class="s" x="458" y="202">the current hour is</text>
+      <text class="s" x="458" y="216">never summarised</text>
+
+      <rect class="merge" x="652" y="140" width="308" height="86" rx="6"/>
+      <text class="n" x="668" y="164">merge by bucket, then derive</text>
+      <text class="g" x="668" y="184">avg = sum / count</text>
+      <text class="g" x="668" y="202">min = min,  max = max,  count = count</text>
+      <text class="s" x="668" y="222">disjoint sources, so nothing is</text>
+      <text class="s" x="668" y="236">counted twice</text>
+
+      <path class="ln" d="M95,116 L95,140"/>
+      <path class="ln" d="M200,116 L306,140"/>
+      <path class="ln" d="M360,116 L517,140"/>
+      <path class="gLn" d="M592,183 L652,183"/>
+      <path class="lnr" d="M95,226 L95,250 L806,250 L806,226" fill="none" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="4 3"/>
+    </svg>
+    </div>
+    <figcaption><strong>Figure 2 — why the answer is exact.</strong> The window is
+  split into three <em>disjoint</em> sources, which is the load-bearing detail. If the
+  rolled hours and the raw edges overlapped, every point in the overlap would be
+  counted twice and the average would be wrong in a way nobody would notice. Because
+  they are disjoint, merging the partial aggregates is arithmetic on sufficient
+  statistics — and an average derived from a summed count and a summed total is the
+  same average a full scan would produce, not an estimate of one.</figcaption>
+  </figure>
+
+  <h3>What makes a query eligible</h3>
+  <p>All four must hold, or the raw path is used:</p>
+  <ul>
+    <li>the aggregation is one of <code>avg</code>, <code>sum</code>,
+      <code>min</code>, <code>max</code>, <code>count</code>;</li>
+    <li>any <code>interval</code> is a whole number of hours;</li>
+    <li>the window ends at or before the rollup watermark;</li>
+    <li>the window spans at least two hours — narrower than that and there is nothing
+      to accelerate.</li>
+  </ul>
+
+  <div class="box">
+    <span class="lbl">Why the last rule is a feature</span>
+    <p>For a window under two hours the raw path is genuinely faster: it reads one
+    partition with one index, while the rollup path would read the summary table,
+    read two raw edges, and then merge three sets of partials. More work, not less.
+    The eligibility test exists so the fast path is used where it wins and skipped
+    where it does not.</p>
+  </div>
+
+  <h3>Why publish is not the read path</h3>
+  <p>Every finished hour is summarised once the clock passes it — and then waits the
+  client clock-skew window before doing so. The reason is a correctness
+  invariant: a write arriving late must never land in an hour that has already been
+  summarised, or it would be invisible to every rollup-served query. Since late
+  writes are bounded by <code>reject_client_timestamp_skew_s</code>, the rollup waits
+    exactly that long. The current hour is therefore always read live, which is why
+    the results are never stale.</p>
+</section>
+
+<section>
+  <h2>Background tasks</h2>
+  <p>Four, each with an interval, each on its own database handle so none can block
+  the write path.</p>
+
+  <table>
+    <thead><tr><th>Task</th><th>Every</th><th>Does</th><th>If disabled</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">Rollup</td><td><code>rollup.interval</code>, 5m</td>
+        <td>Summarises newly-finished hours into <code>rollup_hourly</code>, then
+        advances the watermark.</td>
+        <td>queries stay correct, but wide ones scan raw rows</td></tr>
+      <tr><td class="opt">Retention</td><td><code>retention.check_interval</code>,
+        1h</td>
+        <td>Drops whole partitions whose month is entirely past the TTL, rollup rows
+        included.</td>
+        <td>the file grows without bound</td></tr>
+      <tr><td class="opt">Maintenance</td><td><code>analyze_interval</code>, 1h</td>
+        <td><code>ANALYZE</code>, to keep query-planner statistics current as the
+        data changes.</td>
+        <td>the planner's estimates drift and query plans worsen</td></tr>
+      <tr><td class="opt">Backup</td><td><code>backup.interval</code>, 24h</td>
+        <td>A <code>VACUUM INTO</code> snapshot into <code>backup.path</code>.</td>
+        <td>no automatic snapshots; use <code>sqtseries backup</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>Each runs its first pass immediately on boot — so a fresh instance gets a
+  partition, a snapshot and a catch-up rollup without waiting an interval — and then
+  sleeps. Every blocking pass runs in a worker thread, so a large catch-up on an old
+  database never stalls the event loop or the service's start-up.</p>
+
+  <p>There is also a WAL checkpoint manager on a 60-second timer, which is what stops
+  the WAL file growing without limit. It counts how often a checkpoint was
+  <em>blocked</em> by a long reader, because a rising
+  <code>checkpoint_busy_runs</code> means something is holding a read snapshot open
+  — see <a href="backup.html">Backup</a>.</p>
+</section>
+
+<section>
+  <h2>Concurrency</h2>
+  <p>One writer, several readers, and a pool that cannot deadlock.</p>
+
+  <table>
+    <thead><tr><th>Resource</th><th>How it is managed</th></tr></thead>
+    <tbody>
+      <tr><td>Writer</td><td>one persistent connection behind a lock. A handle that
+      fails is quarantined, closed, and lazily replaced — so one bad transaction can
+      never wedge every future write.</td></tr>
+      <tr><td>Readers</td><td>a LIFO pool of 4. LIFO, not FIFO, because the most
+      recently returned connection has the warmest page cache; FIFO would hand out
+      the coldest first.</td></tr>
+      <tr><td>Over-subscription</td><td>when every reader is checked out, a further
+      checkout gets a small transient handle instead of waiting. Bounded waiting is
+      deadlock prevention: nothing ever waits indefinitely, so there is no circular
+      wait.</td></tr>
+      <tr><td>Off-loop work</td><td>an 8-thread executor for every blocking job —
+      queries, HTTP writes, dashboard snapshots. Unbounded, the default executor
+      spawns a thread per concurrent slow job, which multiplied under a query
+      storm.</td></tr>
+      <tr><td>Event loop</td><td>never blocked by SQLite. Every query and write runs
+      in a thread, so streaming and health checks stay responsive under load.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box key">
+    <span class="lbl">One measured decision worth knowing</span>
+    <p>The pump serves <strong>one request per step</strong> rather than bursting
+    through everything queued. Burst-serving makes tight clients finish faster, which
+    raises per-second allocation churn until the allocator holds gigabytes —
+    measured at <strong>1.3 GB after 300 s</strong>. One recv per step keeps churn at
+    a rate a single worker can absorb, while ordinary clients still see
+    handler-time latency because the answer comes from the SQL path.</p>
+    <p>This is a case where the obvious optimisation was measurably worse, and the
+    comment in the source says so with the number attached.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Every bound, and every counter</h2>
+  <p>The single most consistent thing about the design: nothing is unbounded, and
+  nothing fails silently.</p>
+
+  <table>
+    <thead><tr><th>Bound</th><th>Default</th><th>When it fills</th><th>Counted as</th></tr></thead>
+    <tbody>
+      <tr><td>Ingest HWM</td><td>101,000 frames</td><td>senders block</td>
+        <td>— (that is the backpressure)</td></tr>
+      <tr><td>Pending batches</td><td>100</td><td>the receive loop suspends</td>
+        <td><code>backpressured</code></td></tr>
+      <tr><td>Query <code>max_rows</code></td><td>10,000</td>
+        <td>the query is refused, not truncated</td>
+        <td><code>MAX_ROWS_EXCEEDED</code></td></tr>
+      <tr><td>Query <code>max_inflight</code></td><td>64 <strong>total</strong></td>
+        <td>requests stay in the socket pipe</td><td><code>queries_shed</code></td></tr>
+      <tr><td>Query timeout</td><td>30 s</td><td>the handler is abandoned</td>
+        <td><code>QUERY_TIMEOUT</code> / <code>504</code></td></tr>
+      <tr><td>Fan-out queue</td><td>256 KiB per client</td>
+        <td>the newest frame is dropped for that client</td>
+        <td><code>fanout_dropped</code></td></tr>
+      <tr><td>Cache entries</td><td>512</td><td>least-recently-used evicted</td>
+        <td><code>query_cache_size</code></td></tr>
+      <tr><td>Cache weight</td><td>200,000 rows</td><td>least-recently-used
+        evicted</td><td>—</td></tr>
+      <tr><td>WebSocket connections</td><td>1,000</td>
+        <td>the new connection is closed</td><td>close code <code>1013</code></td></tr>
+      <tr><td>HTTP per minute</td><td>600 per peer</td><td><code>429</code></td>
+        <td><code>RATE_LIMITED</code></td></tr>
+      <tr><td>Dashboard backlog</td><td>500 frames</td><td>the oldest is
+        dropped</td><td>—</td></tr>
+      <tr><td>Shutdown flush</td><td>60 s</td><td>the persister is cancelled
+        loudly</td><td>an error log</td></tr>
+      <tr><td>Graceful HTTP stop</td><td>5 s</td><td>stragglers are
+        cancelled</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <span class="lbl">The query cap is one global pool, not 64 per client</span>
+    <p><code>max_inflight</code> bounds the broker's <em>dispatch</em> tasks, and
+    there is exactly one such set for the whole process
+    (<code>len(broker._router_tasks) &gt;= max_inflight</code> in
+    <code>messaging/broker.py</code>). It is not a per-connection quota, and it is
+    not per client. Eight clients do not get 512 dispatches; they share 64.</p>
+    <p>This matters when you load-test it, because the mistake is silent in the
+    harness and looks like a slow server. A client that permits itself 64
+    unanswered requests while running eight of them lets 512 requests pile up
+    against a broker servicing 64, so the broker sheds most of them — and the
+    honest-looking report then says the <em>generator</em> was too slow. Read
+    <code>queries_shed</code> before blaming the server: a non-zero value means
+    requests were refused at the door, not that they were slow inside.</p>
+  </div>
+
+  <div class="box ok">
+    <span class="lbl">Why the counters matter more than the bounds</span>
+    <p>A bound tells you the system will not grow without limit. The counter tells you
+    whether the bound is being hit. Every one of them is readable from the admin
+    socket, the HTTP API and the dashboard, so a bound being reached is an
+    <em>observation</em> rather than a mystery.</p>
+    <p>The two you should alert on are <code>dropped</code> and <code>invalid</code>.
+    A non-zero value means data is not being stored, for a reason that is
+    visible.</p>
+  </div>
+</section>
+
+<section>
+  <h2>How latency is measured, and how to not fool yourself</h2>
+  <p>Every latency number for this project comes from
+  <code>scripts/stress_percentiles.py</code>. It has two load models, and the
+  difference between them is larger than most of the numbers it reports.</p>
+
+  <h3>Closed loop: what a client sees</h3>
+  <p>The default model. Each client sends a request and waits for the reply before
+  sending the next. This is what a ZeroMQ <code>REQ</code> socket physically is —
+  it cannot send again before it receives — so it is not a shortcut, it is the
+  protocol.</p>
+  <p>Its failure mode is <strong>coordinated omission</strong>. When the server
+  stalls, the clients stall with it, so the offered load drops at exactly the
+  moment the system is slowest, and the recorded tail comes out optimistic. The
+  result answers one question honestly: <em>at saturation with N clients, what
+  is the response time?</em> It is not an arrival-rate measurement.</p>
+
+  <h3>Open loop: what an arrival stream sees</h3>
+  <p>With <code>--model open</code> the harness issues requests on a fixed
+  schedule regardless of whether replies have come back, and measures each one
+  from the time it was <em>due</em> rather than the time it was sent. The
+  queueing delay a stall causes is therefore counted instead of hidden. Two
+  socket-level details make this work, and both are easy to get wrong:</p>
+  <ul>
+    <li>A <code>REQ</code> socket is lockstep, so the open-loop client uses
+      <code>DEALER</code>, which pipelines, against the broker's
+      <code>ROUTER</code>.</li>
+    <li>The broker replies <code>[identity, "", payload]</code>. <code>REQ</code>
+      strips those two frames for you; <code>DEALER</code> does <em>not</em>, so
+      the client must take the last frame of
+      <code>recv_multipart()</code>. Calling <code>recv_json()</code> on a DEALER
+      tries to parse the raw identity bytes and raises
+      <code>JSONDecodeError</code>.</li>
+  </ul>
+  <p>Two figures are recorded for every request, and the gap between them is the
+  measurement:</p>
+  <table>
+    <thead><tr><th>Field</th><th>Measured from</th><th>Reads as</th></tr></thead>
+    <tbody>
+      <tr><td><code>zmq_query</code></td><td>the actual send</td>
+        <td>service time — what one client experienced</td></tr>
+      <tr><td><code>zmq_query_co</code></td><td>the <em>scheduled</em> fire time</td>
+        <td>arrival-rate behaviour, corrected for coordinated omission</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box key">
+    <span class="lbl">Measured, same machine, 8 clients, 2,000 pts/s ingest alongside</span>
+    <p>Unsaturated at a 250 ops/s offered rate, the two agree — which is the
+    check that the correction is not simply adding a fudge factor:</p>
+    <p><code>zmq_query</code> p50 <strong>30.59 ms</strong> / p99 138.27 ms &nbsp;·&nbsp;
+       <code>zmq_query_co</code> p50 <strong>30.73 ms</strong> / p99 138.40 ms</p>
+    <p>Saturated, the same correction separates them by <strong>6.8&times;</strong> at
+    p50 — the queueing delay that closed-loop measurement hides:</p>
+    <p><code>zmq_query</code> p50 <strong>1,434 ms</strong> / p99 2,591 ms &nbsp;·&nbsp;
+       <code>zmq_query_co</code> p50 <strong>9,780 ms</strong> / p99 29,957 ms</p>
+  </div>
+
+  <div class="box warn">
+    <span class="lbl">Three numbers that decide whether a run means anything</span>
+    <p><code>scripts/stress_percentiles.py --model open</code> reports these so a
+    broken generator cannot quietly report a healthy rate. Check all three before
+    quoting anything:</p>
+    <ul>
+      <li><code>sent_ops</code> — frames the broker actually accepted.
+        <strong>If this is 0, the generator never fired</strong> and the run
+        describes nothing. A pacer that sleeps without sending still reports a
+        perfect achieved rate.</li>
+      <li><code>zmq_query</code> <code>n</code> — replies matched. This must equal
+        <code>sent_ops</code>. A shortfall means requests went unanswered.</li>
+      <li><code>client_shed</code> — how often the <em>generator</em> hit its own
+        in-flight cap. Non-zero means the offered rate was not achieved, so the
+        run does not certify that rate. It is a limit on the claim, not a fault
+        in the server.</li>
+    </ul>
+    <p>Because of that last one, a saturated open-loop run publishes a
+    <em>corrected latency</em> but not a certified arrival rate: the harness
+    pushes what it can and the report says so.</p>
+  </div>
+
+  <pre><code># closed loop (default) — saturation with N clients
+scripts/run-stress-rig.sh --duration 300 --rate 2000 --clients 8 --tag baseline
+
+# open loop — a paced arrival stream, corrected for coordinated omission
+scripts/run-stress-rig.sh --duration 300 --rate 2000 --clients 8 \
+    --model open --query-rate 250 --tag arrival
+
+# --max-inflight is the cross-client total, mirroring the broker's global cap.
+# The default 64 splits to 8 per client at 8 clients; setting it per-client
+# instead lets 8x the broker's budget pile up and the broker sheds.</code></pre>
+
+  <p>Run these through <code>scripts/run-stress-rig.sh</code>, which wraps the
+  whole process tree in <code>scripts/mem-guard.sh</code> so a runaway run cannot
+  take the machine down. Full tables and the accounting identities are on
+  <a href="benchmarks.md">Benchmarks</a>; the coordinated-omission literature is
+  Gil Tene, <em>How NOT to Measure Latency</em>, and Friedrich et al.,
+  <em>Coordinated Omission in NoSQL Database Benchmarking</em> (BTW 2017).</p>
+</section>
+<section>
+  <h2>SQLite settings, and the ones that look wrong</h2>
+  <p>Every new connection gets the same set. Full list with rationale on
+  <a href="configuration.html">Configuration</a>; the two worth explaining are here.</p>
+
+  <table>
+    <thead><tr><th>Setting</th><th>Value</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">journal_mode</td><td>WAL</td>
+        <td>Readers do not block the writer, which is what makes a single-writer
+        design workable from several threads at once.</td></tr>
+      <tr><td class="opt">synchronous</td><td>NORMAL</td>
+        <td>With a WAL, <code>NORMAL</code> is durable across an application crash —
+        which is the failure that actually happens. Only an OS-level crash can lose
+        the most recent commit, and that trade buys a large write rate.</td></tr>
+      <tr><td class="opt">cache_size</td><td>-8000 per connection</td>
+        <td>8 MB, not the 64 MB the setting nominally implies. A large cache on a
+        shared handle makes glibc arena allocation balloon, because
+        <code>free()</code> returns memory to its <em>allocating</em> thread's
+        arena — so total resident memory climbs with threads times working set.
+        Measured at 10k pts/s: 60–100 MB of anonymous arena per handle.</td></tr>
+      <tr><td class="opt">wal_autocheckpoint</td><td>0 readers, 10,000 writer</td>
+        <td>Reader connections never trigger a checkpoint, so they cannot contend
+        with the writer. The writer checkpoints every ~80 MB, ten times fewer fsync
+        spikes than the 1,000-page default.</td></tr>
+      <tr><td class="opt">busy_timeout</td><td>5000 ms</td>
+        <td>So a contended writer waits rather than failing.</td></tr>
+      <tr><td class="opt">temp_store</td><td>MEMORY</td>
+        <td>Spills for sorts and grouping go to memory, not a temp file.</td></tr>
+      <tr><td class="opt">page_size</td><td>8192, fresh files only</td>
+        <td>SQLite cannot change it after creation, and it must be set before WAL, so
+        the bootstrap connection skips WAL entirely.</td></tr>
+      <tr><td class="opt">auto_vacuum</td><td>INCREMENTAL, fresh files only</td>
+        <td>Same constraint. Lets <code>PRAGMA incremental_vacuum</code> return space
+        in slices instead of a full rewrite.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Durability and recovery</h2>
+
+  <h3>At start-up</h3>
+  <ol class="steps">
+    <li><b>Migrate</b><span>Apply pending schema migrations idempotently, then ensure
+    the current month's partition exists.</span></li>
+    <li><b>Check integrity</b><span><code>PRAGMA quick_check</code>, non-strict, so a
+    damaged file is reported rather than silently repaired.</span></li>
+    <li><b>Recover the WAL</b><span>Replay any frames that were committed but not
+    yet merged. This is what makes a hard kill survivable.</span></li>
+    <li><b>Bind the sockets</b><span>All six, with the five fixed ports reserved
+    before the ingest detector runs — which is what stops the detector handing out
+    12506 and then failing to bind the stats publisher.</span></li>
+    <li><b>Start the tasks, write the runtime file</b><span>Only after every socket
+    has bound is <code>ANALYZE</code> run, so a failed boot in a restart loop does not
+    hammer the planner statistics on every attempt.</span></li>
+  </ol>
+
+  <div class="box">
+    <span class="lbl">The runtime file is the last thing removed</span>
+    <p>On clean shutdown, removing <code>runtime.json</code> is the final step. A
+    restart script that waits for it knows the process has truly exited — which
+    <code>kill -0</code> alone cannot tell you, because a zombie that has not been
+    reaped still answers to signal 0. A failed second start never deletes the healthy
+    instance's runtime file, so a rejected start cannot take the running service's
+    state with it.</p>
+  </div>
+
+  <h3>At shutdown</h3>
+  <p>Ordered, and the order is the point: stop the tasks, drain the socket
+  <em>before</em> closing it, flush the persister, drain the brokers and the gateway,
+  await in-flight publishes, then <code>PRAGMA optimize</code> and a
+  <code>TRUNCATE</code> checkpoint. The full sequence is on
+  <a href="systemd.html">Systemd</a>.</p>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="codebase-guide.html">Codebase Guide</a></h4>
+      <p>Every module, what it owns, and the order to read them in before changing
+      something.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>All ten aggregations, the buckets, and the rules for when a query is refused
+      for being too large.</p>
+    </div>
+    <div class="card">
+      <h4><a href="ingestion.html">Ingestion</a></h4>
+      <p>The write path from the outside: three transports, the bounded queue, and
+      what a slow producer feels.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every bound on this page as a setting, with its default and its validation
+      rule.</p>
+    </div>
+    <div class="card">
+      <h4><a href="benchmarks.md">Benchmarks</a></h4>
+      <p>Measured throughput and latency, and the script that reproduces each
+      number.</p>
+    </div>
+    <div class="card">
+      <h4><a href="backup.html">Backup and restore</a></h4>
+      <p>Retention dropping a partition, and what a hard kill can cost.</p>
+    </div>
+  </div>
+</section>
+

@@ -72,9 +72,16 @@ tmpfs_free_gb() { # $1=mountpoint; empty if not tmpfs
 
 # total RSS of the process tree rooted at $1 (kB), via /proc walk
 tree_rss_kb() {
-    local total=0 cur
+    local total=0 cur rss
     for cur in $(tree_pids "$1"); do
-        total=$((total + $(field_from_status "$cur" VmRSS || echo 0)))
+        # Assign first, then default on BOTH failure and empty output. A zombie
+        # or kernel thread has a readable /proc/<pid>/status with no VmRSS line,
+        # so awk exits 0 printing nothing and a `|| echo 0` guard never fires;
+        # the empty operand then aborts the whole sum, and this function
+        # UNDER-reports RSS — which would let an over-budget tree survive.
+        rss=$(field_from_status "$cur" VmRSS) || rss=0
+        [ -n "$rss" ] || rss=0
+        total=$((total + rss))
     done
     echo "$total"
 }
@@ -144,6 +151,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 BREACH=0
+FLOOR_WARNED=0
 while kill -0 "$CMD_PID" 2>/dev/null; do
     sleep "$POLL_S"
 
@@ -157,9 +165,24 @@ while kill -0 "$CMD_PID" 2>/dev/null; do
         break
     fi
 
-    # 2) host floor (protect the desktop)
-    avail=$(mem_available_mb)
-    if [ "$avail" -lt "$FLOOR_MB" ]; then
+    # 2) host floor (protect the desktop). An unreadable MemAvailable makes
+    # `[ "" -lt N ]` fail with rc=2, which silently SKIPS the floor for that
+    # poll — a protection that disables itself and still looks like protection.
+    # Retry, then warn once and continue: the tree-RSS budget above still bounds
+    # the workload, so a transient /proc read failure must not kill a good run,
+    # but it must never pass unnoticed.
+    avail=""
+    for _try in 1 2 3; do
+        avail=$(mem_available_mb)
+        [ -n "$avail" ] && break
+        sleep 1
+    done
+    if [ -z "$avail" ]; then
+        if [ "$FLOOR_WARNED" -eq 0 ]; then
+            log "WARNING: host MemAvailable unreadable after 3 attempts — the ${FLOOR_MB}MB host floor is NOT being enforced. Tree RSS budget (${BUDGET_MB}MB) still applies."
+            FLOOR_WARNED=1
+        fi
+    elif [ "$avail" -lt "$FLOOR_MB" ]; then
         log "BREACH: host MemAvailable ${avail}MB < floor ${FLOOR_MB}MB — killing tree."
         kill_tree "$CMD_PID"
         BREACH=1

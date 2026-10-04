@@ -6,13 +6,17 @@ clock passes it, so the current hour is always served from the raw partitions.
 A ``last_hour`` watermark in ``rollup_meta`` records how far the rollup has
 advanced, so each run scans only the data accrued since the previous run and
 ``INSERT OR REPLACE`` keeps re-runs idempotent.
-Assumption (documented): in-order ingestion for completed hours. A write
-backfilled into an already-rolled past hour is not picked up until that
-partition is rebuilt with ``replace=True``.
+
+Out-of-order writes are handled, not assumed away: the write path calls
+``rewind_watermark`` so a backfilled point landing in an already-rolled hour
+pulls the watermark back to that hour, and the next pass re-aggregates it. The
+watermark is also the *start* of the next pass, so a rewind already covered by
+the range just rolled must not be allowed to pin it — see ``rollup_new_hours``.
 """
 
 import asyncio
 import re
+import sqlite3
 import time
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -80,6 +84,40 @@ def rollup_watermark(db: Database) -> int:
             (META_LAST_HOUR,),
         ).first()
     return int(row[0]) if row else 0
+
+
+def rewind_watermark(conn: Any, ts_ns: int) -> bool:
+    """Move the watermark back to ``ts_ns``'s hour if ``ts_ns`` is behind it.
+
+    Called from the write path with the caller's open transaction, so the rewind
+    commits atomically with the data that needs re-aggregating. Without it a
+    write whose timestamp falls in an already-rolled hour is accepted, reported
+    as stored, and then silently omitted from every rollup-served answer —
+    ``rollup_new_hours`` only ever moves forward, so that hour is never revisited.
+    ``INSERT OR REPLACE`` makes the re-aggregation idempotent.
+
+    The extra read is a single-row lookup on a one-row table, once per drained
+    batch, and it runs inside a transaction that is already open.
+    """
+    try:
+        row = conn.exec_driver_sql(
+            f"SELECT v FROM {ROLLUP_META} WHERE k = ?",  # noqa: S608 - constant table name
+            (META_LAST_HOUR,),
+        ).first()
+    except sqlite3.OperationalError:
+        return False  # rollup_meta not created yet: nothing has been rolled
+    if not row:
+        return False
+    watermark = int(row[0])
+    hour = (int(ts_ns) // HOUR_NS) * HOUR_NS
+    if hour >= watermark:
+        return False
+    conn.exec_driver_sql(
+        f"INSERT OR REPLACE INTO {ROLLUP_META} (k, v) VALUES (?, ?)",  # noqa: S608 - constant
+        (META_LAST_HOUR, hour),
+    )
+    log.info("rollup watermark rewound for backfill", was=watermark, now=hour)
+    return True
 
 
 def rollup_partition(
@@ -171,11 +209,24 @@ def rollup_new_hours(
     for name in partitions:
         total += rollup_partition(db, name, cutoff_ns=completed)
     with db.begin() as conn:
+        # Compare against `watermark` (read before rolling), NOT min(completed).
+        # A rewind invalidates this pass only if the watermark moved backwards
+        # SINCE we looked; taking the min instead pins the watermark at a
+        # pre-existing backfill rewind forever, so it never advances and every
+        # later pass re-scans the same range. `min` reads as equivalent here and
+        # is not — measured as a permanent livelock.
+        current = conn.exec_driver_sql(
+            f"SELECT v FROM {ROLLUP_META} WHERE k = ?",  # noqa: S608 - constant table name
+            (META_LAST_HOUR,),
+        ).first()
+        settled = completed
+        if current is not None and int(current[0]) < watermark:
+            settled = int(current[0])
         conn.exec_driver_sql(
             f"INSERT OR REPLACE INTO {ROLLUP_META} (k, v) VALUES (?, ?)",  # noqa: S608 - constant
-            (META_LAST_HOUR, completed),
+            (META_LAST_HOUR, settled),
         )
-    log.info("rollup advanced", watermark=completed, rows=total)
+    log.info("rollup advanced", watermark=settled, rows=total)
     return total
 
 

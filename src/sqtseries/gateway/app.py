@@ -54,7 +54,7 @@ class HeaderMiddleware:
     measurable per-request allocation that py-spy showed dominating stacks
     under load. This adds only the header values themselves.
 
-    Security headers per COMPLIANCE.md; the gateway serves JSON only, so a
+    Security headers; the gateway serves JSON only, so a
     strict CSP is safe; WebSockets (scope type != "http") pass untouched.
     """
 
@@ -88,8 +88,21 @@ class HeaderMiddleware:
                 # A route may set its own CSP (e.g. ReDoc needs inline
                 # styles); the default stays tight everywhere else.
                 if "content-security-policy" not in headers:
+                    # /docs ships script-free HTML with the stylesheet inlined
+                    # per page, so a single copied file still renders. An
+                    # inline <style> needs an explicit style-src: without one
+                    # the browser falls back to default-src and discards the
+                    # block outright. Scoped to style-src on this one path
+                    # only — script-src stays tight, and these pages ship no
+                    # script. Same treatment /api-docs and /redoc already give
+                    # their vendored pages.
+                    path = scope.get("path", "")
+                    docs = path == "/docs" or path.startswith("/docs/")
                     headers["Content-Security-Policy"] = (
-                        "default-src 'self'; img-src 'self' data:"
+                        "default-src 'self'; img-src 'self' data:; "
+                        "style-src 'self' 'unsafe-inline'"
+                        if docs
+                        else "default-src 'self'; img-src 'self' data:"
                     )
             await send(message)
 

@@ -1,0 +1,493 @@
+<section>
+  <h2>How to read this codebase</h2>
+  <p class="lede">Eight thousand six hundred lines, five packages, one entry point.
+  This page maps every module to the job it owns, and gives an order to read them in
+  when you are about to change something.</p>
+
+  <div class="box key">
+    <span class="lbl">The one rule that shapes the layout</span>
+    <p>Only <code>service.py</code> knows the whole picture. It decides the start-up
+    order, which socket binds when, what each background task is given, and what
+    happens on shutdown. Every other module can be read and tested in isolation;
+    this one cannot, and it is deliberately the only one that is allowed to depend on
+    all the others.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">{{src_loc}}</div><div class="l">Lines of Python</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">Sub-packages</div></div>
+    <div class="stat"><div class="n">33</div><div class="l">Modules</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">Entry point</div></div>
+    <div class="stat"><div class="n">3.14+</div><div class="l">Python</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>The packages divide by concern</h2>
+  <p>Not by layer. A change usually belongs in exactly one of them, and that is the
+  first question to ask.</p>
+
+  <table>
+    <thead><tr><th>Package</th><th>Owns</th><th>Lines</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">messaging</td><td>the six sockets, the wire format, the
+        connection registry, the query cache</td><td>2,008</td></tr>
+      <tr><td class="opt">engine</td><td>the SQLite file: schema, connections,
+        pragmas, migrations, backup, checkpoints</td><td>1,611</td></tr>
+      <tr><td class="opt">gateway</td><td>HTTP, WebSockets, rate limiting, the
+        dashboard, the vendored static assets</td><td>1,106</td></tr>
+      <tr><td class="opt">query</td><td>aggregations, bucketing, gap filling, the
+        rollup fast path</td><td>823</td></tr>
+      <tr><td class="opt">partition</td><td>monthly partitions, the hourly rollup,
+        retention</td><td>623</td></tr>
+      <tr><td class="opt">top level</td><td>the service, config, CLI, client, ports,
+        systemd, health, recovery, logging</td><td>2,506</td></tr>
+    </tbody>
+  </table>
+
+  <p>Two boundaries are load-bearing, and crossing one is a signal that the change
+  belongs somewhere else:</p>
+  <table>
+    <thead><tr><th>Boundary</th><th>Rule</th></tr></thead>
+    <tbody>
+      <tr><td><code>engine</code> knows nothing about the network</td>
+        <td>It has no import of <code>messaging</code> or <code>gateway</code>. It is
+        a database with opinions about SQLite, and nothing else.</td></tr>
+      <tr><td><code>query</code> knows nothing about sockets</td>
+        <td>It takes a <code>StorageEngine</code> and returns numbers. That is what
+        makes the embedded API possible: the same code path with no service
+        running.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Top level</h2>
+  <p>The modules that know about everything else, and the ones you touch first.</p>
+
+  <table>
+    <thead><tr><th>Module</th><th>Lines</th><th>What it owns</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">service.py</td><td>740</td>
+        <td><strong>Start here.</strong> The start-up sequence in order, the port
+        resolution, the pump loop, the query and admin handlers, the dashboard
+        snapshot, and the ordered shutdown. The only module that imports all the
+        others.</td></tr>
+      <tr><td class="opt">config.py</td><td>460</td>
+        <td>Every setting, as pydantic models with their own defaults. The
+        four-level precedence logic, the file readers for TOML/YAML/JSON, and
+        <code>validate_settings</code> — the list of rules that refuse a bad value at
+        start-up rather than halfway through a run.</td></tr>
+      <tr><td class="opt">cli.py</td><td>410</td>
+        <td>Eleven click commands. Resolves the global flags, refuses to start over a
+        database another instance is serving, refuses to stop the wrong one, and
+        prints the links. Deliberately thin: each command imports its own subsystem
+        lazily so <code>--help</code> is instant.</td></tr>
+      <tr><td class="opt">client.py</td><td>367</td>
+        <td>The bundled <code>Client</code> for Python. Wraps PUSH, REQ and SUB. The
+        details it handles for you: a 2 s write <code>LINGER</code>, and recreating a
+        REQ socket whose <code>recv</code> timed out, because REQ enforces strict
+        alternation and would otherwise stay broken for the socket's life.</td></tr>
+      <tr><td class="opt">systemd.py</td><td>243</td>
+        <td>Renders and installs the unit file. The interesting part is
+        <code>_installing_user</code>: under <code>sudo</code>, <code>~</code> expands
+        to <code>/root</code> before the module sees it, so a default path would put
+        the database in root's home. It resolves the real user and re-anchors the
+        path.</td></tr>
+      <tr><td class="opt">logging.py</td><td>79</td>
+        <td>structlog configuration, console or JSON, optional file output.</td></tr>
+      <tr><td class="opt">ports.py</td><td>71</td>
+        <td><code>PortAllocator</code>. Probes by binding and closing, which is
+        race-tolerant: if something takes the port in the gap, the real bind fails
+        cleanly rather than misdirecting a client.</td></tr>
+      <tr><td class="opt">runtime.py</td><td>55</td>
+        <td>Read and write <code>runtime.json</code>: pid, version, database path, and
+        the ports <em>actually</em> bound. The reason <code>status</code> can report
+        the real ingest port rather than the configured one.</td></tr>
+      <tr><td class="opt">recovery.py</td><td>41</td>
+        <td>Startup integrity check and WAL recovery.</td></tr>
+      <tr><td class="opt">health.py</td><td>31</td>
+        <td>The health payload, shared by the CLI, the admin socket and
+        <code>/api/v1/health</code>.</td></tr>
+      <tr><td class="opt">__main__.py</td><td>4</td>
+        <td>So <code>python -m sqtseries</code> works identically to the console
+        script.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>messaging — the sockets</h2>
+  <p>Everything that touches a ZeroMQ socket, plus the wire format and the registry.</p>
+
+  <table>
+    <thead><tr><th>Module</th><th>Lines</th><th>What it owns</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">ingress.py</td><td>340</td>
+        <td><strong>The write path.</strong> PULL socket, batched NOBLOCK drain,
+        validation, and the bounded hand-off to the persister. The subtle parts: the
+        counting semaphore that bounds queued <em>plus</em> in-sink batches (a bare
+        <code>maxsize</code> queue would not count the batch the persister has taken
+        but not finished), and a shutdown that sweeps the socket <em>before</em>
+        closing it, because libzmq discards undelivered frames on close.</td></tr>
+      <tr><td class="opt">connection_registry.py</td><td>288</td>
+        <td>Who is connected. Thread-safe, emits <code>conn</code> and <code>sub</code>
+        events to any number of listeners, and every registration must be paired with
+        a <code>remove_listener</code> or the list grows without bound across
+        start/stop cycles. The topic list is append-only, so a quiet topic reports
+        zero rather than disappearing.</td></tr>
+      <tr><td class="opt">broker.py</td><td>257</td>
+        <td>The query and admin responder. ROUTER rather than REP, so concurrent
+        clients are served in parallel instead of serialising — measured with 8 REQ
+        clients: REP gave p50 of about 1.1 s, exactly eight times the handler time.
+        <code>router_mandatory</code> is on so a reply to a vanished peer is
+        <em>counted</em> rather than silently dropped.</td></tr>
+      <tr><td class="opt">pubsub.py</td><td>217</td>
+        <td>The XPUB stream socket and its subscription tracker. Sets
+        <code>XPUB_VERBOSER</code>, without which a second subscriber to an
+        already-known topic produces no event and the count is wrong — verified on
+        libzmq 4.3.5. Also holds the fan-out hub.</td></tr>
+      <tr><td class="opt">protocol.py</td><td>205</td>
+        <td>The wire format. <code>parse_ingest</code>, <code>parse_query</code>,
+        <code>parse_admin</code>, and <code>iso_to_ns</code> with nanosecond
+        precision. Contains the rule that server-assigned timestamps are forced
+        strictly increasing, because the wall clock is coarser than a burst and a
+        duplicate nanosecond would violate the primary key and roll back the whole
+        transaction.</td></tr>
+      <tr><td class="opt">fanout.py</td><td>195</td>
+        <td>The in-process path to WebSocket subscribers, with a byte-bounded queue
+        each. Holds <code>topic_matches</code>, where the boundary rule lives — a
+        plain prefix match fanned <code>stress.m1</code> out to <code>stress.m10</code>
+        and friends, about 7× amplification under stress traffic.</td></tr>
+      <tr><td class="opt">query_cache.py</td><td>157</td>
+        <td>A bounded LRU with per-entry TTL. Bounded by <em>weight</em> (total rows),
+        not just entry count, because a count-only bound let cached 100k-row results
+        grow the heap by about 5 MB per second. A single result larger than the budget
+        is never cached at all.</td></tr>
+      <tr><td class="opt">stats_publisher.py</td><td>122</td>
+        <td>The stats PUB socket on 12506. A comment records that
+        <code>CONFLATE</code> was tried and reverted, because it collapses multipart
+        frames to their last part and corrupts the <code>[topic, payload]</code>
+        format.</td></tr>
+      <tr><td class="opt">context.py</td><td>90</td>
+        <td>Socket option defaults. <code>LINGER</code> is set here, before
+        bind, per pyzmq guidance. TCP keepalive as a second net behind ZMQ
+        heartbeats, which only fire while frames are exchanged.</td></tr>
+      <tr><td class="opt">worker.py</td><td>77</td>
+        <td>The pump loop. Sleeps longer when idle rather than busy-polling, because
+        a NOBLOCK loop that only yields via <code>sleep(0)</code> keeps the loop
+        thread re-taking the GIL and starves the CPU-bound worker threads.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>engine — the file</h2>
+  <p>Everything that touches SQLite. No network imports anywhere in here.</p>
+
+  <table>
+    <thead><tr><th>Module</th><th>Lines</th><th>What it owns</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">db.py</td><td>535</td>
+        <td><strong>The connection layer.</strong> One persistent writer behind a
+        lock, a LIFO reader pool, and a self-healing writer that is quarantined and
+        replaced if a transaction fails. Contains the check-in hygiene that matters
+        most: every cursor is closed at check-in, because a partially-consumed
+        <code>SELECT</code> holds a WAL read snapshot even outside a transaction and
+        would block a <code>TRUNCATE</code> checkpoint indefinitely. The module
+        docstring records the research behind the pooling design and the LIFO
+        choice.</td></tr>
+      <tr><td class="opt">store.py</td><td>527</td>
+        <td>The storage API above the raw layer: series resolution, batched inserts,
+        time-range reads, downsampling inside SQLite, and the partition cache. The
+        CUD funnel — every create and delete converges on
+        <code>StorageEngine.insert_many</code>.</td></tr>
+      <tr><td class="opt">backup.py</td><td>136</td>
+        <td><code>VACUUM INTO</code> snapshots, the filename scheme, and the
+        background manager. The docstring lists SQLite's own caveats — the destination
+        must not exist and it cannot run inside a transaction.</td></tr>
+      <tr><td class="opt">checkpoint.py</td><td>131</td>
+        <td>The WAL checkpoint timer, and the busy counter that reveals a long reader
+        blocking checkpoints.</td></tr>
+      <tr><td class="opt">migrations.py</td><td>71</td>
+        <td>A versioned, idempotent migration runner, plus creating the current
+        month's partition. A <code>schema_version</code> table, because SQLite's
+        <code>ALTER</code> support is too limited for most changes.</td></tr>
+      <tr><td class="opt">schema.py</td><td>67</td>
+        <td>The DDL, and the partition-name helpers. Contains a real precision trap:
+        computing the month from <code>ts_ns / 1e9</code> is float division, which
+        loses precision past 2^53 and can round the last nanosecond of December into
+        January. It uses integer arithmetic instead.</td></tr>
+      <tr><td class="opt">maintenance.py</td><td>55</td>
+        <td>The periodic <code>ANALYZE</code> task.</td></tr>
+      <tr><td class="opt">pragmas.py</td><td>49</td>
+        <td><code>PRAGMA</code> helpers: optimize, checkpoint, quick_check,
+        integrity_check, incremental_vacuum, analyze.</td></tr>
+      <tr><td class="opt">__init__.py</td><td>40</td>
+        <td>The package's public surface.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>query, partition, gateway</h2>
+
+  <table>
+    <thead><tr><th>Module</th><th>Lines</th><th>What it owns</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">query/builder.py</td><td>577</td>
+        <td><strong>The query facade.</strong> <code>TimeSeriesDB</code>: raw reads,
+        whole-window aggregates, bucketed downsample, gap filling, and the rollup
+        fast path. Also <code>max_rows</code> enforcement, which is a cheap
+        <code>COUNT(*)</code> <em>before</em> the fetch so an over-cap query is never
+        charged for rows it will not return.</td></tr>
+      <tr><td class="opt">query/agg.py</td><td>217</td>
+        <td>The ten aggregations, interval parsing, bucketing, and linear gap
+        filling. Empty windows are defined per function — <code>count</code> and
+        <code>sum</code> are 0.0, the rest are NaN — so an empty result never raises
+        <code>StatisticsError</code>.</td></tr>
+      <tr><td class="opt">partition/rollup.py</td><td>338</td>
+        <td>The hourly summary. The watermark, the skew-aware roll-up window, and
+        <code>query_rollup_partial</code>. Documents its own assumption honestly:
+        in-order ingestion for completed hours, and a backfill into an already-rolled
+        hour is not picked up until that partition is rebuilt with
+        <code>replace=True</code>.</td></tr>
+      <tr><td class="opt">partition/retention.py</td><td>188</td>
+        <td>The TTL policy, the two duration syntaxes, and the background manager.
+        Dropping a partition also removes its rollup rows, so deleted data leaves no
+        aggregate trace behind.</td></tr>
+      <tr><td class="opt">partition/manager.py</td><td>72</td>
+        <td>Creating, listing and dropping monthly partitions, with a DDL lock and
+        name validation before any interpolation into SQL.</td></tr>
+      <tr><td class="opt">gateway/app.py</td><td>394</td>
+        <td>The FastAPI app: the three WebSocket endpoints, the dashboard and docs
+        mounts, the self-hosted Swagger and ReDoc, and the middleware stack. The
+        header middleware is raw ASGI rather than
+        <code>@app.middleware("http")</code> on purpose — the decorator wraps every
+        request in a task group and anyio stream, and py-spy showed that dominating
+        stacks under load.</td></tr>
+      <tr><td class="opt">gateway/routes.py</td><td>378</td>
+        <td>The seven REST routes. Every write is validated as a whole before anything
+        is stored, and every blocking call is moved off the event loop.</td></tr>
+      <tr><td class="opt">gateway/dashboard.py</td><td>144</td>
+        <td>The dashboard feed: snapshot, live events, and a one-second tick that
+        omits the list-shaped keys because those already arrive as events.</td></tr>
+      <tr><td class="opt">gateway/websocket.py</td><td>118</td>
+        <td>The three WebSocket handlers, with the 30-second send timeout that
+        evicts a stuck consumer instead of holding its subscription hostage.</td></tr>
+      <tr><td class="opt">gateway/ratelimit.py</td><td>66</td>
+        <td>Fixed-window per-peer limiting. Deliberately does not trust
+        <code>X-Forwarded-For</code> — it is client-controlled and would let anyone
+        rotate it to escape the limit. The key table is bounded to 10,000 with FIFO
+        eviction, so IP churn cannot grow memory.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">Under <code>gateway/static/</code> are the dashboard's own
+  HTML, CSS and JavaScript, the vendored icon font, and the Swagger and ReDoc bundles.
+  Everything is local because the gateway's Content-Security-Policy forbids a CDN.
+  <code>THIRD-PARTY.txt</code> records the licences.</p>
+</section>
+
+<section>
+  <h2>Conventions worth matching</h2>
+  <p>If you are contributing, these are the house rules, and the code is more
+  consistent about them than most projects of this size.</p>
+
+  <table>
+    <thead><tr><th>Rule</th><th>Because</th></tr></thead>
+    <tbody>
+      <tr><td>Type hints on every public function</td>
+        <td>strict <code>ruff</code> configuration, and the interfaces are the
+        contract.</td></tr>
+      <tr><td>Errors are typed, and carry a stable code</td>
+        <td>clients match on the code, not the message, so improving the wording never
+        breaks anyone.</td></tr>
+      <tr><td>Nothing is swallowed silently</td>
+        <td>a dropped batch, a shed request and a failed backup each increment a
+        counter. An empty <code>except</code> is treated as a defect.</td></tr>
+      <tr><td>Every bound is a named constant with a reason</td>
+        <td>a bare <code>1000</code> in a socket call is unreviewable.</td></tr>
+      <tr><td>Comments explain <em>why</em>, and cite the measurement</td>
+        <td>a constant is not self-explanatory; "measured 2026-09-09 at 10k pts/s"
+        is. When you change a bound, update the comment with it or delete it — a
+        stale justification is worse than none.</td></tr>
+      <tr><td>Validate at the edge, trust inside</td>
+        <td>the wire layer validates everything; past it, functions do not re-check
+        what the caller already guaranteed.</td></tr>
+      <tr><td>Blocking work runs in a thread</td>
+        <td>the event loop must never be waiting on SQLite.</td></tr>
+      <tr><td>Comments on their own line</td>
+        <td>never a trailing comment after code — except in a SQL string, where the
+        <code># noqa</code> has to be inline to attach to a line.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Linting and tests</h3>
+
+<pre><span class="c"># the project's own targets</span>
+make lint          <span class="c"># ruff check + format --check</span>
+make test          <span class="c"># the whole suite</span>
+make test-docs     <span class="c"># tests/test_docs_claims.py — keeps these docs honest</span>
+
+<span class="c"># or directly</span>
+$PY -m ruff check src tests examples scripts
+$PY -m ruff format --check src tests
+$PY -m pytest tests/ -q
+$PY -m pytest tests/test_query.py -q -k rollup   <span class="c"># one thing, fast</span></pre>
+
+  <p>Every suite uses a temporary database under <code>tmp_path</code> and
+  OS-assigned free ports, so the tests never conflict with a running service or with
+  each other. <code>timeout = 60</code> is global, so a hang fails rather than
+  waiting forever.</p>
+</section>
+
+<section>
+  <h2>Where a change belongs</h2>
+  <p>Most bugs in a codebase like this one land in the same few places. This is the
+  map.</p>
+
+  <table>
+    <thead><tr><th>Symptom</th><th>Look first at</th></tr></thead>
+    <tbody>
+      <tr><td>Points arrive but are not stored</td>
+        <td><code>ingress.py</code> — the backpressure state and
+        <code>stats()</code> — then <code>service._sink</code> for the drop
+        counter</td></tr>
+      <tr><td>A write stalls the whole service</td>
+        <td>anything blocking the event loop; the bounded queue and the off-loop
+        executor in <code>service.py</code></td></tr>
+      <tr><td>Memory grows under load</td>
+        <td>every bound, and the <code>max_rows</code> check in
+        <code>query/builder.py</code></td></tr>
+      <tr><td>A query is slow where it should be fast</td>
+        <td>the eligibility test in <code>query/builder.py</code>, and the watermark
+        in <code>partition/rollup.py</code></td></tr>
+      <tr><td>A query returns the wrong number</td>
+        <td>the disjointness of the three window sources in
+        <code>_rollup_window_partials</code>, and
+        <code>month_partition_key</code> for a month-boundary rounding</td></tr>
+      <tr><td>Subscriber counts are wrong</td>
+        <td><code>XPUB_VERBOSER</code> in <code>pubsub.py</code>, and
+        <code>topic_matches</code> in <code>fanout.py</code></td></tr>
+      <tr><td>WAL grows without limit</td>
+        <td><code>engine/checkpoint.py</code> and the cursor-release path in
+        <code>engine/db.py</code></td></tr>
+      <tr><td>A port is not what the config says</td>
+        <td><code>ports.py</code> and the reservation order in
+        <code>service._start</code></td></tr>
+      <tr><td>Restore lost recent data</td>
+        <td>whether a plain file copy was used instead of
+        <code>VACUUM INTO</code></td></tr>
+      <tr><td>The service dies on boot under systemd</td>
+        <td><code>systemd.py</code> — usually <code>ReadWritePaths</code> not covering
+        the data directory</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>The test suite is the specification</h2>
+  <p>Sixty-eight files, and the claims these docs make are backed by named tests.
+  Before changing behaviour, look for the test that asserts it.</p>
+
+  <table>
+    <thead><tr><th>Group</th><th>Covers</th></tr></thead>
+    <tbody>
+      <tr><td><code>test_engine</code>, <code>test_db</code>, <code>test_pragmas</code>,
+        <code>test_store_edge</code>, <code>test_persistence</code></td>
+        <td>schema, partitions, pragmas, durability across reopen</td></tr>
+      <tr><td><code>test_query</code>, <code>test_agg_edge</code>,
+        <code>test_rollup</code>, <code>test_rollup_query</code></td>
+        <td>the query facade, every aggregation, the fast path, gap filling</td></tr>
+      <tr><td><code>test_messaging</code>, <code>test_protocol</code>,
+        <code>test_protocol_fuzz</code>, <code>test_zmq_edge</code></td>
+        <td>transports, wire validation, the parser under fuzz, XPUB tracking</td></tr>
+      <tr><td><code>test_gateway</code>, <code>test_gateway_edge</code>,
+        <code>test_websocket_edge</code>, <code>test_ratelimit</code></td>
+        <td>REST, WebSockets, keepalives, close codes, rate limiting</td></tr>
+      <tr><td><code>test_cli</code>, <code>test_cli2</code>,
+        <code>test_cli_edge</code>, <code>test_cli_db</code>,
+        <code>test_config</code></td>
+        <td>every command, every error path, settings precedence</td></tr>
+      <tr><td><code>test_lifecycle_shutdown</code>,
+        <code>test_async_cleanup</code>, <code>test_resource_leaks</code>,
+        <code>test_concurrency</code></td>
+        <td>file descriptors, threads and tasks not leaking; graceful stop</td></tr>
+      <tr><td><code>test_stress</code>, <code>test_stress_concurrent</code>,
+        <code>test_property</code></td>
+        <td>sustained load, and property tests of the aggregation invariants</td></tr>
+      <tr><td><code>test_docs_claims</code></td>
+        <td><strong>the claims on these pages.</strong> Timestamp units, error codes,
+        env vars, admin reply fields, CLI output. A change that makes this page a lie
+        fails here.</td></tr>
+      <tr><td><code>test_examples_run</code>, <code>test_camera_feed</code>,
+        <code>test_dashboard_page</code></td>
+        <td>the example scripts, and the live pages in headless Chromium</td></tr>
+      <tr><td><code>test_systemd_edge</code>, <code>test_backup</code>,
+        <code>test_retention</code>, <code>test_partition</code></td>
+        <td>the unit template, snapshots, retention, partitioning</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small muted">Run everything with
+  <code class="nb">make test</code>, or a single file with
+  <code class="nb">python3 -m pytest tests/test_query.py -q</code>. Both are
+  self-contained: no running service and no pre-existing data are needed.</p>
+</section>
+
+<section>
+  <h2>Outside the package</h2>
+  <table>
+    <thead><tr><th>Path</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">config.toml</td><td>the shipped default configuration</td></tr>
+      <tr><td class="opt">Makefile</td><td>every task: test, lint, install, run,
+        stress, leak-check</td></tr>
+      <tr><td class="opt">examples/</td><td>eighteen runnable scripts, one per
+        topic, all executed by the suite</td></tr>
+      <tr><td class="opt">scripts/</td><td>the stress rig, the memory and fd
+        watchers, the leak gate, the dashboard probe, and the wheel build</td></tr>
+      <tr><td class="opt">scripts/docs-build/</td><td>the generator for these pages —
+        see its own README</td></tr>
+      <tr><td class="opt">dist/docs/</td><td>the generated documentation. Never edit
+        it; rebuild.</td></tr>
+      <tr><td class="opt">markdown/</td><td>research notes and the leak
+        investigation</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="architecture.html">Architecture</a></h4>
+      <p>Why the design is the way it is — the reasoning behind the write path, the
+      rollup, and the bounds.</p>
+    </div>
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>The public surface these modules expose, with every parameter and error
+      code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every setting, its environment variable, and its validation rule.</p>
+    </div>
+    <div class="card">
+      <h4><a href="examples.html">Examples</a></h4>
+      <p>The runnable scripts, which double as worked examples of the modules
+      above.</p>
+    </div>
+    <div class="card">
+      <h4><a href="queries.html">Queries</a></h4>
+      <p>The query facade in use — the ten aggregations, buckets, and the row
+      cap.</p>
+    </div>
+    <div class="card">
+      <h4><a href="quickstart.html">Quick Start</a></h4>
+      <p>If you came here to use it rather than change it, start there instead.</p>
+    </div>
+  </div>
+</section>

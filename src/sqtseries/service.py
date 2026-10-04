@@ -49,6 +49,15 @@ from .runtime import RuntimeState
 
 log = structlog.get_logger(__name__)
 
+# Transient-failure budget for one drained batch. The frames are already off
+# the PULL socket, which has no acks — there is no upstream to ask again, so a
+# permanent drop is data loss for something the producer already handed over.
+# Only sqlite3.OperationalError (SQLITE_BUSY / locked / transient I/O) is
+# retried; a deterministic failure (bad row, schema error) would just fail the
+# same way N times, so it drops immediately as before.
+SINK_MAX_ATTEMPTS = 4
+SINK_RETRY_BACKOFF_S = 0.05
+
 
 class ServiceError(Exception):
     pass
@@ -93,6 +102,7 @@ class Service:
         # of {persisted, dropped} — nothing vanishes silently.
         self._persisted_count = 0
         self._dropped_count = 0
+        self._sink_retry_count = 0
 
     async def start(self) -> None:
         """Start the service; on partial failure, clean up what started."""
@@ -156,6 +166,7 @@ class Service:
         self.pubsub = PubSub(
             f"tcp://127.0.0.1:{self.settings.streaming.port}",
             linger_seconds=self.settings.streaming.linger_seconds,
+            topic_totals_max=self.settings.streaming.topic_totals_max,
             registry=self.connection_registry,
         )
         await self.pubsub.start()
@@ -362,17 +373,41 @@ class Service:
         and a failed batch is visible in /stats and the dashboard.
         """
         if self.store is not None and rows:
-            try:
-                inserted = self.store.insert_many(rows)
-                self._persisted_count += inserted
-                return
-            except Exception:
-                # Never let one bad batch kill the worker step: drop the batch
-                # (PULL has no acks — the producer has made its send) but keep
-                # the process serving. Counted so the drop is visible in
-                # /stats and the dashboard instead of vanishing silently.
-                self._dropped_count += len(rows)
-                log.exception("sink batch insert failed", batch_size=len(rows))
+            for attempt in range(1, SINK_MAX_ATTEMPTS + 1):
+                try:
+                    inserted = self.store.insert_many(rows)
+                    self._persisted_count += inserted
+                    return
+                except sqlite3.OperationalError as exc:
+                    # Transient: SQLITE_BUSY / locked / a momentary I/O error.
+                    # Safe to re-run the same rows — Database.begin() rolls the
+                    # failed transaction back and quarantines the handle, and
+                    # commit() is the last thing that can fail, so an exception
+                    # reaching here always means the batch did NOT land.
+                    # Without this retry, one unlucky BUSY destroys a batch the
+                    # producer already handed over and can never re-send.
+                    if attempt == SINK_MAX_ATTEMPTS:
+                        break
+                    self._sink_retry_count += 1
+                    log.warning(
+                        "sink batch insert failed, retrying",
+                        attempt=attempt,
+                        max_attempts=SINK_MAX_ATTEMPTS,
+                        batch_size=len(rows),
+                        exc=str(exc),
+                    )
+                    time.sleep(SINK_RETRY_BACKOFF_S * attempt)
+                except Exception:
+                    # Deterministic failure: retrying cannot help.
+                    self._dropped_count += len(rows)
+                    log.exception("sink batch insert failed", batch_size=len(rows))
+                    return
+            self._dropped_count += len(rows)
+            log.error(
+                "sink batch dropped after retries",
+                attempts=SINK_MAX_ATTEMPTS,
+                batch_size=len(rows),
+            )
 
     def _on_publish(self, batch: list[tuple[bytes, dict[str, Any]]]) -> None:
         """Republish a drained batch: ONE task per burst, not one per point."""
@@ -514,6 +549,10 @@ class Service:
             payload["ingest_errors"] = istats["errors"]
             payload["persisted"] = self._persisted_count + http_writes
             payload["dropped"] = self._dropped_count
+            # Non-zero means a batch hit a transient SQLite error and was
+            # re-run successfully: visible evidence the durability retry is
+            # doing its job, and a canary for a failing disk.
+            payload["sink_retries"] = self._sink_retry_count
         if self.broker is not None:
             http_queries = getattr(self, "_http_counters", {}).get("queries", 0)
             bstats = self.broker.stats()

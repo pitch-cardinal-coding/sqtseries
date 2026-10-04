@@ -149,7 +149,7 @@ manager = ConnectionManager()
 
 @app.get("/overlay.html")
 async def serve_overlay() -> FileResponse:
-    # CSP note (COMPLIANCE.md): overlay.html intentionally ships as a single
+    # CSP note: overlay.html intentionally ships as a single
     # self-contained file with inline CSS/JS — it is a trusted, developer-owned
     # artifact for LAN/OBS browser sources (no user input, no third-party
     # content), so an external-assets split would only add failure modes.

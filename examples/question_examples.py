@@ -104,6 +104,7 @@ def main():
     print("  latency.web  : every 30 min for 8 days (384 points)")
     print("  visitors.web : every 30 min for 8 days (384 points)")
     time.sleep(0.5)
+    env.require_seeded()
 
     print("\n=== 1. What was the average CPU load over the last hour? ===")
     answer_avg_cpu_last_hour(env)
@@ -192,6 +193,27 @@ class ExampleEnv:
 
     def send(self, metric: str, value: float, ts_s: float) -> None:
         self.client.write(metric, value, timestamp=ts_s)
+
+    def require_seeded(self) -> None:
+        """Fail loudly if the seed did not land.
+
+        Every write here is historical, so a service with the default 300 s
+        clock-skew guard refuses all of them. Without this check the questions
+        still "succeed" — each one prints "no data" and the process exits 0, so
+        a runner that only checks the exit code reports a pass.
+        """
+        counts = {
+            m: self.client.aggregate(m, funcs=["count"]).get("count")
+            for m in ("cpu.load", "temp.celsius", "latency.web", "visitors.web")
+        }
+        missing = [m for m, n in counts.items() if not n]
+        if missing:
+            raise SystemExit(
+                f"seed did not land for {', '.join(missing)} "
+                f"(counts={counts}). This service rejects historical writes: set "
+                "ingestion.reject_client_timestamp_skew_s = 0 to seed demo history."
+            )
+        print("  seeded OK: " + ", ".join(f"{m}={int(n)}" for m, n in counts.items()))
 
 
 def answer_avg_cpu_last_hour(env: ExampleEnv) -> None:

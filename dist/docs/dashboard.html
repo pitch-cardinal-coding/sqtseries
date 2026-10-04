@@ -3,97 +3,664 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Dashboard — sqtseries</title>
+<title>sqtseries — Admin Dashboard: the service on screen</title>
+<meta name="description" content="The sqtseries live admin dashboard: health, ingest rates, connections, topics, storage, and the WebSocket protocol behind it.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root{
+    --ink:#0a1e28; --body:#2c4859; --muted:#4a6377; --faint:#55707f;
+    --brand:#0d4f60; --brand-deep:#07303c; --brand-soft:#eaf4f6;
+    --accent:#0b6e8c; --accent-soft:#e6f6fb;
+    --ok:#046c4e; --ok-soft:#e9f7f1;
+    --warn:#a4262c; --warn-soft:#fdefef;
+    --line:#d5e0e6; --surface:#f5f8fa; --card:#ffffff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--surface); color:var(--body);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  .sheet{max-width:1120px;margin:0 auto;background:var(--card);
+    box-shadow:0 1px 3px rgba(10,30,40,.06),0 12px 40px rgba(10,30,40,.05)}
+
+  header.masthead{
+    background:linear-gradient(158deg,#062833 0%,#0d4f60 52%,#16697f 100%);
+    color:#fff;padding:50px 60px 42px;position:relative;overflow:hidden}
+  header.masthead::after{
+    content:"";position:absolute;right:-140px;top:-150px;width:460px;height:460px;
+    border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 68%)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+    color:#a5cfdb;margin-bottom:16px}
+  /* The eyebrow is also the way back to the index, so it has to look tappable
+     without turning the page title into a link. The underline stays on hover
+     and focus as well as the colour change: colour alone is not a sufficient
+     cue (WCAG 1.4.1). */
+  .backlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .backlink:hover,.backlink:focus-visible{color:#fff;border-bottom-color:#a5cfdb}
+  h1{font-size:40px;line-height:1.1;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .tagline{font-size:18px;color:#c9e2e9;margin:0 0 24px;max-width:66ch;font-weight:400}
+  .meta{display:flex;flex-wrap:wrap;gap:10px 26px;font:12px/1.5 var(--mono);color:#a5cfdb;
+    border-top:1px solid rgba(255,255,255,.16);padding-top:18px}
+  .meta b{color:#e2f0f4;font-weight:500}
+
+  main{padding:8px 60px 20px}
+  section{padding:36px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  h2{font:650 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 10px;display:flex;align-items:center;gap:12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  h3{font-size:19px;color:var(--ink);margin:30px 0 10px;font-weight:640;letter-spacing:-.01em}
+  h4{font-size:14px;color:var(--ink);margin:22px 0 8px;font-weight:640;
+    text-transform:uppercase;letter-spacing:.06em}
+  p{margin:0 0 14px;max-width:80ch}
+  .lede{font-size:17px;color:var(--ink);max-width:78ch}
+  ul,ol{margin:0 0 16px;padding-left:22px;max-width:80ch}
+  li{margin:0 0 7px}
+  strong{color:var(--ink);font-weight:640}
+  /* Inline code keeps the mono look but must be allowed to break. A short flag
+     still never breaks, because overflow-wrap only engages when a word cannot
+     fit a line by itself; a long path in a sentence does, and with nowrap it
+     used to scroll the whole page sideways on a phone. */
+  code{font:.855em/1.5 var(--mono);background:var(--brand-soft);color:var(--brand);
+    padding:1px 1px 1px 4px;border-radius:3px;overflow-wrap:break-word}
+  a{color:var(--brand)}
+  a:hover{color:var(--accent)}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .nb{white-space:nowrap}
+
+  /* Command blocks. A rule of three keeps a long argv readable and stops the
+     right edge turning to ragged noise: three spaces between groups, a
+     backslash for a real continuation, a comment on its own line. A pasted
+     block is always valid to run as-is. */
+  pre{margin:0 0 18px;background:#0a2129;color:#d3e6ec;border-radius:7px;
+    padding:15px 18px;overflow-x:auto;font:13.5px/1.62 var(--mono);
+    border:1px solid #061820;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit;white-space:pre}
+  pre .c{color:#7fa3b0}          /* comment  */
+  pre .p{color:#6fe3c4}          /* prompt   */
+  pre .f{color:#f0c987}          /* filename */
+  pre .v{color:#8fd0ef}          /* value    */
+  pre .o{color:#ffa98f}          /* operator/flag */
+  pre .ok{color:#7ee0a8}          /* good outcome */
+
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:6px;
+    overflow:hidden;margin:24px 0 0}
+  .stat{background:var(--card);padding:15px 17px}
+  .stat .n{font:650 24px/1.1 var(--mono);color:var(--brand);letter-spacing:-.02em}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:5px}
+  /* Four-up is the honest grid for a four-column fact strip; the five-up
+     default would leave a hole, and a hole reads as a missing fact. */
+  .stats.four{grid-template-columns:repeat(4,1fr)}
+  .stats.three{grid-template-columns:repeat(3,1fr)}
+
+  figure{margin:26px 0;padding:0}
+  figcaption{font-size:12.5px;color:var(--muted);margin-top:12px;
+    padding-left:2px;max-width:90ch}
+  .diagram{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .diagram svg{display:block;width:100%;height:auto}
+
+  /* Real screenshots of the running pages, so a reader can see the thing
+     before running it. Each keeps its own aspect ratio inside a frame of one
+     fixed height: the whole point is that the wide admin dashboard and the
+     narrow phone layout must be comparable side by side, which normalising
+     on width would hide. The frame is dark so a page's own dark chrome reads
+     as chrome, not as page. */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+    gap:14px;margin:22px 0}
+  .shot{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:10px;display:flex;flex-direction:column;gap:9px}
+  .shot .frame{background:#0a1e28;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .gallery.wide .shot .frame{height:150px}
+  .gallery.phone .shot .frame{height:252px}
+  .shot .frame img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+  .shot .cap{font:600 11.5px/1.35 var(--mono);color:var(--brand);letter-spacing:.03em}
+  .shot .sub{font-size:11.5px;line-height:1.45;color:var(--muted);margin-top:-4px}
+
+  /* A table cannot shrink below the width its content demands, so it gets a
+     box of its own that scrolls. On a wide screen the box is invisible and
+     the table simply fits; on a narrow one the table scrolls sideways inside
+     it while the page itself stays put. This is the guard that keeps a wide
+     row from reaching the edge of the page. */
+  .tablewrap{overflow-x:auto;max-width:100%}
+  .tablewrap table{margin-left:0;margin-right:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 8px;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);
+    vertical-align:top}
+  th{font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--brand);background:var(--brand-soft);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfdfe}
+  /* Table layout is automatic, so every cell's unbreakable minimum adds to
+     the table's demanded width. A cell that cannot wrap therefore pushes the
+     whole table past the page edge rather than growing taller — which is how
+     a long option once threw 143px off the right of a page. These two
+     classes keep the mono look but let the content flow, and break-word
+     stops a single unbreakable token (a long URL) from ever setting a
+     minimum wider than its column. td code needs the same treatment. */
+  td code{font-size:12.5px;white-space:normal;overflow-wrap:break-word}
+  td.nowrap,th.nowrap{white-space:nowrap}
+  .opt{font:600 12.5px/1.45 var(--mono);color:var(--accent);
+    white-space:normal;overflow-wrap:break-word}
+  .def{font:12.5px/1.45 var(--mono);color:var(--muted);
+    white-space:normal;overflow-wrap:break-word}
+  /* An option or default that is genuinely one short token reads better held
+     on one line. Applied per cell, never to the column. */
+  .opt.nowrap,.def.nowrap{white-space:nowrap}
+  /* Option tables carry a label, a default and prose, and the label column
+     is the one that must never wrap mid-flag. Auto layout cannot know that,
+     hence the explicit widths. */
+  table.opts th:nth-child(1),table.opts td:nth-child(1){width:23%}
+  table.opts th:nth-child(2),table.opts td:nth-child(2){width:20%}
+  table.ports th:nth-child(1),table.ports td:nth-child(1){width:11%}
+  table.ports th:nth-child(2),table.ports td:nth-child(2){width:13%}
+  table.routes th:nth-child(1),table.routes td:nth-child(1){width:9%}
+
+  .toc{border:1px solid var(--line);border-radius:7px;background:var(--card);
+    padding:16px 20px;margin:24px 0 0}
+  .toc h5{font:650 11px/1.3 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 12px}
+  .tocgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 26px;margin:0}
+  .tocgrid a{display:block;font-size:14px;color:var(--body);text-decoration:none;
+    padding:3px 0;border-bottom:1px solid transparent}
+  .tocgrid a:hover{color:var(--accent);border-bottom-color:var(--line)}
+  .tocgrid a .n{font:600 11px/1 var(--mono);color:var(--faint);margin-right:8px}
+
+  .box{border:1px solid var(--line);border-left:3px solid var(--brand);
+    background:var(--card);border-radius:0 6px 6px 0;padding:15px 18px;margin:20px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .box.key{border-left-color:var(--accent);background:var(--accent-soft)}
+  .box p:last-child{margin-bottom:0}
+  .box .lbl{font:650 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brand);display:block;margin-bottom:8px}
+  .box.warn .lbl{color:var(--warn)} .box.ok .lbl{color:var(--ok)}
+  .box.key .lbl{color:var(--accent)}
+  .box pre{background:#0d2b35}
+
+  .cards{display:grid;gap:14px;margin:20px 0}
+  .card{border:1px solid var(--line);border-radius:7px;padding:16px 18px;background:var(--card)}
+  .card h4{margin:0 0 8px;font-size:15px;text-transform:none;letter-spacing:0;
+    color:var(--brand)}
+  .card p{font-size:14px;margin:0 0 8px;max-width:none}
+  .card p:last-child{margin:0}
+  .tradeoff{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);
+    padding-top:9px;margin-top:9px}
+  .tradeoff b{color:var(--accent);font-weight:640}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  .steps li{counter-increment:s;position:relative;padding:0 0 16px 42px;margin:0;max-width:82ch}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:26px;
+    height:26px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 12px/26px var(--mono);text-align:center}
+  .steps li::after{content:"";position:absolute;left:13px;top:31px;bottom:2px;
+    width:1px;background:var(--line)}
+  .steps li:last-child::after{display:none}
+  .steps b{display:block;color:var(--ink);font-weight:640;margin-bottom:2px}
+  .steps span{font-size:14.5px;display:block}
+  .steps pre{margin:10px 0 0}
+
+  footer{background:var(--brand-soft);padding:32px 60px 26px;font-size:13px;
+    color:var(--body);border-top:1px solid var(--line)}
+  footer p{max-width:none;margin:0}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px 40px;margin:0 0 26px}
+  .fitem h5{font:650 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brand);margin:0 0 7px}
+  .fitem p{font-size:14px;line-height:1.6;color:var(--body);max-width:40ch}
+  .fclose{font-size:17px;color:var(--ink);margin:0 0 14px;letter-spacing:-.01em}
+  .fpart{font-size:15px;line-height:1.62;color:var(--ink);max-width:90ch;margin:0;
+    border-top:1px solid var(--line);padding-top:16px}
+
+  @media (max-width:860px){
+    header.masthead{padding:34px 24px 30px} main{padding:4px 24px 16px}
+    section{padding:28px 0} footer{padding:22px 24px} h1{font-size:30px}
+    .tagline{font-size:16px}
+    .stats,.stats.four,.stats.three{grid-template-columns:repeat(2,1fr)}
+    .tocgrid{grid-template-columns:1fr 1fr}
+    .fgrid{grid-template-columns:1fr;gap:20px}
+    /* Three columns cannot hold desktop spacing in a phone's width, and a
+       header held on one line becomes the widest thing in its column. Tighten
+       the table and let headers wrap, so a phone scrolls vertically only. */
+    table{font-size:13px}
+    th,td{padding:6px 7px}
+    th{white-space:normal}
+    table.opts th:nth-child(1),table.opts td:nth-child(1),
+    table.opts th:nth-child(2),table.opts td:nth-child(2){width:auto}
+    table.ports th,table.ports td{width:auto}
+    table.routes th,table.routes td{width:auto}
+  }
+  @media print{
+    body{background:#fff} .sheet{box-shadow:none;max-width:none}
+    /* Sections are long, so forcing each one whole onto a page left two thirds
+       of page 1 blank. Break freely, but never orphan a heading and never
+       split a figure, table or callout. */
+    section{padding:20px 0;break-inside:auto}
+    h2,h3,h4{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+    /* .fgrid as well as .fitem: protecting only the items lets the grid break
+       between its two rows, which split the pull lines across a page. */
+    figure,table,.box,.card,.stat,.toc,.fgrid,.fitem,.shot{
+      break-inside:avoid;page-break-inside:avoid}
+    pre{break-inside:avoid;page-break-inside:avoid}
+    /* The footer is the document's closing statement, so it moves to the next
+       page whole rather than leaving the sign-off and parting behind. */
+    footer{break-inside:avoid;page-break-inside:avoid}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
-<header></header>
-<nav aria-label="Main"><a href="index.html">Home</a><a href="quickstart.html">Quick Start</a><a href="configuration.html">Configuration</a><a href="ingestion.html">Ingestion</a><a href="queries.html">Queries</a><a href="streaming.html">Streaming</a><a class="here" href="dashboard.html">Dashboard</a><a href="camera.html">Camera</a><a href="clients.html">Client Libraries</a><a href="backup.html">Backup &amp; Restore</a><a href="systemd.html">Systemd</a><a href="api.html">API Reference</a><a href="../api-docs" target="_blank" rel="noopener">API Specs</a><a href="architecture.html">Architecture</a><a href="codebase-guide.html">Codebase Guide</a><a href="examples.html">Examples</a></nav>
-<main id="main">
-<div class="docs-grid">
-  <div class="docs-content">
+<div class="sheet">
 
-<h2>Admin Dashboard</h2>
-<p class="note">Abbreviations used on this page (TSDB, WAL, TTL, HWM, XPUB, ZMQ, SQLite, JSON, CLI, API, RSS, fd, PEP, CORS, OBS...) are defined in the <a href="configuration.html#abbreviations">Abbreviations &amp; jargon</a> section.</p>
-<p>The service ships a live admin page that shows what the backend is doing:
-service health, ingest and query rates, active connections, subscriber
-topics, storage state, and a live event feed. It is served by the gateway
-itself, so it always reflects the instance you are looking at.</p>
-
-<h3>Viewing</h3>
-<p>Open the HTTP gateway port in a browser (default 12505, follows your
-config):</p>
-<pre><code>http://127.0.0.1:12505/dashboard</code></pre>
-<p>Same-origin means its WebSockets connect to the same host and port — no
-CORS setup, no extra process, and it keeps working behind the systemd unit
-unchanged. The page layout follows the Light Bootstrap Dashboard template
-(Creative Tim, MIT, vendored under
-<code>src/sqtseries/gateway/static/vendor/</code>); its CSS and JS are
-separate local files with no external requests.</p>
-
-<h3>What it shows</h3>
-<div class="table-wrap"><table>
-  <tr><th>Panel</th><th>Source</th></tr>
-  <tr><td>Service strip (status, uptime, version, database, ports, WAL)</td><td>snapshot + 1s tick</td></tr>
-  <tr><td>Ingest (points/sec, totals, invalid, errors)</td><td>tick deltas (ZMQ + HTTP paths both counted)</td></tr>
-  <tr><td>Queries (rate, totals, cache hit ratio and size)</td><td>tick deltas</td></tr>
-  <tr><td>Connections (id, peer, topic, activity age, stale flag)</td><td>snapshot + live events, newest first</td></tr>
-  <tr><td>Topics (every known topic and stored metric, live subscriber counts, per-topic point totals)</td><td>snapshot + 1s tick</td></tr>
-  <tr><td>Storage (series, metrics, partitions, backups, rollup watermark)</td><td>snapshot + tick</td></tr>
-  <tr><td>Events ticker (joins, leaves, subscribes)</td><td>live events, newest first</td></tr>
-</table></div>
-
-<h3>Push protocol</h3>
-<p>The page opens <code>ws://host:port/ws/dashboard</code> and never polls
-(HTTP admin stays as the fallback if the socket drops):</p>
-<ul>
-  <li>First frame: <code>{"type":"snapshot",...}</code> — counters, lists,
-      storage state, <code>server_time</code>.</li>
-  <li>Then: <code>{"type":"conn",...}</code> / <code>{"type":"sub",...}</code>
-      frames pushed the moment the registry changes (same hook the stats
-      publisher uses), plus a <code>{"type":"tick",...}</code> with fresh
-      counters every second.</li>
-  <li>Snapshot and tick assembly runs off the event loop; the event queue is
-      bounded (500) so a stalled browser cannot grow server memory; the
-      registry listener is unhooked on disconnect.</li>
-</ul>
-<p>Raw access to the same feed: <code>/ws/connections</code> (snapshot plus
-per-change frames) and the admin <code>connections</code> /
-<code>subscribers</code> commands documented in <a href="api.html#admin">API
-Reference</a>. The Topics panel lists every topic the service has ever seen
-plus every metric with stored data — idle and stored-only rows stay visible
-with a 0 count — alongside each topic's total published points
-(<code>GET /api/v1/subscribers</code> returns the same
-<code>topics</code> list as JSON).</p>
-
-<h2>Where to go next</h2>
-<div class="cards">
-  <div class="card"><h3><a href="api.html">API Reference</a></h3>
-    <p>Every endpoint behind these panels — try them live in Swagger UI or
-    ReDoc, or read the wire formats.</p></div>
-  <div class="card"><h3><a href="streaming.html">Streaming</a></h3>
-    <p>The live feeds this page watches: WebSocket, ZMQ SUB, and stats
-    events.</p></div>
-  <div class="card"><h3><a href="examples.html">Examples</a></h3>
-    <p>Dashboards, alerting, and monitoring built on these same feeds.</p></div>
-</div>
-
+<header class="masthead">
+  <div class="eyebrow"><a class="backlink" href="index.html">Runbook · operations</a></div>
+  <h1>Admin Dashboard</h1>
+  <p class="tagline">A live page served by the service itself, pushed second by second over a WebSocket. Health, ingest and query rates, every connection, every topic, storage size, and the rollup watermark.</p>
+  <div class="meta">
+    <span><b>URL</b> <code>/dashboard</code> on the HTTP port</span>
+    <span><b>Feed</b> <code>/ws/dashboard</code>, no polling</span>
+    <span><b>Tick</b> counters every 1 s, events as they happen</span>
+    <span><b>Assets</b> vendored locally, no CDN</span>
+    <span><b>Mobile</b> responsive, tested at phone width</span>
   </div>
-  <aside class="toc" aria-label="On this page">
-    <h3>On this page</h3>
-    <ul id="toc-list"></ul>
-  </aside>
-</div>
+</header>
+
+<main>
+<section>
+  <h2>What it is</h2>
+  <p class="lede">A live page the service serves itself, at
+  <code>/dashboard</code> on the HTTP port. It shows the health of the
+  <em>service</em> — not your data — pushed over a WebSocket once a second.</p>
+
+  <div class="box key">
+    <span class="lbl">Words used on this page</span>
+    <p><strong>Snapshot</strong> — everything, once, on connect.<br>
+    <strong>Tick</strong> — the counters, once a second, without the lists.<br>
+    <strong>Event</strong> — a frame the moment a connection or subscription
+    changes.<br>
+    <strong>Registry</strong> — the service's record of who is connected. The
+    dashboard only reads it; it never changes it.<br>
+    <strong>Fallback snapshot</strong> — what the page shows if the service's own
+    stats provider is unavailable, so a failing provider degrades the page instead
+    of freezing it.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">1 s</div><div class="l">Counter tick</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">Polls per second</div></div>
+    <div class="stat"><div class="n">500</div><div class="l">Backlog frames, bounded</div></div>
+    <div class="stat"><div class="n">6</div><div class="l">Ports, always shown</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">CDN requests</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Open it</h2>
+  <p>With the service running, from any machine that can reach the HTTP port:</p>
+
+<pre><span class="p">$</span> curl -s http://127.0.0.1:12505/api/v1/health
+<span class="ok">{"status":"ok","version":"0.1.0"}</span>
+
+<span class="c"># then open this in a browser</span>
+http://127.0.0.1:12505/dashboard
+<span class="c">#  / is the same page</span></pre>
+
+  <p class="small muted">The service prints the URL when it starts, and
+  <code>sqtseries status</code> prints it again with the ports it is
+  <em>actually</em> on.</p>
+</section>
+
+<section>
+  <h2>What it shows</h2>
+
+  <h3>Health</h3>
+  <p>Whether the database is reachable and whether the service has finished starting.
+  This is the one panel to watch when something is wrong, and it is the first thing
+  to check before reading any counter.</p>
+
+  <h3>Ingest</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Counter</th><th>Means</th><th>Alert when</th></tr></thead>
+    <tbody>
+      <tr><td class="opt">ingested</td><td>Points accepted for storage, both transports</td>
+        <td class="muted">falls when it should rise</td></tr>
+      <tr><td class="opt">persisted</td><td>Points actually committed</td>
+        <td class="muted">trails ingested — normal while work is in flight</td></tr>
+      <tr><td class="opt">dropped</td><td>Points in a batch whose insert failed</td>
+        <td><strong>any sustained rise</strong> — the database is refusing writes</td></tr>
+      <tr><td class="opt">invalid</td><td>Frames refused as malformed, or breaching the
+        clock-skew window</td>
+        <td><strong>any sustained rise</strong> — usually a producer's clock has
+        drifted</td></tr>
+      <tr><td class="opt">ingest_errors</td><td>Socket-level receive errors</td>
+        <td>any rise at all</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box key">
+    <span class="lbl">The accounting identity</span>
+    <p>Every accepted point lands in exactly one of <em>persisted</em>,
+    <em>dropped</em> or <em>invalid</em>. Nothing vanishes silently, so
+    <code>ingested - persisted</code> is exactly the work still in flight, and any
+    permanent loss shows up as a non-zero <code>dropped</code> rather than as a gap
+    you have to infer later. The test suite asserts this identity, so a regression
+    that broke it would fail a test rather than quietly losing your data.</p>
+  </div>
+
+  <h3>Queries</h3>
+  <p><code>queries</code>, <code>query_errors</code>, <code>queries_shed</code> and
+  <code>replies_dropped</code>. Two of these are easy to misread:</p>
+
+  <div class="box warn">
+    <span class="lbl">Shed is backpressure, not failure</span>
+    <p><code>queries_shed</code> counts requests that were <em>not</em> dispatched
+    because <code>query.max_inflight</code> was already reached. The request stays in
+    the socket pipe, bounded by the socket's own HWM, and is served when capacity
+    frees. It was deliberately not dropped — it is queued and counted.</p>
+    <p>So a rising <code>queries_shed</code> means <strong>your clients are
+    outrunning the query budget</strong>, not that anything failed. The response comes
+    back late. If you are seeing it, you want more query capacity
+    (<code>max_inflight</code>) or fewer polling clients — not a faster disk.</p>
+    <p><code>replies_dropped</code> is different: it counts replies that found no peer,
+    because the requester disconnected mid-flight. Harmless in small numbers, worth
+    investigating if it climbs.</p>
+  </div>
+
+  <h3>Storage</h3>
+  <p>Database size on disk, partition count, WAL size, and the rollup watermark —
+  the next hour the rollup will process, in nanoseconds. The watermark sitting still
+  while <code>ingested</code> climbs is correct: the current hour is never rolled.</p>
+
+  <h3>Connections and topics</h3>
+  <p>Every live WebSocket connection with its peer address, topic, arrival time and
+  last activity. And every topic ever seen, with its live subscriber count and its
+  per-topic publish total.</p>
+
+  <div class="box">
+    <span class="lbl">Why a quiet topic does not disappear</span>
+    <p>The topics list is append-only: a topic that has gone quiet reports
+    <code>subscribers: 0</code> and keeps its <code>first_seen</code> time, rather
+    than vanishing. When you are working out whether a producer stopped, that is
+    exactly the difference you need — a vanished row and a zero row are different
+    facts. Stored metrics that nobody subscribes to are also listed, at zero.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The feed</h2>
+  <p>One WebSocket, <code>/ws/dashboard</code>, carrying three kinds of frame. No
+  polling, and no request/response after the snapshot.</p>
+
+<pre><span class="c">// 1. on connect — the full picture</span>
+{<span class="v">"type"</span>: <span class="v">"snapshot"</span>, <span class="v">"status"</span>: <span class="v">"ok"</span>,
+ <span class="v">"server_time"</span>: <span class="v">1790786862.85</span>, <span class="v">"version"</span>: <span class="v">"0.1.0"</span>,
+ <span class="v">"uptime_s"</span>: <span class="v">412.7</span>,
+ <span class="v">"ingested"</span>: <span class="v">40218</span>, <span class="v">"persisted"</span>: <span class="v">40218</span>,
+ <span class="v">"dropped"</span>: <span class="v">0</span>, <span class="v">"invalid"</span>: <span class="v">0</span>, <span class="v">ingest_errors</span>: <span class="v">0</span>,
+ <span class="v">"queries"</span>: <span class="v">88</span>, <span class="v">"query_errors"</span>: <span class="v">0</span>,
+ <span class="v">"queries_shed"</span>: <span class="v">0</span>, <span class="v">"replies_dropped"</span>: <span class="v">0</span>,
+ <span class="v">"admin_requests"</span>: <span class="v">12</span>,
+ <span class="v">"published"</span>: <span class="v">40218</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>,
+ <span class="v">"series"</span>: <span class="v">3</span>, <span class="v">"metrics"</span>: <span class="v">2</span>,
+ <span class="v">"wal_bytes"</span>: <span class="v">40960</span>, <span class="v">"checkpoints"</span>: <span class="v">2</span>,
+ <span class="v">"checkpoint_busy_runs"</span>: <span class="v">0</span>, <span class="v">"analyze_runs"</span>: <span class="v">0</span>,
+ <span class="v">"retention_runs"</span>: <span class="v">0</span>, <span class="v">"partitions_dropped"</span>: <span class="v">0</span>,
+ <span class="v">"backup_runs"</span>: <span class="v">1</span>, <span class="v">"backups_created"</span>: <span class="v">1</span>,
+ <span class="v">"last_backup"</span>: <span class="v">"/home/iam/.sqtseries/backups/sqtseries-20260930-172525.db"</span>,
+ <span class="v">"query_cache_size"</span>: <span class="v">2</span>,
+ <span class="v">"query_cache_hits"</span>: <span class="v">14</span>, <span class="v">"query_cache_misses"</span>: <span class="v">6</span>,
+ <span class="v">"db_path"</span>: <span class="v">"/home/iam/.sqtseries/data/db.sqlite"</span>, <span class="v">"db_bytes"</span>: <span class="v">86016</span>,
+ <span class="v">"partitions"</span>: <span class="v">1</span>, <span class="v">"rollup_watermark"</span>: <span class="v">1790784000000000000</span>,
+ <span class="v">"ws_connections"</span>: <span class="v">1</span>, <span class="v">"zmq_subscribers"</span>: <span class="v">0</span>,
+ <span class="v">"ports"</span>: {<span class="v">"ingest"</span>: <span class="v">12500</span>, <span class="v">"query"</span>: <span class="v">12502</span>, <span class="v">"streaming"</span>: <span class="v">12503</span>,
+              <span class="v">"admin"</span>: <span class="v">12504</span>, <span class="v">"http"</span>: <span class="v">12505</span>, <span class="v">"stats"</span>: <span class="v">12506</span>},
+ <span class="v">"connections"</span>: [
+   {<span class="v">"id"</span>: <span class="v">"a1b2c3d4e5f6"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>, <span class="v">"peer"</span>: <span class="v">"10.0.0.7:52344"</span>,
+    <span class="v">"topic"</span>: <span class="v">"*"</span>, <span class="v">"connected_at"</span>: <span class="v">1790786862.85</span>,
+    <span class="v">"last_activity_at"</span>: <span class="v">1790786862.85</span>}
+ ],
+ <span class="v">"topics"</span>: [
+   {<span class="v">"topic"</span>: <span class="v">"cpu.load"</span>, <span class="v">"subscribers"</span>: <span class="v">1</span>,
+    <span class="v">"first_seen"</span>: <span class="v">1790786862.85</span>, <span class="v">"total"</span>: <span class="v">18422</span>}
+ ]}
+
+<span class="c">// 2. the moment a client connects or disconnects</span>
+{<span class="v">"type"</span>: <span class="v">"conn"</span>, <span class="v">"id"</span>: <span class="v">"ff11ee22dd33"</span>, <span class="v">"kind"</span>: <span class="v">"ws"</span>,
+ <span class="v">"peer"</span>: <span class="v">"10.0.0.9:51120"</span>, <span class="v">"topic"</span>: <span class="v">"cpu."</span>,
+ <span class="v">"connected"</span>: <span class="v">true</span>, <span class="v">"connected_at"</span>: <span class="v">1790787100.2</span>, <span class="v">"ttl"</span>: <span class="v">60</span>}
+
+{<span class="v">"type"</span>: <span class="v">"sub"</span>, <span class="v">"kind"</span>: <span class="v">"zmq"</span>, <span class="v">"topic"</span>: <span class="v">"cpu.load"</span>,
+ <span class="v">"subscribers"</span>: <span class="v">2</span>, <span class="v">"arrived_at"</span>: <span class="v">1790787101.0</span>, <span class="v">"ttl"</span>: <span class="v">30</span>}
+
+<span class="c">// 3. one second later — counters only, the lists arrive as events</span>
+{<span class="v">"type"</span>: <span class="v">"tick"</span>, <span class="v">"uptime_s"</span>: <span class="v">413.7</span>, <span class="v">"ingested"</span>: <span class="v">40318</span>,
+ <span class="v">"persisted"</span>: <span class="v">40318</span>, <span class="v">"queries"</span>: <span class="v">91</span>, <span class="v">"db_bytes"</span>: <span class="v">88128</span>,
+ <span class="v">"wal_bytes"</span>: <span class="v">45056</span>, <span class="v">"series"</span>: <span class="v">3</span>, …}</pre>
+
+  <p class="small muted">The tick deliberately omits <code>connections</code> and
+  <code>topics</code>. Re-sending a list every second would be waste, since every
+  change in those lists already arrives as its own event as it happens.</p>
+
+  <h3>Consuming it yourself</h3>
+<pre><span class="c"># in a browser console, on the host running the service</span>
+<span class="p">&gt;&gt;&gt;</span> ws = <span class="f">new</span> WebSocket(<span class="v">"ws://127.0.0.1:12505/ws/dashboard"</span>)
+<span class="p">&gt;&gt;&gt;</span> ws.onmessage = e =&gt; {
+<span class="p">... </span>   <span class="k">const</span> m = JSON.parse(e.data);
+<span class="p">... </span>   <span class="k">if</span> (m.type === <span class="v">"tick"</span>) console.log(<span class="v">"ingested"</span>, m.ingested, <span class="v">"dropped"</span>, m.dropped);
+<span class="p">... </span>   <span class="k">else if</span> (m.type === <span class="v">"conn"</span>) console.log(<span class="v">"client"</span>, m.connected ? <span class="v">"joined"</span> : <span class="v">"left"</span>, m.peer);
+<span class="p">... </span>   <span class="k">else if</span> (m.type === <span class="v">"sub"</span>) console.log(<span class="v">"topic"</span>, m.topic, m.subscribers);
+<span class="p">... </span>   <span class="k">else if</span> (m.type === <span class="v">"snapshot"</span>) console.log(<span class="v">"uptime"</span>, m.uptime_s, <span class="v">"ports"</span>, m.ports);
+<span class="p">... </span> }</pre>
+
+  <p>The queue between the event listener and the sender is <strong>bounded at 500
+  frames</strong>. A browser tab that stops draining — backgrounded, or on a slow
+  link — loses the oldest frames rather than growing the server's memory without
+  limit.</p>
+</section>
+
+<section>
+  <h2>The page itself</h2>
+  <p>Worth knowing because it explains what you can and cannot inspect from the
+  browser.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Question</th><th>Ask</th></tr></thead>
+    <tbody>
+      <tr><td>Is the service up?</td><td><code>GET /api/v1/health</code></td></tr>
+      <tr><td>What are the real ports?</td><td><code>sqtseries status</code> or the
+        <code>ports</code> key in the snapshot</td></tr>
+      <tr><td>How many points are stored?</td><td><code>GET /api/v1/stats</code></td></tr>
+      <tr><td>Who is connected?</td><td><code>GET /api/v1/connections</code>, or the
+        <code>connections</code> admin command</td></tr>
+      <tr><td>Who is watching what?</td><td><code>GET /api/v1/subscribers</code>, or
+        the <code>subscribers</code> admin command</td></tr>
+      <tr><td>Is a specific id still there?</td><td>the <code>conncheck</code> admin
+        command, which is a cheap membership test</td></tr>
+      <tr><td>Everything, live</td><td>the dashboard page, or
+        <code>/ws/dashboard</code> consumed directly</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="box warn">
+    <span class="lbl">Do not scrape the page for monitoring</span>
+    <p>The dashboard is a <em>view</em>. Everything on it is available as JSON over
+    the admin socket or the HTTP API, and those are the surfaces to alert on: a
+    polling check on <code>/api/v1/health</code> plus a read of
+    <code>stats</code> will not break when the page's markup changes, and it will not
+    need a browser on the monitoring host.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Why there is no CDN</h2>
+  <p>The gateway sets a strict Content-Security-Policy on every response:
+  <code>default-src 'self'</code>. A browser-enforced policy cannot be relaxed by the
+  page, so a page that loaded its fonts or scripts from a CDN would simply be blocked
+  on this host.</p>
+
+  <p>So everything is vendored and served from this origin:</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Path</th><th>What</th></tr></thead>
+    <tbody>
+      <tr><td><code>/dashboard</code>, <code>/</code></td><td>the page</td></tr>
+      <tr><td><code>/dashboard-assets/dashboard.js</code></td><td>the feed
+        consumer</td></tr>
+      <tr><td><code>/dashboard-assets/dashboard.css</code></td><td>its styling</td></tr>
+      <tr><td><code>/dashboard-assets/nucleo-icons.*</code></td><td>the icon font,
+        local</td></tr>
+      <tr><td><code>/dashboard-assets/specs/*</code></td><td>the vendored Swagger
+        and ReDoc bundles</td></tr>
+      <tr><td><code>/api-docs</code></td><td>Swagger UI, reading
+        <code>/openapi.json</code></td></tr>
+      <tr><td><code>/redoc</code></td><td>ReDoc, same schema</td></tr>
+      <tr><td><code>/docs</code></td><td>these pages</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Those three pages — Swagger, ReDoc and these docs — are also why the gateway
+  sets a path-scoped CSP exception for <code>/docs</code>: these pages inline their
+  stylesheet so a single file stays readable on its own, and an inline
+  <code>&lt;style&gt;</code> needs an explicit <code>style-src</code>. The relaxation
+  covers styles only, on that one path. The JSON API keeps the strict default above,
+  and <code>script-src</code> is not relaxed anywhere.</p>
+
+  <p>All seven REST routes, every WebSocket protocol, and every error code are on
+  <a href="api.html">API Reference</a>.</p>
+</section>
+
+<section>
+  <h2>Troubleshooting</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Page is blank</td><td>the feed never connected</td>
+        <td>check <code>/api/v1/health</code>; open the browser console for the
+        WebSocket error</td></tr>
+      <tr><td>Page loads, counters frozen</td><td>the stats provider is failing and
+        the fallback is in use</td><td>look for
+        <code>"dashboard stats provider failed</code> in the service log</td></tr>
+      <tr><td>Connection closes, code <code>1013</code></td>
+        <td><code>http.max_websocket_connections</code> reached</td>
+        <td>raise it, or close idle tabs</td></tr>
+      <tr><td>Reconnects in a loop</td><td>the service is restarting</td>
+        <td>follow <code>systemctl --user status sqtseries</code> and the
+        service log</td></tr>
+      <tr><td>Page will not load from another machine</td>
+        <td><code>http.host</code> is loopback</td><td>set it to
+        <code>0.0.0.0</code> — and read the
+        <a href="configuration.html">security notes</a> first</td></tr>
+      <tr><td>Everything is zero</td><td>nothing has been written yet</td>
+        <td class="muted">expected on a fresh instance</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <div class="cards">
+    <div class="card">
+      <h4><a href="api.html">API Reference</a></h4>
+      <p>Every route and admin command, the exact snapshot and tick fields, and every
+      error code.</p>
+    </div>
+    <div class="card">
+      <h4><a href="streaming.html">Streaming</a></h4>
+      <p>The data-side WebSockets, topic matching, and what a slow subscriber
+      costs.</p>
+    </div>
+    <div class="card">
+      <h4><a href="systemd.html">Systemd</a></h4>
+      <p>Why the page reconnects after a restart, and how to tell a crash loop from
+      a slow start.</p>
+    </div>
+    <div class="card">
+      <h4><a href="backup.html">Backup and restore</a></h4>
+      <p>What <code>backups_created</code> and <code>last_backup</code> mean, and the
+      restore procedure.</p>
+    </div>
+    <div class="card">
+      <h4><a href="configuration.html">Configuration</a></h4>
+      <p>Every counter's backing setting — HWM, queue depth, in-flight cap, the
+      connection budget.</p>
+    </div>
+    <div class="card">
+      <h4><a href="camera.html">Camera analytics</a></h4>
+      <p>A second live page, built on the same endpoints, showing your
+      <em>data</em> rather than service health.</p>
+    </div>
+  </div>
+</section>
 </main>
+
 <footer>
-  <div class="footer-meta">
-    <span>sqtseries — a local time-series database</span>
-    <nav class="footer-links" aria-label="Footer"></nav>
+  <div class="fgrid">
+    <div class="fitem">
+      <h5>The page is not the source of truth</h5>
+      <p>
+            Everything the page shows is available over the admin socket and the
+            HTTP API. The page is a convenient view; a monitoring system should
+            poll <code>health</code> and read <code>stats</code> instead of
+            scraping a page.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Why there is no polling</h5>
+      <p>
+            The feed sends one snapshot on connect, then a frame per registry
+            change, then a counter tick every second. Connections appear the
+            moment they are made rather than up to a second late, and an idle
+            service still produces a steady, cheap heartbeat.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>The topics panel remembers</h5>
+      <p>
+            It lists every topic ever seen, with its live count — zero when idle —
+            alongside the per-topic publish total. A topic that has gone quiet does
+            not vanish from the list, which is what you want when you are trying to
+            work out whether a producer stopped.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Reading the numbers honestly</h5>
+      <p>
+            <code>ingested</code> counts both transports.
+            <code>persisted</code> trails it while work is in flight.
+            <code>dropped</code> and <code>invalid</code> are the two you should
+            alert on: a rising <code>dropped</code> means a batch insert is
+            failing, and a rising <code>invalid</code> usually means a producer's
+            clock has drifted.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Self-hosted, deliberately</h5>
+      <p>
+            The gateway serves its own Swagger UI and ReDoc from vendored assets
+            and its own documentation from <code>/docs</code>, because the
+            gateway's Content-Security-Policy forbids a CDN. Nothing on these pages
+            reaches the internet.
+            </p>
+    </div>
+    <div class="fitem">
+      <h5>Seeing it for yourself</h5>
+      <p>
+            The <a href="streaming.html">Streaming</a> page documents the feed frame
+            by frame, and <a href="camera.html">Camera analytics</a> builds a second
+            live page on top of the same three endpoints.
+            </p>
+    </div>
   </div>
+  <p class="fclose"><strong>sqtseries — the service, on screen, second by second.</strong></p>
+  <p class="fpart">Every default on these pages is the default in the code, checked against <code>sqtseries --help</code>, the live settings loader and the running service by <code>scripts/docs-build/verify_docs.py</code>. The wire format is the same on every transport: ZMQ <code>PULL</code>, <code>ROUTER</code>, <code>REQ</code>, <code>XPUB</code>, HTTP and WebSocket.</p>
 </footer>
-<script src="app.js"></script>
+
+</div>
 </body>
 </html>
+
